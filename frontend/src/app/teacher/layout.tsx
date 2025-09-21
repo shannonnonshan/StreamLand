@@ -10,42 +10,24 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   const pathname = usePathname();
-    const navItems = [
-    {
-      href: "/teacher",
-      label: "Dashboard",
-      icon: ChartColumn,
-    },
-    {
-      href: "/teacher/recordings",
-      label: "Recordings",
-      icon: FilePlay,
-    },
-    {
-      href: "/teacher/calendar",
-      label: "Schedule LiveStream",
-      icon: CalendarDays,
-    },
-    {
-      href: "/teacher/documents",
-      label: "Documents",
-      icon: FileText,
-    },
-    {
-      href: "/teacher/livestream",
-      label: "Start LiveStream",
-      icon: Radio,
-    },
-    {
-      href: "/teacher/settings",
-      label: "Settings",
-      icon: Settings,
-    },
+  const navItems = [
+  { href: "", label: "Dashboard", icon: ChartColumn },         // /teacher
+  { href: "/recordings", label: "Recordings", icon: FilePlay }, // /teacher/recordings
+  { href: "/calendar", label: "Schedule LiveStream", icon: CalendarDays }, // /teacher/calendar
+  { href: "/documents", label: "Documents", icon: FileText },
+  { href: "/livestream", label: "Start LiveStream", icon: Radio },
+  { href: "/settings", label: "Settings", icon: Settings },
   ];
+  
   return (
     <html lang="vi">
-      <body className={raleway.className}>
-        <div className="flex min-h-screen flex-col">
+      <body className={`${raleway.className}
+        [&::-webkit-scrollbar]:w-2
+        [&::-webkit-scrollbar-track]:rounded-full
+      [&::-webkit-scrollbar-track]:bg-[#161853]
+        [&::-webkit-scrollbar-thumb]:rounded-full
+      [&::-webkit-scrollbar-thumb]:bg-[#FAEDF0]`}>
+        <div className="flex min-h-screen flex-col bg-white">
           {/* Top Navigation */}
           <nav className="bg-white border border-b-4 border-gray-400 shadow px-10 py-4 flex justify-between items-center fixed top-0 left-0 right-0 z-10">
             {/* Logo */}
@@ -103,9 +85,9 @@ export default function RootLayout({
             </ul>
           </nav>
 
-          <div className="flex flex-1 mt-16">
+          <div className="flex flex-row flex-1 mt-16">
             {/* Left Navigation */}
-            <nav className="fixed top-16 bottom-0 pb-5 sm:w-1/8 w-1/6 bg-white border border-r-4 border-gray-400 text-gray-800 p-4 flex flex-col">
+            <nav className="fixed top-16 bottom-0 pb-5 w-[12.5%] sm:w-[16.66%] bg-white border border-r-4 border-gray-400 text-gray-800 p-4 flex flex-col">
               <div className="hidden sm:flex flex-col items-center mb-2">
                 <Image
                   src="/logo.png"
@@ -119,30 +101,45 @@ export default function RootLayout({
               </div>
 
               {/* Scroll area */}
-              <div className="flex-1 h-[60%] overflow-y-auto overflow-x-hidden mt-2">
+              <div className="flex-1 h-[60%] overflow-y-auto
+               [&::-webkit-scrollbar]:w-2
+                [&::-webkit-scrollbar-track]:rounded-full
+              [&::-webkit-scrollbar-track]:bg-[#161853]
+                [&::-webkit-scrollbar-thumb]:rounded-full
+              [&::-webkit-scrollbar-thumb]:bg-[#FAEDF0] overflow-x-hidden mt-2">
                 <ul className="space-y-4">
-                  {navItems.map(({ href, label, icon: Icon }) => (
-                    <li key={href} className="relative group">
-                      <a
-                        href={href}
-                        className={`relative flex items-center justify-center p-2 rounded w-fit mx-auto ${
-                          pathname === href
-                            ? "bg-[#FAEF5D] text-black"
-                            : "text-black hover:bg-[#FAEF5D] hover:text-black"
-                        }`}
-                      >
-                        <Icon className="w-6 h-6" />
-                        {/* Tooltip */}
-                        <span
-                          className="absolute top-full -translate-y-1/2 ml-2 mt-3
-                                    hidden group-hover:block bg-gray-800 text-white text-xs 
-                                    rounded py-1 px-2 whitespace-nowrap z-50 shadow-lg"
-                        >
-                          {label}
-                        </span>
-                      </a>
-                    </li>
-                  ))}
+                  {navItems.map(({ href, label, icon: Icon }) => {
+                      const fullHref = `/teacher${href}`;
+
+                      // Xác định active
+                      const isActive =
+                        href === ""
+                          ? pathname === "/teacher"
+                          : pathname.startsWith(fullHref);
+
+                      return (
+                        <li key={href} className="relative group">
+                          <a
+                            href={fullHref}
+                            className={`relative flex items-center justify-center p-2 rounded w-fit mx-auto group ${
+                              isActive
+                                ? "bg-[#FAEF5D] text-black"
+                                : "text-black hover:bg-[#FAEF5D] hover:text-black"
+                            }`}
+                          >
+                            <Icon className="w-6 h-6" />
+                            <span
+                              className="absolute top-full -translate-y-1/2 ml-2 mt-3
+                                        hidden group-hover:block bg-gray-800 text-white text-xs 
+                                        rounded py-1 px-2 whitespace-nowrap z-50 shadow-lg"
+                            >
+                              {label}
+                            </span>
+                          </a>
+                        </li>
+                      );
+                    })}
+
                 </ul>
               </div>
 
@@ -170,7 +167,7 @@ export default function RootLayout({
 
 
             {/* Main Content */}
-            <main className="flex-1 ml-64 p-6 overflow-y-auto">{children}</main>
+            <main className="flex-1 ml-[12.5%] sm:ml-[16.66%] pt-10">{children}</main>
           </div>
         </div>
       </body>

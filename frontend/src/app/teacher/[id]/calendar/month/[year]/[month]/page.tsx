@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { raleway } from "@/utils/front";
 import { Bell, CalendarDays, Clock, Palette, UserRound, XIcon } from "lucide-react";
-import { CalendarEvent, sampleEvents } from "@/utils/calendar";
+import { CalendarEvent, sampleEvents } from "@/utils/data/teacher/calendar";
 import pastelize from "@/utils/colorise";
 import EventDrawer from "@/component/teacher/calendar/EventDrawer";
 

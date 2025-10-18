@@ -16,25 +16,36 @@ import {
   Headset,
 } from "lucide-react";
 import { ReactNode } from "react";
+import { v4 as uuidv4 } from "uuid";
+import { useState } from "react";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const params = useParams();
+  const [isLiveModalOpen, setIsLiveModalOpen] = useState(false);
   const accountId =
     typeof window !== "undefined" ? localStorage.getItem("accountId") : null;
   const id = (params?.id as string) || accountId || "1"; // fallback id = 1
 
+  const handleStartLiveClick = () => {
+      const livestreamID = uuidv4();
+      setIsLiveModalOpen(true);
+      router.push(`/teacher/${id}/livestream/${livestreamID}`);
+  };
+
+    // Trong navItems, thay href của Start LiveStream thành null
   const navItems = [
-    { href: "", label: "Dashboard", icon: ChartColumn },
-    { href: "/recordings", label: "Recordings", icon: FilePlay },
-    { href: "/calendar", label: "Schedule LiveStream", icon: CalendarDays },
-    { href: "/documents", label: "Documents", icon: FileText },
-    { href: "/livestream", label: "Start LiveStream", icon: Radio },
-    { href: "/settings", label: "Settings", icon: Settings },
+    { type: "link", href: "", label: "Dashboard", icon: ChartColumn },
+    { type: "link", href: "/recordings", label: "Recordings", icon: FilePlay },
+    { type: "link", href: "/calendar", label: "Schedule LiveStream", icon: CalendarDays },
+    { type: "link", href: "/documents/file", label: "Documents", icon: FileText },
+    { type: "button", label: "Start LiveStream", icon: Radio },
+    { type: "link", href: "/settings", label: "Settings", icon: Settings },
   ];
 
   const handleChatClick = () => {
+    
     router.push(`/teacher/${id}/chat-with-admin`);
   };
 
@@ -137,37 +148,57 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               [&::-webkit-scrollbar-thumb]:bg-[#FAEDF0] overflow-x-hidden mt-2"
               >
                 <ul className="space-y-4">
-                  {navItems.map(({ href, label, icon: Icon }) => {
-                    const fullHref = `/teacher/${id}${href}`;
+                  {navItems.map(({ type, href, label, icon: Icon }) => {
+                      let fullHref: string | null = null;
+                      if (type === "link") {
+                        fullHref = href === "" 
+                          ? `/teacher/${id}` 
+                          : `/teacher/${id}${href}`;
+                      }
 
-                    const isActive =
-                      href === ""
-                        ? pathname === `/teacher/${id}`
-                        : pathname.startsWith(fullHref);
+                      const isDashboard = type === "link" && href === "" && pathname === `/teacher/${id}`;
+                      const isNormalLink = type === "link" && href && pathname.startsWith(fullHref!);
+                      const isLiveStream = type === "button" && pathname.startsWith(`/teacher/${id}/livestream`);
 
-                    return (
-                      <li key={href} className="relative group">
-                        <a
-                          href={fullHref}
-                          className={`relative flex items-center justify-center p-2 rounded w-fit mx-auto group ${
-                            isActive
-                              ? "bg-[#FAEF5D] text-black"
-                              : "text-black hover:bg-[#FAEF5D] hover:text-black"
-                          }`}
-                        >
-                          <Icon className="w-6 h-6" />
-                          <span
-                            className="absolute top-full -translate-y-1/2 ml-2 mt-3
-                                        hidden group-hover:block bg-gray-800 text-white text-xs 
-                                        rounded py-1 px-2 whitespace-nowrap z-50 shadow-lg"
-                          >
-                            {label}
-                          </span>
-                        </a>
-                      </li>
-                    );
-                  })}
+                      const isActive = isDashboard || isNormalLink || isLiveStream;
+
+                      return (
+                        <li key={label} className="relative group">
+                          {type === "link" ? (
+                            <a
+                              href={fullHref!}
+                              className={`relative flex items-center justify-center p-2 rounded w-fit mx-auto group ${
+                                isActive
+                                  ? "bg-[#FAEF5D] text-black"
+                                  : "text-black hover:bg-[#FAEF5D] hover:text-black"
+                              }`}
+                            >
+                              <Icon className="w-6 h-6" />
+                              <span className="absolute top-full mt-3 hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 whitespace-nowrap z-50 shadow-lg">
+                                {label}
+                              </span>
+                            </a>
+                          ) : (
+                            <button
+                              onClick={handleStartLiveClick}
+                              className={`relative flex items-center justify-center p-2 rounded w-fit mx-auto group ${
+                                isActive
+                                  ? "bg-[#FAEF5D] text-black"
+                                  : "text-black hover:bg-[#FAEF5D] hover:text-black"
+                              }`}
+                            >
+                              <Icon className="w-6 h-6" />
+                              <span className="absolute top-full mt-3 hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 whitespace-nowrap z-50 shadow-lg">
+                                {label}
+                              </span>
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
+
                 </ul>
+
               </div>
 
               {/* Fixed bottom item */}
@@ -193,7 +224,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </nav>
 
             {/* Main Content */}
-            <main className="flex-1 ml-[12.5%] sm:ml-[16.66%] pt-5">
+            <main className={`flex-1 ml-[12.5%] sm:ml-[16.66%] pt-5 ${raleway.className}`}>
               {children}
             </main>
           </div>

@@ -86,8 +86,8 @@ export default function CalendarLayout({ children }: { children: React.ReactNode
             href={`/teacher/${id}/calendar/month/${new Date().getFullYear()}/${new Date().getMonth() + 1}`}
             className={`rounded-lg py-2.5 px-5 text-sm font-medium transition-all duration-300 ${
               pathname.includes("/month")
-                ? "bg-white text-indigo-600"
-                : "text-gray-500 hover:bg-white hover:text-indigo-600"
+                ? "bg-white text-[#161853]"
+                : "text-gray-500 hover:bg-white hover:text-[#161853]"
             }`}
           >
             Month
@@ -96,8 +96,8 @@ export default function CalendarLayout({ children }: { children: React.ReactNode
             href={`/teacher/${id}/calendar/week/${new Date().getFullYear()}/${new Date().getMonth() + 1}/${new Date().getDate()}`}
             className={`rounded-lg py-2.5 px-5 text-sm font-medium transition-all duration-300 ${
               pathname.includes("/week")
-                ? "bg-white text-indigo-600"
-                : "text-gray-500 hover:bg-white hover:text-indigo-600"
+                ? "bg-white text-[#161853]"
+                : "text-gray-500 hover:bg-white hover:text-[#161853]"
             }`}
           >
             Week
@@ -106,8 +106,8 @@ export default function CalendarLayout({ children }: { children: React.ReactNode
             href={`/teacher/${id}/calendar/year/${new Date().getFullYear()}`}
             className={`rounded-lg py-2.5 px-5 text-sm font-medium transition-all duration-300 ${
               pathname.includes("/year")
-                ? "bg-white text-indigo-600"
-                : "text-gray-500 hover:bg-white hover:text-indigo-600"
+                ? "bg-white text-[#161853]"
+                : "text-gray-500 hover:bg-white hover:text-[#161853]"
             }`}
           >
             Year

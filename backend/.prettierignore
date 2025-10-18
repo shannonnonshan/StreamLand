@@ -1,0 +1,46 @@
+# Build output
+dist
+node_modules
+
+# Environment files
+.env
+.env.*
+
+# Logs
+*.log
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+
+# Compiled files
+*.js
+*.d.ts
+
+# Coverage
+coverage
+
+# Generated assets
+public
+uploads
+
+# Database or temp files
+*.sqlite
+tmp
+*.bak
+
+# Package manager lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Migration / auto-generated files
+src/migrations
+src/**/__generated__/
+prisma/generated/
+
+# 🚫 Ignore all source files (no prettier in src/)
+src/
+prisma/

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./font-styles.css";
 
 :root {
   --background: #ffffff;
@@ -8,7 +9,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-raleway);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -19,8 +20,23 @@
   }
 }
 
-body {
+html, body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-raleway), sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Loại bỏ thanh cuộn mặc định */
+  height: 100%;
+  width: 100%;
+}
+
+/* Ẩn thanh cuộn nhưng vẫn cho phép cuộn */
+.scrollbar-none::-webkit-scrollbar {
+  display: none; /* Cho Chrome, Safari và Opera */
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;  /* Cho IE và Edge */
+  scrollbar-width: none;  /* Cho Firefox */
 }

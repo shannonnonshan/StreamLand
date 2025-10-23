@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useParams } from "next/navigation";
 import { documents, DocumentItem, ETypeDocument } from "@/utils/data/teacher/documents";
 import Image from "next/image";
+import { ArrowDownToLine } from "lucide-react";
 
 export default function DocumentsTypePage() {
   // Lấy params từ hook useParams() thay vì props
@@ -28,16 +29,16 @@ export default function DocumentsTypePage() {
   return (
     <div className="p-4">
       {/* Grid */}
-      <div className="grid grid-cols-3 gap-4 text-black">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-black">
         {filteredDocs.map((doc) => (
           <div
             key={doc.id}
-            className="border rounded-lg p-3 cursor-pointer hover:shadow-md transition"
+            className="bg-white shadow p-3 cursor-pointer hover:shadow-md transition"
             onClick={() => setSelectedDoc(doc)}
           >
             
-              <div className="h-20 w-full relative rounded overflow-hidden">
-                <div className="w-full flex justify-center mt-2">
+              <div className="h-35 w-full relative rounded overflow-hidden">
+                <div className="w-full flex rounded-lg justify-center mt-2">
                 <Image
                     src={doc.thumbnail || "/logo.png"}
                     alt={doc.title}
@@ -131,7 +132,7 @@ export default function DocumentsTypePage() {
               download
               className="mt-4 inline-block px-4 py-2 bg-[#EC255A] text-white rounded hover:bg-[#EC255A]/90 transition"
             >
-              Download
+              <ArrowDownToLine/>
             </a>
           </div>
         </div>

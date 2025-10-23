@@ -28,18 +28,7 @@ export default function TeacherHome() {
   return (
     <div className="w-full p-3 text-black">
       {/* Top row */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <div className="flex gap-3">
-          <button className="bg-yellow-300 text-black font-semibold px-4 py-2 rounded-full hover:bg-yellow-400">
-            + Schedule live stream
-          </button>
-          <button className="bg-red-400 text-white font-semibold px-4 py-2 rounded-full hover:bg-red-500">
-            + Start your live stream
-          </button>
-        </div>
-      </div>
-
+      <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
       {/* Tabs + Filter */}
       <div className="flex items-center justify-between border-b">
         <div className="flex gap-8">

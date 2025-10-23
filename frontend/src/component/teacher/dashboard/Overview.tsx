@@ -82,7 +82,7 @@ export default function Overview({ filter }: OverviewProps) {
     },
   ];
   return (
-    <div className="w-full p-10 text-black">
+    <div className="w-full p-3 text-black">
     <div className="mx-auto p-6 bg-white rounded-xl shadow">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
@@ -117,10 +117,10 @@ export default function Overview({ filter }: OverviewProps) {
         </div>
     </div>
     {/* Top live streams */}
-      <div className="mx-auto mt-6 bg-white rounded-xl shadow p-6">
-        <h2 className="text-xl mb-4 font-semibold text-gray-800">Your top live streams</h2>
+      <div className="mx-auto mt-6 bg-[#292C6D] rounded-xl shadow p-6">
+        <h2 className="text-xl mb-4 font-semibold text-white">Your top live streams</h2>
         {/* Header row */}
-        <div className="grid grid-cols-12 px-4 py-2 mb-3 text-sm font-semibold text-gray-600 border-b">
+        <div className="grid grid-cols-12 px-4 py-2 mb-3 text-sm font-semibold text-white border-b">
           <div className="col-span-6">Content</div>
           <div className="col-span-3">Most Views</div>
           <div className="col-span-3">Views</div>
@@ -129,7 +129,7 @@ export default function Overview({ filter }: OverviewProps) {
           {rows.map((row, idx) => (
             <div
               key={idx}
-              className="border border-gray-200 rounded-xl shadow-sm flex items-center justify-between p-4"
+              className="bg-white border border-gray-200 rounded-xl shadow-sm flex items-center justify-between p-4"
             >
               {/* Content */}
               <div className="flex items-center gap-3 w-1/2">

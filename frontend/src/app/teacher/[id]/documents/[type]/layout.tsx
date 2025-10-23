@@ -18,6 +18,9 @@ export default function DocumentsLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className={`flex flex-col h-full pt-5 ${raleway.className}`}>
+      <h1 className="mb-4 text-black font-bold text-2xl">
+        Your Documents
+      </h1>
       {/* Nav Tabs */}
       <div className="flex border-b border-gray-300 space-x-6 px-4">
         {tabs.map((tab) => {

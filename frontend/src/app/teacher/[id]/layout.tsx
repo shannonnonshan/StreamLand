@@ -55,8 +55,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   };
 
   return (
-    <html lang="vi">
-      <body
+      <div
         className={`${raleway.className}
         overflow-x-hidden 
         [&::-webkit-scrollbar]:w-2
@@ -234,7 +233,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </main>
           </div>
         </div>
-      </body>
-    </html>
+      </div>
   );
 }

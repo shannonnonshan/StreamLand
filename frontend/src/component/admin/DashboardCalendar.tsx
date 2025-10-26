@@ -38,30 +38,30 @@ export default function DashboardCalendar({
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm p-6 w-full h-screen">
-      <div className="flex items-center justify-between mb-4">
+    <div className="bg-white rounded-2xl shadow-sm p-6 w-full">
+      <div className="flex items-center justify-between mb-6">
         <button
           onClick={handlePrevMonth}
-          className="p-1 rounded hover:bg-gray-100 transition"
+          className="p-2 rounded-lg hover:bg-gray-100 transition-all"
         >
-          <ChevronLeft size={18} className="text-gray-500" />
+          <ChevronLeft size={20} className="text-gray-500" />
         </button>
 
-        <h3 className="font-bold text-[#161853] text-lg">
+        <h3 className="font-bold text-[#161853] text-xl">
           {currentMonth} {currentYear}
         </h3>
 
         <button
           onClick={handleNextMonth}
-          className="p-1 rounded hover:bg-gray-100 transition"
+          className="p-2 rounded-lg hover:bg-gray-100 transition-all"
         >
-          <ChevronRight size={18} className="text-gray-500" />
+          <ChevronRight size={20} className="text-gray-500" />
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-2 text-center text-sm font-medium text-gray-600">
+      <div className="grid grid-cols-7 gap-3 text-center text-sm">
         {["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].map((d) => (
-          <div key={d} className="text-gray-500 font-semibold">
+          <div key={d} className="text-gray-500 font-semibold mb-2 text-[13px]">
             {d}
           </div>
         ))}
@@ -86,14 +86,15 @@ export default function DashboardCalendar({
             <div
               key={i}
               onClick={() => day && handleSelectDay(day)}
-              className={`py-2 rounded-xl transition-all duration-200 select-none cursor-pointer
+              className={`py-2.5 rounded-xl transition-all duration-200 select-none cursor-pointer text-[13px]
+                ${day ? "hover:bg-gray-50 active:scale-95" : ""}
                 ${
                   day
                     ? isSelected
-                      ? "bg-[#161853] text-white font-semibold shadow-md"
+                      ? "bg-[#161853] text-white font-semibold shadow-sm"
                       : isToday
                       ? "bg-gray-100 text-[#161853] font-semibold"
-                      : "text-gray-700 hover:bg-gray-100"
+                      : "text-gray-700"
                     : ""
                 }`}
             >

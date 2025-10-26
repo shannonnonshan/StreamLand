@@ -1,7 +1,5 @@
 "use client";
-import { CalendarDays } from "lucide-react";
 import Image from "next/image";
-import Flatpickr from "react-flatpickr";
 import "flatpickr/dist/themes/airbnb.css";
 import { useState } from "react";
 import DashboardCalendar from "../../../component/admin/DashboardCalendar";
@@ -107,14 +105,14 @@ export default function Dashboard() {
 
     // ================== UI ==================
   return (
-    <div className="min-h-screen p-6">
-      <h1 className="text-xl font-bold text-[#161853] mb-4">Dashboard</h1>
+    <div className="min-h-screen p-8">
+      <h1 className="text-2xl font-bold text-[#161853] mb-6">Dashboard</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* ===== Left Side ===== */}
-        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-8">
           {/* Greeting Card */}
-          <div className="flex h-[50%] items-center bg-white rounded-2xl p-6 shadow-sm">
+          <div className="flex items-center bg-white rounded-2xl p-8 shadow-sm min-h-[180px]">
             <Image
               src="/admin/welcome.gif"
               alt="Dashboard Illustration"
@@ -135,9 +133,9 @@ export default function Dashboard() {
           </div>
 
           {/* Today we have */}
-          <div>
-            <h3 className="text-[#161853] font-bold mb-2">Today we have</h3>
-            <div className="flex gap-4 flex-row">
+          <div className="bg-white rounded-2xl p-6 shadow-sm">
+            <h3 className="text-[#161853] font-bold mb-4">Today we have</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {cards.map((item, i) => (
                 <div
                   key={i}
@@ -159,23 +157,24 @@ export default function Dashboard() {
           </div>
 
           {/* Top livestreams */}
-          <div className="bg-white rounded-2xl shadow-sm p-4">
-            <h3 className="text-[#161853] font-bold mb-2">Top livestreams</h3>
-              <table className="w-full text-sm text-left">
-                <thead className="text-gray-500 border-b text-center">
+          <div className="bg-white rounded-2xl shadow-sm p-6">
+            <h3 className="text-[#161853] font-bold mb-4">Top livestreams</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-500 border-b">
                   <tr>
-                    <th>Account</th>
-                    <th>Views</th>
-                    <th>Comments</th>
-                    <th>Likes</th>
+                    <th className="text-left py-3">Account</th>
+                    <th className="text-center py-3">Views</th>
+                    <th className="text-center py-3">Comments</th>
+                    <th className="text-center py-3">Likes</th>
                   </tr>
                 </thead>
-                <tbody className="text-[#161853] ">
+                <tbody className="text-[#161853]">
                   {livestreams.map((item) => (
-                    <tr key={item.id} className="border-b last:border-0">
-                      <td className="py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 bg-gray-300 rounded" />
+                    <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
+                      <td className="py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-gray-200 rounded-lg" />
                           <div>
                             <div className="font-semibold">{item.name}</div>
                             <div className="text-xs text-gray-500">
@@ -194,10 +193,11 @@ export default function Dashboard() {
                   ))}
                 </tbody>
               </table>
+            </div>
           </div>
         </div>
-
-        {/* ===== Right Side ===== */}
+  
+          {/* ===== Right Side ===== */}
         <div className="flex flex-col gap-6">
            <div className="flex flex-col gap-6">
             <DashboardCalendar
@@ -208,29 +208,30 @@ export default function Dashboard() {
 
 
           {/* Top teachers */}
-          <div className="bg-white rounded-2xl shadow-sm p-4">
-            <h3 className="text-[#161853] font-bold mb-3">Top teachers</h3>
-            <table className="w-full text-sm text-left">
-              <thead className="text-gray-500 border-b text-center">
-                <tr>
-                  <th>Username</th>
-                  <th>Subscribers</th>
-                  <th>Livestreams</th>
-                  <th>Growth</th>
-                </tr>
-              </thead>
-              <tbody className="text-[#161853]">
-                {teachers.map((t) => (
-                  <tr key={t.id} className="border-b last:border-0">
-                    <td className="py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-gray-300 rounded" />
-                        <div>
-                          <div className="font-semibold">{t.username}</div>
-                          <div className="text-xs text-gray-500">{t.name}</div>
+          <div className="bg-white rounded-2xl shadow-sm p-6">
+            <h3 className="text-[#161853] font-bold mb-4">Top teachers</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-gray-500 border-b">
+                  <tr>
+                    <th className="text-left py-3">Username</th>
+                    <th className="text-center py-3">Subscribers</th>
+                    <th className="text-center py-3">Livestreams</th>
+                    <th className="text-center py-3">Growth</th>
+                  </tr>
+                </thead>
+                <tbody className="text-[#161853]">
+                  {teachers.map((t) => (
+                    <tr key={t.id} className="border-b last:border-0 hover:bg-gray-50">
+                      <td className="py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-gray-200 rounded-lg" />
+                          <div>
+                            <div className="font-semibold">{t.username}</div>
+                            <div className="text-xs text-gray-500">{t.name}</div>
+                          </div>
                         </div>
-                      </div>
-                    </td>
+                      </td>
                     <td className="text-center">{t.subscribers.toLocaleString()}</td>
                     <td className="text-center">{t.livestreams}</td>
                     <td
@@ -248,6 +249,7 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+"use client";
 import { Raleway } from "next/font/google";
 
 export const raleway = Raleway({

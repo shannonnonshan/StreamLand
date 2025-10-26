@@ -32,7 +32,7 @@ export default function RecordingsPage() {
         <h2 className="text-2xl font-semibold">Recordings</h2>
         <div className="flex space-x-2 items-center">
           <select
-            className="border rounded px-3 py-1"
+            className="border rounded bg-[#161853] text-white px-3 py-1"
             value={filter}
             onChange={(e) => setFilter(e.target.value as "7days" | "1month" | "custom")}
           >
@@ -93,7 +93,7 @@ export default function RecordingsPage() {
           {currentMonthRecordings.map((rec) => (
             <div
               key={rec.id}
-              className="border rounded p-2 flex flex-col items-center cursor-pointer hover:shadow-md"
+              className="bg-white shadow border rounded p-2 flex flex-col items-center cursor-pointer hover:shadow-md"
               onClick={() => router.push(`/teacher/${teacherId}/recordings/detail/${rec.id}`)}
             >
               <Image

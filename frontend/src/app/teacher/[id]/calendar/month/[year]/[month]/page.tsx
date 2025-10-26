@@ -7,7 +7,8 @@ import { Bell, CalendarDays, Clock, Palette, UserRound, XIcon } from "lucide-rea
 import { CalendarEvent, sampleEvents } from "@/utils/data/teacher/calendar";
 import pastelize from "@/utils/colorise";
 import EventDrawer from "@/component/teacher/calendar/EventDrawer";
-
+import { ScheduleEvent } from "@/component/teacher/calendar/ScheduleEventModal";
+import ScheduleEventModal from "@/component/teacher/calendar/ScheduleEventModal";
 const MONTH_NAMES = [
   "January","February","March","April","May","June",
   "July","August","September","October","November","December"
@@ -32,16 +33,18 @@ export default function MonthCalendarPage({
 
   // modal state
   const [openModal, setOpenModal] = useState(false);
-  const [eventTitle, setEventTitle] = useState("");
   const [eventDate, setEventDate] = useState("");
-  const [eventColor, setEventColor] = useState("#EC255A");
-  const [eventStartTime, setEventStartTime] = useState("");
-  const [eventEndTime, setEventEndTime] = useState("");
-  const [eventAudience, setEventAudience] = useState<"public" | "subscribers">("public");
-  const [eventDescription, setEventDescription] = useState("");
-  const [eventNotification, setEventNotification] = useState("10");
+
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const handleSaveEvent = (newEvent: ScheduleEvent) => {
+    const calendarEvent: CalendarEvent = {
+      ...newEvent,
+      end: newEvent.end || newEvent.start 
+    };
+    setEvents([...events, calendarEvent]);
+  };
 
   const openDrawer = (ev: CalendarEvent) => {
     setSelectedEvent(ev);
@@ -82,36 +85,14 @@ export default function MonthCalendarPage({
   const showEventModal = (date: number) => {
     setOpenModal(true);
     const selected = new Date(year, month, date);
-    setEventDate(selected.toISOString().split("T")[0]);
+
+    const localDate = new Date(selected.getTime() - selected.getTimezoneOffset() * 60000)
+      .toISOString()
+      .split("T")[0];
+
+    setEventDate(localDate);
   };
 
-  const addEvent = () => {
-    if (!eventTitle || !eventStartTime) return;
-    const newEvent: CalendarEvent = {
-      id: Date.now().toString(),
-      title: eventTitle,
-      date: eventDate,
-      start: eventStartTime,
-      end: eventEndTime,
-      color: eventColor,
-      audience: eventAudience,
-      description: eventDescription,
-      notification: Number(eventNotification),
-      teacherId: teacherId, // gán teacherId
-    };
-    setEvents([...events, newEvent]);
-
-    // reset
-    setEventTitle("");
-    setEventDate("");
-    setEventColor("#EC255A");
-    setEventStartTime("");
-    setEventEndTime("");
-    setEventAudience("public");
-    setEventDescription("");
-    setEventNotification("10");
-    setOpenModal(false);
-  };
 
   return (
     <div className={`w-full bg-white pt-2 shadow overflow-hidden ${raleway.className} mx-auto`}>
@@ -215,95 +196,13 @@ export default function MonthCalendarPage({
       <EventDrawer event={selectedEvent} isOpen={drawerOpen} onClose={closeDrawer} />
 
       {/* modal */}
-      <div
-        className={`fixed inset-0 bg-black/30 flex items-center justify-center transition-opacity duration-300
-          ${openModal ? "opacity-100 visible" : "opacity-0 invisible"}`}
-      >
-        <div className="relative bg-white rounded-lg p-6 w-1/2 max-h-2/3 overflow-y-scroll border border-black">
-          <button
-            onClick={() => setOpenModal(false)}
-            className="absolute top-3 right-3 text-gray-500 hover:text-gray-700"
-          >
-            <XIcon size={24} />
-          </button>
-             <h2 className="font-bold text-xl text-black text-center mb-6">Schedule New Event</h2>
-
-          <input
-            type="text"
-            placeholder="Event title"
-            value={eventTitle}
-            onChange={(e) => setEventTitle(e.target.value)}
-            className="border text-[#161853] text-sm font-bold border-black w-full mb-4 p-2 rounded"
-          />
-
-          <div className="mb-4 flex flex-row gap-1 items-center">
-            <CalendarDays className="text-[#161853]" size={32} />
-            <input
-              type="text"
-              value={eventDate}
-              readOnly
-              className="border text-[#161853] text-sm font-bold border-black w-full p-2 rounded"
-            />
-          </div>
-
-          <div className="flex flex-row gap-1 mb-4">
-            <Clock className="text-[#161853]" size={32} />
-            <input
-              type="time"
-              value={eventStartTime}
-              onChange={(e) => setEventStartTime(e.target.value)}
-              className="border text-[#161853] text-sm font-bold border-black w-full p-2 rounded"
-            />
-          </div>
-
-          <div className="flex flex-row gap-1 mb-4">
-            <Bell className="text-[#161853]" size={32} />
-            <input
-              type="number"
-              value={eventNotification}
-              onChange={(e) => setEventNotification(e.target.value)}
-              className="border text-[#161853] text-sm font-bold border-black w-full p-2 rounded"
-            />
-          </div>
-
-          <div className="flex flex-row gap-1 mb-4">
-            <UserRound className="text-[#161853]" size={32} />
-            <select
-              value={eventAudience}
-              onChange={(e) => setEventAudience(e.target.value as "public" | "subscribers")}
-              className="border text-[#161853] text-sm font-bold border-black w-full p-2 rounded"
-            >
-              <option value="subscribers">Subscribers</option>
-              <option value="public">Public</option>
-            </select>
-          </div>
-
-          <div className="flex flex-row gap-1 mb-4">
-            <Palette className="text-[#161853]" size={32} />
-            <input
-              type="color"
-              value={eventColor}
-              onChange={(e) => setEventColor(e.target.value)}
-              className="border font-bold text-sm border-black w-full rounded"
-            />
-          </div>
-
-          <textarea
-            placeholder="Event Description (optional)"
-            value={eventDescription}
-            onChange={(e) => setEventDescription(e.target.value)}
-            className="border text-[#161853] font-bold text-sm border-black w-full h-12 mb-4 p-2 rounded"
-          />
-
-          <button
-            onClick={addEvent}
-            className="block mx-auto w-3/5 px-3 py-1 bg-[#EC255A] hover:bg-[#FAEDF0]
-             hover:text-black hover:border hover:border-black text-white font-extrabold rounded-lg"
-          >
-            Save
-          </button>
-        </div>
-      </div>
+      <ScheduleEventModal
+        open={openModal}
+        onClose={() => setOpenModal(false)}
+        onSave={handleSaveEvent}
+        teacherId={teacherId}
+        defaultDate={eventDate}
+      />
     </div>
   );
 }

@@ -1,0 +1,10 @@
+export * from './login.dto';
+export * from './register.dto';
+export * from './verify-otp.dto';
+export * from './reset-password.dto';
+export * from './request-otp.dto';
+export * from './google-login.dto';
+export * from './github-login.dto';
+export * from './complete-oauth.dto';
+export * from './update-profile.dto';
+export { Role } from './register.dto';

@@ -1,0 +1,129 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+model User {
+  id         String  @id @default(uuid())
+  email      String  @unique
+  password   String
+  fullName   String
+  role       Role    @default(STUDENT)
+  isVerified Boolean @default(false)
+
+  // Social login IDs
+  googleId String? @unique
+  githubId String? @unique
+
+  // OTP fields
+  otp       String?
+  otpExpiry DateTime?
+
+  // Profile details
+  avatar   String?
+  bio      String?
+  location String?
+
+  // Teacher-specific fields
+  teacherProfile TeacherProfile?
+
+  // Student-specific fields
+  studentProfile StudentProfile?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model TeacherProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Teacher details
+  cvUrl      String? // URL to uploaded CV
+  subjects   String[] // ["English", "Math", "Physics"]
+  experience Int? // Years of experience
+  education  String?
+
+  // Stats
+  totalStudents Int   @default(0)
+  totalCourses  Int   @default(0)
+  rating        Float @default(0)
+
+  // Social
+  website  String?
+  linkedin String?
+  youtube  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("teacher_profiles")
+}
+
+model StudentProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Student details
+  grade     String?
+  school    String?
+  interests String[] // ["Programming", "English", "Math"]
+
+  // Stats
+  studyHours      Int @default(0)
+  studyStreak     Int @default(0)
+  coursesEnrolled Int @default(0)
+
+  // Preferences
+  learningGoals String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("student_profiles")
+}
+
+model PendingRegistration {
+  id       String @id @default(uuid())
+  email    String @unique
+  password String // Hashed password
+  fullName String
+  role     Role   @default(STUDENT)
+
+  // OTP fields
+  otp       String
+  otpExpiry DateTime
+
+  createdAt DateTime @default(now())
+
+  @@map("pending_registrations")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+
+  @@map("sessions")
+}

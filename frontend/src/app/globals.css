@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./font-styles.css";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
@@ -6,8 +7,98 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-raleway);
   --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+html, body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-raleway), sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Loại bỏ thanh cuộn mặc định */
+  height: 100%;
+  width: 100%;
+}
+
+/* Ẩn thanh cuộn nhưng vẫn cho phép cuộn */
+.scrollbar-none::-webkit-scrollbar {
+  display: none; /* Cho Chrome, Safari và Opera */
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;  /* Cho IE và Edge */
+  scrollbar-width: none;  /* Cho Firefox */
+}
+
+/* Ẩn scrollbar - alternative class */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Animation for fade-in effect */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Animation for chat overlay slide-up effect */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.4s ease-out;
+}
+
+/* Blob animation for landing page */
+@keyframes blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+.animate-blob {
+  animation: blob 7s infinite;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -120,3 +211,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
+

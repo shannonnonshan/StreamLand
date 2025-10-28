@@ -3,6 +3,7 @@
 // Tái sử dụng các component đã định nghĩa: Sidebar và Header
 import Header from '@/component/student/Headerbar';
 import Sidebar from '@/component/student/Sidebar';
+import { raleway } from '@/utils/front';
 import { ReactNode } from 'react';
 
 const BackgroundColor = 'F0F2F9'; // Xanh nhạt, phù hợp với màu chủ đạo #161853
@@ -10,7 +11,7 @@ const BackgroundColor = 'F0F2F9'; // Xanh nhạt, phù hợp với màu chủ đ
 export default function MainLayout({ children }: { children: ReactNode }) {
   return (
     // Container chính với màu nền - overflow-hidden để loại bỏ scroll
-    <div className={`h-screen w-screen bg-[#${BackgroundColor}] relative overflow-hidden`}>
+    <div className={`${raleway.className} h-screen w-screen bg-[#${BackgroundColor}] relative overflow-hidden`}>
       
       {/* 1. Sidebar (Fixed - Cột bên trái) */}
       <Sidebar />

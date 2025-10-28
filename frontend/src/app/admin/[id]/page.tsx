@@ -1,11 +1,22 @@
 "use client";
 import Image from "next/image";
 import "flatpickr/dist/themes/airbnb.css";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DashboardCalendar from "../../../component/admin/DashboardCalendar";
+
+// Helper function to format numbers consistently on both server and client
+const formatNumber = (num: number): string => {
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+};
+
 export default function Dashboard() {
   // ================== Data States ==================
-    const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  
+  // Initialize date on client side only to avoid hydration mismatch
+  useEffect(() => {
+    setSelectedDate(new Date());
+  }, []);
   const [stats, setStats] = useState<{ count: number; label: string }[]>([
     { count: 9, label: "waiting-approved TEACHER" },
     { count: 25, label: "new sign-up STUDENTS" },
@@ -161,7 +172,7 @@ export default function Dashboard() {
             <h3 className="text-[#161853] font-bold mb-4">Top livestreams</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="text-gray-500 border-b">
+                <thead className="text-gray-500 border-b border-gray-200">
                   <tr>
                     <th className="text-left py-3">Account</th>
                     <th className="text-center py-3">Views</th>
@@ -171,7 +182,7 @@ export default function Dashboard() {
                 </thead>
                 <tbody className="text-[#161853]">
                   {livestreams.map((item) => (
-                    <tr key={item.id} className="border-b last:border-0 hover:bg-gray-50">
+                    <tr key={item.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                       <td className="py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-gray-200 rounded-lg" />
@@ -186,9 +197,9 @@ export default function Dashboard() {
                           </div>
                         </div>
                       </td>
-                      <td className="text-center">{item.views.toLocaleString()}</td>
-                      <td className="text-center">{item.comments.toLocaleString()}</td>
-                      <td className="text-center">{item.likes.toLocaleString()}</td>
+                      <td className="text-center font-medium text-[#161853]">{formatNumber(item.views)}</td>
+                      <td className="text-center font-medium text-[#161853]">{formatNumber(item.comments)}</td>
+                      <td className="text-center font-medium text-[#161853]">{formatNumber(item.likes)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -200,10 +211,12 @@ export default function Dashboard() {
           {/* ===== Right Side ===== */}
         <div className="flex flex-col gap-6">
            <div className="flex flex-col gap-6">
-            <DashboardCalendar
-              selectedDate={selectedDate}
-              onDateSelect={setSelectedDate}
-            />
+            {selectedDate && (
+              <DashboardCalendar
+                selectedDate={selectedDate}
+                onDateSelect={setSelectedDate}
+              />
+            )}
           </div>
 
 
@@ -212,7 +225,7 @@ export default function Dashboard() {
             <h3 className="text-[#161853] font-bold mb-4">Top teachers</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="text-gray-500 border-b">
+                <thead className="text-gray-500 border-b border-gray-200">
                   <tr>
                     <th className="text-left py-3">Username</th>
                     <th className="text-center py-3">Subscribers</th>
@@ -222,7 +235,7 @@ export default function Dashboard() {
                 </thead>
                 <tbody className="text-[#161853]">
                   {teachers.map((t) => (
-                    <tr key={t.id} className="border-b last:border-0 hover:bg-gray-50">
+                    <tr key={t.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                       <td className="py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-gray-200 rounded-lg" />
@@ -232,8 +245,8 @@ export default function Dashboard() {
                           </div>
                         </div>
                       </td>
-                    <td className="text-center">{t.subscribers.toLocaleString()}</td>
-                    <td className="text-center">{t.livestreams}</td>
+                    <td className="text-center font-medium text-[#161853]">{formatNumber(t.subscribers)}</td>
+                    <td className="text-center font-medium text-[#161853]">{t.livestreams}</td>
                     <td
                       className={`font-semibold text-center ${
                         t.growth >= 0 ? "text-green-500" : "text-red-500"

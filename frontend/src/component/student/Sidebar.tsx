@@ -1,17 +1,22 @@
-// components/Sidebar.jsx
-import { ChartBarIcon, ComputerDesktopIcon, EnvelopeIcon, DocumentTextIcon, QuestionMarkCircleIcon } from '@heroicons/react/24/outline';
+'use client';
+
+import { ChartBarIcon, ComputerDesktopIcon, EnvelopeIcon, DocumentTextIcon, QuestionMarkCircleIcon, UserGroupIcon } from '@heroicons/react/24/outline';
 import Image from 'next/image';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 const navItems = [
-  { name: 'Dashboard', icon: ChartBarIcon, href: '/student/dashboard', active: true },
-  { name: 'Course', icon: ComputerDesktopIcon, href: '/student/live-following', active: false },
-  { name: 'Inbox', icon: EnvelopeIcon, href: '/student/message', active: false },
-  { name: 'Documents', icon: DocumentTextIcon, href: '/student/documents', active: false },
+  { name: 'Dashboard', icon: ChartBarIcon, href: '/student/dashboard' },
+  { name: 'Course', icon: ComputerDesktopIcon, href: '/student/live-following' },
+  { name: 'Friends', icon: UserGroupIcon, href: '/student/friends' },
+  { name: 'Inbox', icon: EnvelopeIcon, href: '/student/message' },
+  { name: 'Documents', icon: DocumentTextIcon, href: '/student/documents' },
 ];
 
 const PrimaryColor = '161853'; 
 
 export default function Sidebar() {
+  const pathname = usePathname();
   return (
     <div className={`fixed left-0 top-0 h-full w-20 bg-white shadow-xl flex flex-col items-center py-6 border-r border-gray-100 z-30`}>
       
@@ -29,31 +34,44 @@ export default function Sidebar() {
 
       {/* Nav Items */}
       <nav className="flex flex-col items-center space-y-6">
-        {navItems.map((item) => (
-          <a
-            key={item.name}
-            href={item.href}
-            className={`relative p-2 rounded-xl transition duration-200 ease-in-out group ${
-              item.active 
-                ? `bg-gray-100 text-[#${PrimaryColor}]` 
-                : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
-            }`}
-          >
-            <item.icon className="h-6 w-6" />
-            
-            {/* Thanh màu Active bên trái (như trong hình) */}
-            {item.active && (
-              <div 
-                className={`absolute -left-5 top-1/2 -translate-y-1/2 w-1.5 h-10 rounded-full bg-[#${PrimaryColor}]`} 
-              />
-            )}
-            
-            {/* Tooltip (ẩn) */}
-            <span className="absolute left-full ml-4 top-1/2 -translate-y-1/2 hidden group-hover:block px-3 py-1 bg-gray-800 text-white text-xs rounded-lg whitespace-nowrap z-50">
-              {item.name}
-            </span>
-          </a>
-        ))}
+        {navItems.map((item) => {
+          // Check if current path starts with the item href (to handle nested routes)
+          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+          
+          return (
+            <Link
+              key={item.name}
+              href={item.href}
+              className={`relative p-3 rounded-xl transition-all duration-200 ease-in-out group ${
+                isActive 
+                  ? `bg-[#${PrimaryColor}] text-white shadow-lg scale-110` 
+                  : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700 hover:scale-105'
+              }`}
+            >
+              <item.icon className="h-6 w-6" />
+              
+              {/* Thanh màu Active bên trái (indicator bar) */}
+              {isActive && (
+                <div 
+                  className={`absolute -left-5 top-1/2 -translate-y-1/2 w-1 h-8 rounded-full bg-[#${PrimaryColor}] shadow-md animate-pulse`} 
+                />
+              )}
+              
+              {/* Glow effect khi active */}
+              {isActive && (
+                <div className={`absolute inset-0 bg-[#${PrimaryColor}] opacity-20 blur-xl rounded-xl -z-10`} />
+              )}
+              
+              {/* Tooltip */}
+              <span className={`absolute left-full ml-4 top-1/2 -translate-y-1/2 hidden group-hover:block px-3 py-2 text-white text-xs rounded-lg whitespace-nowrap z-50 shadow-lg font-medium ${
+                isActive ? 'bg-gray-800' : 'bg-gray-700'
+              }`}>
+                {item.name}
+                {isActive && <span className="ml-2">•</span>}
+              </span>
+            </Link>
+          );
+        })}
       </nav>
 
       {/* Help Icon (Dưới cùng) */}

@@ -2,6 +2,8 @@
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment, useState, useRef } from 'react';
 import { ShieldCheckIcon } from '@heroicons/react/24/outline';
+import { useAuth } from '@/hooks/useAuth';
+import { useRouter } from 'next/navigation';
 
 const PrimaryColor = '161853'; // Xanh Đậm (màu chủ đạo mới)
 const SecondaryColor = 'EC255A'; // Đỏ/Hồng
@@ -22,7 +24,12 @@ export default function OTPModal({
   otpPurpose = 'registration',
   openResetPasswordModal
 }: OTPModalProps) {
+  const router = useRouter();
+  const { verifyOtp, requestOtp } = useAuth();
   const [otp, setOtp] = useState(new Array(OTP_LENGTH).fill(''));
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]); // Mảng các ref cho 6 ô input
 
   // Focus ô tiếp theo khi nhập
@@ -48,33 +55,73 @@ export default function OTPModal({
     }
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     const finalOtp = otp.join('');
-    if (finalOtp.length === OTP_LENGTH) {
-      console.log('OTP đã nhập:', finalOtp);
-      // Gửi finalOtp lên API để xác thực
-      if (otpPurpose === 'password-reset' && openResetPasswordModal && email) {
-        console.log('Xác thực OTP cho việc đặt lại mật khẩu cho email:', email);
-        closeModal();
-        // Mở modal đặt lại mật khẩu
-        openResetPasswordModal(email);
+    if (finalOtp.length !== OTP_LENGTH) {
+      setError('Please enter all 6 OTP digits.');
+      return;
+    }
+
+    setIsVerifying(true);
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      // Call verify OTP API
+      const result = await verifyOtp({
+        email,
+        otp: finalOtp,
+      });
+
+      if (result.success) {
+        setSuccessMessage('OTP verified successfully!');
+        
+        // Wait a moment to show success message
+        setTimeout(() => {
+          closeModal();
+          
+          // Redirect based on purpose and user role
+          if (otpPurpose === 'registration') {
+            // After registration verification, redirect to dashboard
+            if (result.user?.role === 'TEACHER') {
+              router.push(`/teacher/${result.user.id}`);
+            } else {
+              router.push('/student/dashboard');
+            }
+          } else if (otpPurpose === 'password-reset' && openResetPasswordModal) {
+            // Open reset password modal
+            openResetPasswordModal(email);
+          }
+        }, 1500);
       } else {
-        console.log('Xác thực OTP cho việc đăng ký.');
-        alert(`Đã xác thực OTP thành công!`);
-        closeModal();
+        setError(result.error || 'Invalid OTP. Please try again.');
       }
-    } else {
-      alert('Vui lòng nhập đủ 6 chữ số OTP.');
+    } catch (err) {
+      setError('An error occurred. Please try again.');
+    } finally {
+      setIsVerifying(false);
     }
   };
   
-  const handleResend = () => {
-    // Logic gửi lại mã OTP
-    setOtp(new Array(OTP_LENGTH).fill(''));
-    if (inputRefs.current[0]) {
-      inputRefs.current[0].focus();
+  const handleResend = async () => {
+    setError('');
+    setSuccessMessage('');
+    
+    try {
+      const result = await requestOtp(email);
+      
+      if (result.success) {
+        setSuccessMessage('OTP resent successfully!');
+        setOtp(new Array(OTP_LENGTH).fill(''));
+        if (inputRefs.current[0]) {
+          inputRefs.current[0].focus();
+        }
+      } else {
+        setError(result.error || 'Unable to resend OTP. Please try again.');
+      }
+    } catch (err) {
+      setError('An error occurred. Please try again.');
     }
-    console.log('Đã gửi lại mã OTP.');
   };
 
   return (
@@ -112,14 +159,33 @@ export default function OTPModal({
                         as="h3"
                         className={`mt-4 text-2xl font-extrabold text-[#${SecondaryColor}]`}
                     >
-                        Xác Thực Mã OTP
+                        Verify OTP Code
                     </Dialog.Title>
                     <p className="mt-2 text-sm text-gray-500">
                         {otpPurpose === 'password-reset' 
-                          ? `Mã xác thực đặt lại mật khẩu (6 chữ số) đã được gửi đến ${email || 'Email của bạn'}.`
-                          : 'Mã xác thực (6 chữ số) đã được gửi đến Email của bạn.'}
+                          ? `A 6-digit password reset verification code has been sent to ${email || 'your email'}.`
+                          : 'A 6-digit verification code has been sent to your email.'}
                     </p>
                 </div>
+
+                {/* Error/Success Messages */}
+                {error && (
+                  <div className="mt-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm flex items-center gap-2">
+                    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                    <span>{error}</span>
+                  </div>
+                )}
+                
+                {successMessage && (
+                  <div className="mt-4 p-3 rounded-lg bg-green-50 text-green-700 text-sm flex items-center gap-2">
+                    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span>{successMessage}</span>
+                  </div>
+                )}
 
                 {/* OTP Input Grid */}
                 <div className="mt-6 flex justify-center space-x-2 sm:space-x-3" role="group">
@@ -146,24 +212,24 @@ export default function OTPModal({
                     <button
                         type="button"
                         onClick={handleVerify}
-                        disabled={otp.join('').length !== OTP_LENGTH}
+                        disabled={otp.join('').length !== OTP_LENGTH || isVerifying}
                         className={`flex w-full justify-center rounded-lg px-4 py-2.5 text-base font-semibold text-white shadow-md transition duration-150 ${
-                            otp.join('').length === OTP_LENGTH 
+                            otp.join('').length === OTP_LENGTH && !isVerifying
                                 ? `bg-[#${SecondaryColor}] hover:bg-opacity-90`
                                 : 'bg-gray-400 cursor-not-allowed'
                         }`}
                     >
-                        Xác Thực
+                        Verify
                     </button>
                     
                     <p className="text-center text-sm text-gray-500">
-                        Chưa nhận được mã?{' '}
+                        Didn&apos;t receive the code?{' '}
                         <button
                             type="button"
                             onClick={handleResend}
                             className={`font-semibold text-[#${PrimaryColor}] hover:text-opacity-80 transition duration-150`}
                         >
-                            Gửi lại mã
+                            Resend Code
                         </button>
                     </p>
                 </div>

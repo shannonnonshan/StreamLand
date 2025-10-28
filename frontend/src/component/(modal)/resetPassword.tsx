@@ -57,35 +57,35 @@ export default function ResetPasswordModal({
     }
   }, [isOpen]);
 
-  // Validate mật khẩu
+  // Validate password
   const validatePassword = (password: string) => {
     if (!password) {
-      setPasswordError('Mật khẩu không được để trống');
+      setPasswordError('Password is required');
       return false;
     } else if (password.length < 8) {
-      setPasswordError('Mật khẩu phải có ít nhất 8 ký tự');
+      setPasswordError('Password must be at least 8 characters');
       return false;
     } else if (!/[A-Z]/.test(password)) {
-      setPasswordError('Mật khẩu phải có ít nhất 1 chữ viết hoa');
+      setPasswordError('Password must contain at least 1 uppercase letter');
       return false;
     } else if (!/[0-9]/.test(password)) {
-      setPasswordError('Mật khẩu phải có ít nhất 1 chữ số');
+      setPasswordError('Password must contain at least 1 number');
       return false;
     } else if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-      setPasswordError('Mật khẩu phải có ít nhất 1 ký tự đặc biệt (!@#$%^&*...)');
+      setPasswordError('Password must contain at least 1 special character (!@#$%^&*...)');
       return false;
     }
     setPasswordError('');
     return true;
   };
 
-  // Validate mật khẩu xác nhận
+  // Validate confirm password
   const validateConfirmPassword = (password: string, confirmPassword: string) => {
     if (!confirmPassword) {
-      setConfirmPasswordError('Vui lòng xác nhận mật khẩu');
+      setConfirmPasswordError('Please confirm your password');
       return false;
     } else if (password !== confirmPassword) {
-      setConfirmPasswordError('Mật khẩu xác nhận không khớp');
+      setConfirmPasswordError('Passwords do not match');
       return false;
     }
     setConfirmPasswordError('');
@@ -107,24 +107,24 @@ export default function ResetPasswordModal({
     setNotification({ type: null, message: '' });
     
     try {
-      console.log('Đặt lại mật khẩu cho:', { email, newPassword });
+      console.log('Reset password for:', { email, newPassword });
       // Mock API call
       await new Promise(resolve => setTimeout(resolve, 1500));
       
-      // Thêm logic API đặt lại mật khẩu ở đây
+      // Add password reset API logic here
       
-      // Chuyển sang bước thành công
+      // Switch to success step
       setStep(2);
       setNotification({
         type: 'success',
-        message: 'Mật khẩu của bạn đã được đặt lại thành công!'
+        message: 'Your password has been reset successfully!'
       });
       
     } catch {
-      // Xử lý lỗi
+      // Handle error
       setNotification({
         type: 'error',
-        message: 'Không thể đặt lại mật khẩu. Vui lòng thử lại sau.'
+        message: 'Unable to reset password. Please try again later.'
       });
     } finally {
       setIsSubmitting(false);
@@ -138,10 +138,10 @@ export default function ResetPasswordModal({
         className={`text-2xl font-extrabold leading-6 text-[#${PrimaryColor}] flex items-center gap-2 mb-2`}
       >
         <AcademicCapIcon className={`h-6 w-6 text-[#${PrimaryColor}]`} />
-        Đặt lại mật khẩu
+        Reset Password
       </Dialog.Title>
       <p className="text-sm text-gray-600 mb-6">
-        {email ? `Tạo mật khẩu mới cho tài khoản ${email}` : 'Tạo mật khẩu mới cho tài khoản của bạn'}
+        {email ? `Create a new password for ${email}` : 'Create a new password for your account'}
       </p>
 
       {/* Notification */}
@@ -168,7 +168,7 @@ export default function ResetPasswordModal({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* New Password */}
         <div>
-          <label htmlFor="newPassword" className="sr-only">Mật khẩu mới</label>
+          <label htmlFor="newPassword" className="sr-only">New Password</label>
           <div className="relative">
             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
               <LockClosedIcon className="h-5 w-5 text-gray-400" />
@@ -187,7 +187,7 @@ export default function ResetPasswordModal({
               className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-10 text-gray-900 
                 ring-1 ring-inset ${passwordError ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                 placeholder:text-gray-400 focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-              placeholder="Mật khẩu mới (ít nhất 8 ký tự)"
+              placeholder="New Password (at least 8 characters)"
             />
             <button 
               type="button" 
@@ -208,13 +208,13 @@ export default function ResetPasswordModal({
             )}
           </div>
           <div className="mt-1 text-xs text-gray-500">
-            Mật khẩu phải có ít nhất 8 ký tự, bao gồm 1 chữ hoa, 1 số và 1 ký tự đặc biệt.
+            Password must be at least 8 characters long, including 1 uppercase letter, 1 number, and 1 special character.
           </div>
         </div>
 
         {/* Confirm Password */}
         <div>
-          <label htmlFor="confirmPassword" className="sr-only">Xác nhận mật khẩu</label>
+          <label htmlFor="confirmPassword" className="sr-only">Confirm Password</label>
           <div className="relative">
             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
               <LockClosedIcon className="h-5 w-5 text-gray-400" />
@@ -233,7 +233,7 @@ export default function ResetPasswordModal({
               className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-10 text-gray-900 
                 ring-1 ring-inset ${confirmPasswordError ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                 placeholder:text-gray-400 focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-              placeholder="Xác nhận mật khẩu mới"
+              placeholder="Confirm New Password"
             />
             <button 
               type="button" 
@@ -255,7 +255,7 @@ export default function ResetPasswordModal({
           </div>
         </div>
 
-        {/* Nút gửi */}
+        {/* Submit button */}
         <button
           type="submit"
           disabled={isSubmitting}
@@ -268,10 +268,10 @@ export default function ResetPasswordModal({
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              Đang xử lý...
+              Processing...
             </>
           ) : (
-            'Đặt lại mật khẩu'
+            'Reset Password'
           )}
         </button>
       </form>
@@ -286,10 +286,10 @@ export default function ResetPasswordModal({
           as="h3"
           className={`text-xl font-bold text-[#${SecondaryColor}] mb-2`}
         >
-          Mật khẩu đã được đặt lại!
+          Password Reset Successful!
         </Dialog.Title>
         <p className="text-sm text-gray-600 mb-6">
-          Mật khẩu của bạn đã được đặt lại thành công. Bạn có thể sử dụng mật khẩu mới để đăng nhập vào tài khoản của mình.
+          Your password has been reset successfully. You can now use your new password to sign in to your account.
         </p>
 
         {/* Button */}
@@ -298,7 +298,7 @@ export default function ResetPasswordModal({
           onClick={() => { closeModal(); openLoginModal(); }}
           className={`flex items-center justify-center mx-auto rounded-lg bg-[#${PrimaryColor}] px-4 py-2.5 text-base font-semibold text-white hover:bg-opacity-90 transition duration-150`}
         >
-          Đăng nhập ngay
+          Sign In Now
         </button>
       </div>
     </>

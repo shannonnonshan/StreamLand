@@ -3,6 +3,7 @@
 import { PlayCircleIcon, SignalIcon, HeartIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 import { motion } from 'framer-motion'; // Install framer-motion for smooth animations
 import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
@@ -31,12 +32,20 @@ const topTrending = [
 function LivestreamCard({ stream, index }: { stream: { id: number; title: string; teacher: string; views: string; viewCount: number; image: string; isLive: boolean }, index: number }) {
   const [isHovered, setIsHovered] = useState(false);
   const isTopThree = index < 3; // Chỉ hiển thị nhãn Top cho 3 stream đầu tiên
+  const router = useRouter();
+
+  const handleClick = () => {
+    // Navigate to livestream viewer page
+    // teacherID sẽ là teacher-{id}, livestreamID sẽ là stream.id
+    router.push(`/student/livestream/teacher-${stream.id}/livestream-${stream.id}`);
+  };
 
   return (
     <div 
-      className={`relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform ${isHovered ? 'scale-[1.02]' : ''} border border-gray-200`}
+      className={`relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform ${isHovered ? 'scale-[1.02]' : ''} border border-gray-200 cursor-pointer`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onClick={handleClick}
     >
         
         {/* Image/Placeholder */}
@@ -99,12 +108,19 @@ function LivestreamCard({ stream, index }: { stream: { id: number; title: string
 // --- Sub-Component: Trending Card ---
 function TrendingCard({ item }: { item: { id: number; title: string; teacher: string; views: string; time: string } }) {
     const [isHovered, setIsHovered] = useState(false);
+    const router = useRouter();
+
+    const handleClick = () => {
+        // Navigate to video viewer page (using id as both teacher and livestream)
+        router.push(`/student/livestream/teacher-${item.id}/livestream-${item.id}`);
+    };
     
     return (
         <div 
-            className={`w-full h-full bg-white rounded-xl overflow-hidden ${isHovered ? 'shadow-md' : 'shadow-sm'} transition-all duration-300 border border-gray-200 ${isHovered ? `border-[#${PrimaryColor}] border-opacity-40` : ''}`}
+            className={`w-full h-full bg-white rounded-xl overflow-hidden ${isHovered ? 'shadow-md' : 'shadow-sm'} transition-all duration-300 border border-gray-200 ${isHovered ? `border-[#${PrimaryColor}] border-opacity-40` : ''} cursor-pointer`}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
+            onClick={handleClick}
         >
             <div className="h-40 bg-gray-200 flex items-center justify-center overflow-hidden">
                 {/* Placeholder cho video thumbnail */}

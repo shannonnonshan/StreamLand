@@ -22,8 +22,8 @@ export default function MainLayout({ children }: { children: ReactNode }) {
       {/* ml-20: Đẩy nội dung sang phải để tránh Sidebar */}
       {/* pt-16: Đẩy nội dung xuống dưới để tránh Header */}
       {/* h-[calc(100vh-64px)]: Chiều cao là 100vh trừ đi chiều cao của Header */}
-      {/* overflow-hidden: Không cho phép cuộn để tránh tràn */}
-      <main className="ml-20 pt-16 px-4 pb-0 h-[calc(100vh-64px)] w-[calc(100vw-80px)] overflow-hidden">
+      {/* overflow-y-auto: Cho phép cuộn dọc cho children */}
+      <main className="ml-20 pt-16 px-4 pb-0 h-[calc(100vh-64px)] w-[calc(100vw-80px)] overflow-y-auto overflow-x-hidden">
         {/* NỘI DUNG TRANG ĐƯỢC CHÈN VÀO ĐÂY */}
         {children}
       </main>

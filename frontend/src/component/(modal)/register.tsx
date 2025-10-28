@@ -1,6 +1,7 @@
 // components/Auth/RegisterModal.jsx
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment, useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
 import { 
   AtSymbolIcon, 
   LockClosedIcon, 
@@ -108,46 +109,49 @@ export default function RegisterModal({
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  
+  // Get register function from useAuth hook
+  const { register } = useAuth();
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email) {
       return 'Email không được để trống';
     } else if (!emailRegex.test(email)) {
-      return 'Email không hợp lệ';
+      return 'Invalid email format';
     }
     return '';
   };
 
   const validatePassword = (password: string) => {
     if (!password) {
-      return 'Mật khẩu không được để trống';
+      return 'Password is required';
     } else if (password.length < 8) {
-      return 'Mật khẩu phải có ít nhất 8 ký tự';
+      return 'Password must be at least 8 characters';
     } else if (!/[A-Z]/.test(password)) {
-      return 'Mật khẩu phải có ít nhất 1 chữ viết hoa';
+      return 'Password must contain at least 1 uppercase letter';
     } else if (!/[0-9]/.test(password)) {
-      return 'Mật khẩu phải có ít nhất 1 chữ số';
+      return 'Password must contain at least 1 number';
     } else if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-      return 'Mật khẩu phải có ít nhất 1 ký tự đặc biệt (!@#$%^&*...)';
+      return 'Password must contain at least 1 special character (!@#$%^&*...)';
     }
     return '';
   };
   
   const validateConfirmPassword = (password: string, confirmPassword: string) => {
     if (!confirmPassword) {
-      return 'Vui lòng xác nhận mật khẩu';
+      return 'Please confirm your password';
     } else if (password !== confirmPassword) {
-      return 'Mật khẩu xác nhận không khớp';
+      return 'Passwords do not match';
     }
     return '';
   };
 
   const validateName = (name: string) => {
     if (!name) {
-      return 'Họ và tên không được để trống';
+      return 'Full name is required';
     } else if (name.length < 3) {
-      return 'Họ và tên phải có ít nhất 3 ký tự';
+      return 'Full name must be at least 3 characters';
     }
     return '';
   };
@@ -196,7 +200,7 @@ export default function RegisterModal({
     if (!formData.role) {
       setFormErrors({
         ...formErrors,
-        role: 'Vui lòng chọn vai trò của bạn',
+        role: 'Please select your role',
       });
       return false;
     }
@@ -255,18 +259,40 @@ export default function RegisterModal({
     if (currentStep < steps.length) {
       setCurrentStep(currentStep + 1);
     } else {
-      // Bước cuối (4) - Hoàn tất
+      // Bước cuối (4) - Hoàn tất - Gọi API register
       setIsSubmitting(true);
       try {
-        console.log('Đăng ký hoàn tất:', formData);
-        // Mock API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        // Gửi API đăng ký ở đây.
-        // Sau khi gửi thành công, chuyển sang OTP
-        closeModal();
-        openOTPModal(formData.email, 'registration'); // Truyền email và mục đích là đăng ký
-      } catch {
-        // Handle error
+        // Map role từ 'teacher'/'student' sang 'TEACHER'/'STUDENT'
+        const role = formData.role === 'teacher' ? 'TEACHER' : 'STUDENT';
+        
+        // Call register API
+        const result = await register({
+          fullName: formData.fullName,
+          email: formData.email,
+          password: formData.password,
+          role: role as 'STUDENT' | 'TEACHER',
+        });
+        
+        if (result.success) {
+          // Registration successful, move to OTP verification
+          closeModal();
+          openOTPModal(formData.email, 'registration');
+        } else {
+          // Show error
+          setFormErrors({
+            ...formErrors,
+            email: result.error || 'Registration failed. Please try again.',
+          });
+          // Go back to step 1 to show error
+          setCurrentStep(1);
+        }
+      } catch (error) {
+        console.error('Registration error:', error);
+        setFormErrors({
+          ...formErrors,
+          email: 'Đã có lỗi xảy ra. Vui lòng thử lại.',
+        });
+        setCurrentStep(1);
       } finally {
         setIsSubmitting(false);
       }
@@ -305,7 +331,7 @@ export default function RegisterModal({
                   className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset 
                     ${formErrors.fullName ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                     focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-                  placeholder="Họ và Tên"
+                  placeholder="Full Name"
                 />
               </div>
               {formErrors.fullName && (
@@ -334,10 +360,10 @@ export default function RegisterModal({
                     const error = validateEmail(formData.email);
                     setFormErrors({...formErrors, email: error});
                   }}
-                  className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset 
+                  className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset
                     ${formErrors.email ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                     focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-                  placeholder="Địa chỉ Email"
+                  placeholder="Email Address"
                 />
               </div>
               {formErrors.email && (
@@ -366,10 +392,10 @@ export default function RegisterModal({
                     const error = validatePassword(formData.password);
                     setFormErrors({...formErrors, password: error});
                   }}
-                  className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-10 ring-1 ring-inset 
+                  className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-10 ring-1 ring-inset
                     ${formErrors.password ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                     focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-                  placeholder="Mật khẩu (ít nhất 8 ký tự)"
+                  placeholder="Password (at least 8 characters)"
                 />
               <button 
                 type="button" 
@@ -390,7 +416,7 @@ export default function RegisterModal({
                 </div>
               )}
               <div className="mt-1 text-xs text-gray-500">
-                Mật khẩu phải có ít nhất 8 ký tự, bao gồm 1 chữ hoa, 1 số và 1 ký tự đặc biệt.
+                Password must be at least 8 characters, including 1 uppercase, 1 number and 1 special character.
               </div>
             </div>
 
@@ -412,10 +438,10 @@ export default function RegisterModal({
                     const error = validateConfirmPassword(formData.password, formData.confirmPassword);
                     setFormErrors({...formErrors, confirmPassword: error});
                   }}
-                  className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-10 ring-1 ring-inset 
+                  className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-10 ring-1 ring-inset
                     ${formErrors.confirmPassword ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                     focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-                  placeholder="Nhập lại mật khẩu"
+                  placeholder="Re-enter Password"
                 />
               </div>
               {formErrors.confirmPassword && (
@@ -448,10 +474,10 @@ export default function RegisterModal({
               >
                 <AcademicCapIcon className={`h-8 w-8 mx-auto ${formData.role === 'teacher' ? `text-[#${PrimaryColor}]` : 'text-gray-500'}`} />
                 <p className={`mt-3 text-center font-bold ${formData.role === 'teacher' ? `text-[#${SecondaryColor}]` : 'text-gray-700'}`}>
-                  Giáo viên
+                  Teacher
                 </p>
                 <p className="mt-1 text-center text-xs text-gray-500">
-                  Tạo lớp, Livestream & Giảng dạy.
+                  Create classes, Livestream & Teach.
                 </p>
               </div>
               
@@ -471,10 +497,10 @@ export default function RegisterModal({
               >
                 <UserGroupIcon className={`h-8 w-8 mx-auto ${formData.role === 'student' ? `text-[#${PrimaryColor}]` : 'text-gray-500'}`} />
                 <p className={`mt-3 text-center font-bold ${formData.role === 'student' ? `text-[#${SecondaryColor}]` : 'text-gray-700'}`}>
-                  Học sinh
+                  Student
                 </p>
                 <p className="mt-1 text-center text-xs text-gray-500">
-                  Tham gia lớp học & Tương tác.
+                  Join classes & Interact.
                 </p>
               </div>
             </div>
@@ -491,15 +517,15 @@ export default function RegisterModal({
         if (formData.role === 'teacher') {
           return (
             <div className="space-y-6">
-              <h4 className="text-lg font-semibold text-gray-700">Thông tin bổ sung cho Giáo viên</h4>
+              <h4 className="text-lg font-semibold text-gray-700">Additional Information for Teachers</h4>
               <p className="text-sm text-gray-600">
-                Để đảm bảo chất lượng dạy học, vui lòng cung cấp CV và các chứng chỉ liên quan.
+                To ensure teaching quality, please provide your CV and relevant certificates.
               </p>
               
               {/* CV Upload */}
               <div>
                 <label htmlFor="teacherCV" className="block text-sm font-medium text-gray-700 mb-1">
-                  Sơ yếu lý lịch (CV) <span className="text-red-500">*</span>
+                  Curriculum Vitae (CV) <span className="text-red-500">*</span>
                 </label>
                 <div className={`mt-1 flex justify-center px-6 py-4 border-2 border-dashed rounded-lg ${
                   formErrors.teacherCV ? 'border-red-300' : 'border-gray-300'
@@ -765,7 +791,7 @@ export default function RegisterModal({
         } else {
           return (
             <div className="text-center p-6">
-              <p className="text-red-500">Vui lòng quay lại và chọn vai trò của bạn.</p>
+              <p className="text-red-500">Please go back and select your role.</p>
             </div>
           );
         }
@@ -774,9 +800,9 @@ export default function RegisterModal({
         return (
           <div className="text-center p-6 space-y-4">
             <CheckCircleIcon className={`h-12 w-12 mx-auto text-[#${PrimaryColor}]`} />
-            <h4 className={`text-xl font-bold text-[#${SecondaryColor}]`}>Xác nhận thông tin!</h4>
+            <h4 className={`text-xl font-bold text-[#${SecondaryColor}]`}>Confirm Information!</h4>
             <p className="text-gray-600">
-              Bạn đã hoàn thành các bước đăng ký. Vui lòng nhấn <strong>Hoàn Tất</strong> để tiến hành xác thực Email và bắt đầu sử dụng Streamland.
+              You have completed the registration steps. Please click <strong>Complete</strong> to verify your email and start using StreamLand.
             </p>
           </div>
         );
@@ -820,7 +846,7 @@ export default function RegisterModal({
                   className={`text-2xl font-extrabold leading-6 text-[#${SecondaryColor}] flex items-center gap-2 mb-4`}
                 >
                   <AcademicCapIcon className={`h-6 w-6 text-[#${PrimaryColor}]`} />
-                  Đăng Ký Streamland
+                  Sign Up for StreamLand
                 </Dialog.Title>
                 
                 {/* Progress Bar */}
@@ -843,7 +869,7 @@ export default function RegisterModal({
                         : `text-[#${SecondaryColor}] hover:bg-gray-100`
                     }`}
                   >
-                    Quay lại
+                    Back
                   </button>
                   <button
                     type="button"
@@ -861,27 +887,27 @@ export default function RegisterModal({
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        Đang xử lý...
+                        Processing...
                       </>
                     ) : currentStep < steps.length ? (
                       <>
-                        Tiếp tục 
+                        Continue 
                         <ArrowRightIcon className="ml-2 h-5 w-5" />
                       </>
-                    ) : 'Hoàn Tất'}
+                    ) : 'Complete'}
                   </button>
                 </div>
                 
                 {/* Footer */}
                 <div className="mt-6 text-center text-sm">
                   <p className="text-gray-500">
-                    Đã có tài khoản?{' '}
+                    Already have an account?{' '}
                     <button
                       type="button"
                       onClick={() => { closeModal(); openLoginModal(); }}
                       className={`font-semibold text-[#${SecondaryColor}] hover:text-opacity-80 transition duration-150`}
                     >
-                      Đăng nhập
+                      Sign In
                     </button>
                   </p>
                 </div>

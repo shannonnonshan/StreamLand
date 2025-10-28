@@ -2,7 +2,9 @@
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment, useState, useEffect } from 'react';
 import { AtSymbolIcon, LockClosedIcon, AcademicCapIcon, EyeIcon, EyeSlashIcon, ExclamationCircleIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
-import { FaGithub } from 'react-icons/fa'; // Cần cài đặt react-icons: npm install react-icons
+import { FaGithub } from 'react-icons/fa';
+import { useAuth } from '@/hooks/useAuth';
+import { useRouter } from 'next/navigation';
 
 const PrimaryColor = '161853'; // Xanh Đậm (màu chủ đạo mới)
 
@@ -16,6 +18,9 @@ type LoginModalProps = {
 type NotificationType = 'success' | 'error' | null;
 
 export default function LoginModal({ isOpen, closeModal, openRegisterModal, openForgotPasswordModal }: LoginModalProps) {
+  const router = useRouter();
+  const { login, loginWithGoogle, loginWithGithub, loading } = useAuth();
+  
   // State quản lý việc show/hide modal
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,7 +31,6 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
     type: null,
     message: '',
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Reset errors when modal is opened
   useEffect(() => {
@@ -37,14 +41,24 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
     }
   }, [isOpen]);
 
+  const handleOAuthClick = (provider: 'google' | 'github') => {
+    // LOGIN modal - no role selection needed, user already exists
+    // Just redirect to OAuth directly
+    if (provider === 'google') {
+      loginWithGoogle();
+    } else {
+      loginWithGithub();
+    }
+  };
+
   // Validate email format
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email) {
-      setEmailError('Email không được để trống');
+      setEmailError('Email is required');
       return false;
     } else if (!emailRegex.test(email)) {
-      setEmailError('Email không hợp lệ');
+      setEmailError('Invalid email format');
       return false;
     }
     setEmailError('');
@@ -54,10 +68,10 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
   // Validate password strength
   const validatePassword = (password: string) => {
     if (!password) {
-      setPasswordError('Mật khẩu không được để trống');
+      setPasswordError('Password is required');
       return false;
     } else if (password.length < 6) {
-      setPasswordError('Mật khẩu phải có ít nhất 6 ký tự');
+      setPasswordError('Password must be at least 6 characters');
       return false;
     }
     setPasswordError('');
@@ -75,34 +89,37 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
       return;
     }
     
-    setIsSubmitting(true);
     setNotification({ type: null, message: '' });
     
     try {
-      console.log('Đăng nhập với:', { email, password });
-      // Mock API call with timeout
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const result = await login({ email, password });
       
-      // Thêm logic API đăng nhập ở đây
-      // Mẫu phản hồi thành công
-      setNotification({
-        type: 'success',
-        message: 'Đăng nhập thành công!'
-      });
-      
-      // Đóng modal sau 1.5 giây khi đăng nhập thành công
-      setTimeout(() => {
-        closeModal();
-      }, 1500);
-      
-    } catch {
-      // Xử lý lỗi
+      if (result.success) {
+        setNotification({
+          type: 'success',
+          message: 'Login successful!'
+        });
+        
+        // Redirect based on role
+        setTimeout(() => {
+          if (result.user?.role === 'TEACHER') {
+            router.push('/teacher/1'); // Replace 1 with actual teacher ID
+          } else {
+            router.push('/student/dashboard');
+          }
+          closeModal();
+        }, 1500);
+      } else {
+        setNotification({
+          type: 'error',
+          message: result.error || 'Login failed. Please check your email and password.'
+        });
+      }
+    } catch (err) {
       setNotification({
         type: 'error',
-        message: 'Đăng nhập thất bại. Vui lòng kiểm tra email và mật khẩu.'
+        message: 'Login failed. Please check your email and password.'
       });
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -142,10 +159,10 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                   className={`text-2xl font-extrabold leading-6 text-[#${PrimaryColor}] flex items-center gap-2 mb-2`}
                 >
                   <AcademicCapIcon className={`h-6 w-6 text-[#${PrimaryColor}]`} />
-                  Chào mừng trở lại Streamland
+                  Welcome Back to StreamLand
                 </Dialog.Title>
                 <p className="text-sm text-gray-600 mb-6">
-                  Đăng nhập để tiếp tục hành trình học tập và giảng dạy.
+                  Sign in to continue your learning and teaching journey.
                 </p>
                 
                 {/* Nút đăng nhập bên ngoài */}
@@ -153,7 +170,8 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                   {/* Google Login */}
                   <button
                     type="button"
-                    className={`flex w-full items-center justify-center rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-base font-semibold text-[#${PrimaryColor}] shadow-sm hover:bg-gray-50 transition duration-150`}
+                    onClick={() => handleOAuthClick('google')}
+                    className={`flex w-full items-center justify-center rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-base font-semibold text-[#${PrimaryColor}] shadow-sm hover:bg-gray-50 transition duration-150 cursor-pointer`}
                   >
                     <div className="mr-2 h-5 w-5 flex items-center justify-center">
                       <svg width="18" height="18" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
@@ -163,15 +181,16 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                         <path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"/>
                       </svg>
                     </div>
-                    Đăng nhập bằng Google
+                    Sign in with Google
                   </button>
                   {/* Github Login */}
                   <button
                     type="button"
+                    onClick={() => handleOAuthClick('github')}
                     className={`flex w-full items-center justify-center rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-base font-semibold text-[#${PrimaryColor}] shadow-sm hover:bg-gray-50 transition duration-150 cursor-pointer`}
                   >
                     <FaGithub className="mr-2 h-5 w-5 text-gray-800" />
-                    Đăng nhập bằng GitHub
+                    Sign in with GitHub
                   </button>
                 </div>
 
@@ -180,7 +199,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                     <div className="w-full border-t border-gray-200" />
                   </div>
                   <div className="relative bg-white px-4 text-sm font-medium text-gray-600">
-                    Hoặc đăng nhập bằng Email
+                    Or sign in with Email
                   </div>
                 </div>
 
@@ -222,7 +241,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                         className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 text-gray-900 
                           ring-1 ring-inset ${emailError ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                           placeholder:text-gray-400 focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-                        placeholder="Địa chỉ Email"
+                        placeholder="Email Address"
                       />
                     </div>
                     {emailError && (
@@ -235,7 +254,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                   
                   {/* Password */}
                   <div>
-                    <label htmlFor="password" className="sr-only">Mật khẩu</label>
+                    <label htmlFor="password" className="sr-only">Password</label>
                     <div className="relative">
                       <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                         <LockClosedIcon className="h-5 w-5 text-gray-400" />
@@ -255,7 +274,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                         className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-10 text-gray-900 
                           ring-1 ring-inset ${passwordError ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                           placeholder:text-gray-400 focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-                        placeholder="Mật khẩu"
+                        placeholder="Password"
                       />
                       <button 
                         type="button" 
@@ -281,7 +300,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                         onClick={() => { closeModal(); openForgotPasswordModal(); }}
                         className="text-xs text-[#161853] hover:text-[#EC255A] cursor-pointer"
                       >
-                        Quên mật khẩu?
+                        Forgot password?
                       </button>
                     </div>
                   </div>
@@ -289,20 +308,20 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                   {/* Nút Đăng nhập */}
                   <button
                     type="submit"
-                    disabled={isSubmitting}
+                    disabled={loading}
                     className={`flex w-full justify-center rounded-lg bg-[#EC255A] px-3 py-2.5 text-base font-semibold text-white shadow-md hover:bg-[#D91E50] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#EC255A] transition duration-150 cursor-pointer
-                    ${isSubmitting ? 'opacity-75 cursor-not-allowed' : ''}`}
+                    ${loading ? 'opacity-75 cursor-not-allowed' : ''}`}
                   >
-                    {isSubmitting ? (
+                    {loading ? (
                       <>
                         <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        Đang xử lý...
+                        Processing...
                       </>
                     ) : (
-                      'Đăng Nhập'
+                      'Sign In'
                     )}
                   </button>
                 </form>
@@ -310,13 +329,13 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                 {/* Footer */}
                 <div className="mt-6 text-center text-sm">
                   <p className="text-gray-500">
-                    Chưa có tài khoản?{' '}
+                    Dont have an account?{' '}
                     <button
                       type="button"
                       onClick={() => { closeModal(); openRegisterModal(); }}
                       className={`font-semibold text-[#${PrimaryColor}] hover:text-opacity-80 transition duration-150 cursor-pointer`}
                     >
-                      Đăng Ký ngay
+                      Sign Up
                     </button>
                   </p>
                 </div>

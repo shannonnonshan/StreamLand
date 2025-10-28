@@ -52,10 +52,10 @@ export default function ForgotPasswordModal({
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email) {
-      setEmailError('Email không được để trống');
+      setEmailError('Email is required');
       return false;
     } else if (!emailRegex.test(email)) {
-      setEmailError('Email không hợp lệ');
+      setEmailError('Invalid email format');
       return false;
     }
     setEmailError('');
@@ -76,21 +76,21 @@ export default function ForgotPasswordModal({
     setNotification({ type: null, message: '' });
     
     try {
-      console.log('Yêu cầu đặt lại mật khẩu cho:', { email });
+      console.log('Password reset request for:', { email });
       // Mock API call
       await new Promise(resolve => setTimeout(resolve, 1500));
       
-      // Thêm logic API đặt lại mật khẩu ở đây
+      // Add password reset API logic here
       
-      // Chuyển sang modal OTP với email và mục đích đặt lại mật khẩu
+      // Switch to OTP modal with email and password-reset purpose
       closeModal();
       openOTPModal(email, 'password-reset');
       
     } catch {
-      // Xử lý lỗi
+      // Handle error
       setNotification({
         type: 'error',
-        message: 'Không thể gửi yêu cầu. Vui lòng thử lại sau.'
+        message: 'Unable to send request. Please try again later.'
       });
     } finally {
       setIsSubmitting(false);
@@ -104,10 +104,10 @@ export default function ForgotPasswordModal({
         className={`text-2xl font-extrabold leading-6 text-[#${PrimaryColor}] flex items-center gap-2 mb-2`}
       >
         <AcademicCapIcon className={`h-6 w-6 text-[#${PrimaryColor}]`} />
-        Quên mật khẩu
+        Forgot Password
       </Dialog.Title>
       <p className="text-sm text-gray-600 mb-6">
-        Vui lòng nhập địa chỉ email của bạn để nhận hướng dẫn đặt lại mật khẩu.
+        Please enter your email address to receive password reset instructions.
       </p>
 
       {/* Notification */}
@@ -154,7 +154,7 @@ export default function ForgotPasswordModal({
               className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 text-gray-900 
                 ring-1 ring-inset ${emailError ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                 placeholder:text-gray-400 focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-              placeholder="Địa chỉ Email"
+              placeholder="Email Address"
             />
             {emailError && (
               <div className="mt-1 text-sm text-red-600 flex items-center gap-1">
@@ -165,7 +165,7 @@ export default function ForgotPasswordModal({
           </div>
         </div>
 
-        {/* Nút gửi */}
+        {/* Submit button */}
         <button
           type="submit"
           disabled={isSubmitting}
@@ -178,10 +178,10 @@ export default function ForgotPasswordModal({
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              Đang xử lý...
+              Processing...
             </>
           ) : (
-            'Gửi hướng dẫn'
+            'Send Instructions'
           )}
         </button>
       </form>
@@ -194,7 +194,7 @@ export default function ForgotPasswordModal({
           className={`flex items-center justify-center mx-auto font-medium text-[#${PrimaryColor}] hover:text-[#${SecondaryColor}] transition duration-150`}
         >
           <ArrowLeftIcon className="h-4 w-4 mr-1" />
-          Quay lại đăng nhập
+          Back to Sign In
         </button>
       </div>
     </>

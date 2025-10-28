@@ -298,14 +298,14 @@ export default function ManageAccount() {
 
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="text-left border-b">
+            <thead className="text-left border-b border-gray-200">
               <tr>
                 <th className="pb-3">Admin</th>
                 <th className="pb-3">Status</th>
                 <th className="pb-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-gray-100">
               {loadingAdmins ? (
                 <tr>
                   <td colSpan={3} className="py-8 text-center text-gray-500">
@@ -444,7 +444,7 @@ export default function ManageAccount() {
 
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="text-left border-b">
+            <thead className="text-left border-b border-gray-200">
               <tr>
                 <th className="pb-3">Teacher</th>
                 <th className="pb-3">Submit Date</th>
@@ -454,7 +454,7 @@ export default function ManageAccount() {
                 <th className="pb-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-gray-100">
               {loadingTeachers ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-gray-500">

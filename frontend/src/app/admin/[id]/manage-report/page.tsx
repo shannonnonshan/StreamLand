@@ -190,7 +190,7 @@ export default function ManageReport() {
       <div className="bg-white rounded-2xl p-6 shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="text-left border-b">
+            <thead className="text-left border-b border-gray-200">
               <tr>
                 <th className="pb-3">Reporter</th>
                 <th className="pb-3">Target</th>
@@ -199,7 +199,7 @@ export default function ManageReport() {
                 <th className="pb-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
                   <td colSpan={5} className="py-8 text-center text-gray-500">

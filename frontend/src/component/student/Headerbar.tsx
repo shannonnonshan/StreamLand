@@ -1,4 +1,3 @@
-// components/Header.jsx
 'use client';
 import { MagnifyingGlassIcon, BellIcon, XMarkIcon, ChevronDownIcon, UserCircleIcon, ShieldCheckIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
 import { useState, useRef, useEffect } from 'react';
@@ -13,7 +12,6 @@ import { useAuth } from '@/hooks/useAuth';
 
 const PrimaryColor = '161853';
 
-// Mock data cho kết quả tìm kiếm
 const searchResults = [
   { id: 1, title: 'IELTS Speaking Prep', teacher: 'Mr. David Nguyen', type: 'livestream' },
   { id: 2, title: 'Calculus I - Chapter 3', teacher: 'Ms. Lan Anh', type: 'video' },
@@ -38,7 +36,6 @@ export default function Header() {
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
   
-  // Xử lý click bên ngoài khung tìm kiếm
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -59,14 +56,12 @@ export default function Header() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Tự động focus vào ô tìm kiếm khi mở
   useEffect(() => {
     if (isSearchOpen && searchInputRef.current) {
       searchInputRef.current.focus();
     }
   }, [isSearchOpen]);
   
-  // Xử lý tìm kiếm
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
     setSearchQuery(query);
@@ -104,7 +99,6 @@ export default function Header() {
     setIsRegisterModalOpen(false);
   };
 
-  // state lưu trữ email và mục đích của OTP
   const [otpEmail, setOtpEmail] = useState('');
   const [otpPurpose, setOtpPurpose] = useState<'registration' | 'password-reset'>('registration');
 
@@ -131,9 +125,8 @@ export default function Header() {
     setIsForgotPasswordModalOpen(false);
   };
   
-  // Reset password modal
   const openResetPasswordModal = (email: string = '') => {
-    setOtpEmail(email); // Sử dụng email đã xác thực OTP
+    setOtpEmail(email);
     setIsForgotPasswordModalOpen(false);
     setIsOTPModalOpen(false);
     setIsResetPasswordModalOpen(true);
@@ -142,10 +135,16 @@ export default function Header() {
   const closeResetPasswordModal = () => {
     setIsResetPasswordModalOpen(false);
   };
+  
   return (
-    <header className={`fixed top-0 left-20 right-0 h-16 bg-white flex items-center justify-end px-8 shadow-sm border-b border-gray-100 z-20`}>
+    <header className={`fixed top-0 left-0 right-0 h-16 bg-white flex items-center justify-between px-8 shadow-sm border-b border-gray-100 z-40`}>
       
-      {/* Icons bên phải */}
+      {/* Logo on left */}
+      <div className="flex items-center">
+        <img src="/logo.png" alt="StreamLand Logo" className="h-8 w-auto" />
+      </div>
+      
+      {/* Right side icons */}
       <div className="flex items-center space-x-4">
         
         {/* Search Box & Icon */}

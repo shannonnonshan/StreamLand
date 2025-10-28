@@ -182,7 +182,7 @@ export default function ManageNotification() {
       {/* Notifications Table */}
       <div className="bg-white rounded-2xl p-6 shadow-sm">
         <table className="w-full">
-          <thead className="text-left border-b">
+          <thead className="text-left border-b border-gray-200">
             <tr>
               <th className="pb-4">Subject & Content</th>
               <th className="pb-4">Target</th>
@@ -190,7 +190,7 @@ export default function ManageNotification() {
               <th className="pb-4 text-center">Status</th>
             </tr>
           </thead>
-          <tbody className="divide-y">
+          <tbody className="divide-y divide-gray-100">
             {paginatedNotifications.map((notification) => (
               <tr key={notification.id}>
                 <td className="py-4">

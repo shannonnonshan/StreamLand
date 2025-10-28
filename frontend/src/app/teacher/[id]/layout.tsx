@@ -210,7 +210,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
 
               {/* Fixed bottom item */}
-              <div className="mt-4 relative group">
+              <div className="mt-5 relative group">
                 <button
                   onClick={handleChatClick}
                   className={`relative flex items-center justify-center p-2 rounded w-fit mx-auto ${
@@ -228,7 +228,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </nav>
 
             {/* Main Content */}
-            <main className={`flex-1 ml-[7%] pt-5 ${raleway.className}`}>
+            <main className={`flex-1 ml-[7%] ${raleway.className}`}>
               {children}
             </main>
           </div>

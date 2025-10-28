@@ -24,6 +24,7 @@ export class GoogleLoginDto {
   @IsOptional()
   avatar?: string;
 
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
   @IsEnum(Role)
   @IsOptional()
   role?: Role;

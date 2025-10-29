@@ -1,0 +1,130 @@
+// MongoDB Schema - For Real-time Data
+generator mongoClient {
+    provider = "prisma-client-js"
+    output   = "../../node_modules/@prisma/mongodb-client"
+}
+
+datasource mongodb {
+    provider = "mongodb"
+    url      = env("MONGODB_URL")
+}
+
+model ChatMessage {
+    id          String      @id @default(auto()) @map("_id") @mongodb.ObjectId
+    senderId    String
+    receiverId  String
+    content     String
+    type        MessageType @default(TEXT)
+    attachments String[]
+    readAt      DateTime?
+    createdAt   DateTime    @default(now())
+    updatedAt   DateTime    @updatedAt
+
+    @@index([senderId, receiverId])
+    @@index([createdAt])
+    @@map("chat_messages")
+}
+
+enum MessageType {
+    TEXT
+    IMAGE
+    VIDEO
+    FILE
+    VOICE
+}
+
+// Live Stream Chat
+model LiveStreamChat {
+    id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+    livestreamId String
+    userId       String
+    username     String
+    userAvatar   String?
+    message      String
+    type         ChatType @default(MESSAGE)
+    createdAt    DateTime @default(now())
+
+    @@index([livestreamId, createdAt])
+    @@map("livestream_chats")
+}
+
+enum ChatType {
+    MESSAGE
+    SYSTEM
+    GIFT
+    SUPER_CHAT
+}
+
+// Notifications
+model Notification {
+    id        String           @id @default(auto()) @map("_id") @mongodb.ObjectId
+    userId    String
+    type      NotificationType
+    title     String
+    content   String
+    data      Json?
+    read      Boolean          @default(false)
+    createdAt DateTime         @default(now())
+
+    @@index([userId, read])
+    @@index([createdAt])
+    @@map("notifications")
+}
+
+enum NotificationType {
+    NEW_FOLLOWER
+    NEW_MESSAGE
+    LIVESTREAM_START
+    COURSE_UPDATE
+    COMMENT
+    LIKE
+    SYSTEM
+}
+
+// User Activity Logs
+model ActivityLog {
+    id        String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+    userId    String
+    action    String
+    resource  String?
+    metadata  Json?
+    ipAddress String?
+    userAgent String?
+    createdAt DateTime @default(now())
+
+    @@index([userId, createdAt])
+    @@index([action])
+    @@map("activity_logs")
+}
+
+// Live Stream Sessions (for analytics)
+model LiveStreamSession {
+    id           String    @id @default(auto()) @map("_id") @mongodb.ObjectId
+    livestreamId String
+    viewerId     String
+    joinedAt     DateTime  @default(now())
+    leftAt       DateTime?
+    duration     Int? // in seconds
+    interactions Int       @default(0)
+
+    @@index([livestreamId, viewerId])
+    @@map("livestream_sessions")
+}
+
+// Real-time User Presence
+model UserPresence {
+    id       String     @id @default(auto()) @map("_id") @mongodb.ObjectId
+    userId   String     @unique
+    status   UserStatus @default(OFFLINE)
+    lastSeen DateTime   @default(now())
+    socketId String?
+    metadata Json?
+
+    @@index([status])
+    @@map("user_presences")
+}
+
+enum UserStatus {
+    ONLINE
+    OFFLINE
+}

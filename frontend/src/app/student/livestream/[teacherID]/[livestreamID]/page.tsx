@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { raleway } from '@/utils/front';
 import { useParams } from 'next/navigation';
+import { useLivestreamViewer } from '@/hooks/useLivestreamViewer';
 import { 
   PlayIcon, 
   PauseIcon,
@@ -17,7 +18,6 @@ import {
   UserGroupIcon,
   HeartIcon,
   ShareIcon,
-  EyeIcon,
   FolderIcon,
   CheckIcon,
   EyeSlashIcon
@@ -27,35 +27,43 @@ import { HeartIcon as HeartSolidIcon } from '@heroicons/react/24/solid';
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
 
-// Mock data
-const mockLivestream = {
-  id: '1',
-  title: 'IELTS Speaking Preparation - Advanced Level',
+interface LivestreamInfo {
+  title: string;
+  description: string;
+  category: string;
   teacher: {
-    id: '1',
-    name: 'Mr. David Nguyen',
-    avatar: '/avatars/teacher-1.png',
-    followers: '12.5k'
-  },
-  viewers: 2547,
-  likes: 1205,
-  isLive: true,
-  startedAt: '2 hours ago',
-  category: 'English',
-  description: 'Join us for an intensive IELTS Speaking practice session focusing on Part 2 and Part 3 strategies.',
-  thumbnail: '/images/cat.png'
-};
-
-const mockChatMessages = [
-  { id: 1, username: 'Student123', message: 'Great explanation!', timestamp: '10:23', avatar: '' },
-  { id: 2, username: 'LearnerABC', message: 'Can you repeat that?', timestamp: '10:24', avatar: '' },
-  { id: 3, username: 'QuickLearner', message: 'Thanks for the tips!', timestamp: '10:25', avatar: '' },
-  { id: 4, username: 'StudyHard', message: 'This is so helpful 📚', timestamp: '10:26', avatar: '' },
-];
+    id: string;
+    name: string;
+    avatar?: string;
+    followers: string;
+  };
+  viewers: number;
+  likes: number;
+  isLive: boolean;
+  startedAt: string;
+}
 
 export default function LivestreamViewerPage() {
   const params = useParams();
   const { teacherID, livestreamID } = params;
+  
+  // Client-side mount state
+  const [isMounted, setIsMounted] = useState(false);
+  
+  // Livestream info from backend
+  const [livestreamInfo, setLivestreamInfo] = useState<LivestreamInfo | null>(null);
+  
+  // WebRTC connection using custom hook
+  const { isConnected, isLoading, remoteVideoRef } = useLivestreamViewer({
+    teacherID: teacherID as string,
+    livestreamID: livestreamID as string,
+    onError: (error) => {
+      console.error('Livestream error:', error);
+    },
+    onStreamEnded: () => {
+      console.log('Stream ended');
+    },
+  });
   
   // Video player states
   const [isPlaying, setIsPlaying] = useState(true);
@@ -68,10 +76,16 @@ export default function LivestreamViewerPage() {
   const [showNotes, setShowNotes] = useState(false);
   const [showOverlayChat, setShowOverlayChat] = useState(true);
   const [chatMessage, setChatMessage] = useState('');
-  const [chatMessages, setChatMessages] = useState(mockChatMessages);
+  const [chatMessages, setChatMessages] = useState<Array<{
+    id: number;
+    username: string;
+    message: string;
+    timestamp: string;
+    avatar: string;
+  }>>([]);
   
-  // Note taking states - Single document approach (like Google Docs)
-  const [documentTitle, setDocumentTitle] = useState(`${mockLivestream.title} - Notes`);
+  // Note taking states
+  const [documentTitle, setDocumentTitle] = useState('');
   const [documentContent, setDocumentContent] = useState('');
   const [noteTags, setNoteTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
@@ -86,8 +100,15 @@ export default function LivestreamViewerPage() {
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Set mounted state
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   // Load document from localStorage on mount
   useEffect(() => {
+    if (!isMounted) return;
+    
     const savedDoc = localStorage.getItem(`livestream-doc-${livestreamID}`);
     if (savedDoc) {
       const parsed = JSON.parse(savedDoc);
@@ -96,7 +117,42 @@ export default function LivestreamViewerPage() {
       setNoteTags(parsed.tags || []);
       setLastSaved(parsed.lastSaved ? new Date(parsed.lastSaved) : null);
     }
-  }, [livestreamID]);
+  }, [livestreamID, isMounted]);
+
+  // Listen for livestream info from backend
+  useEffect(() => {
+    import('@/socket').then((module) => {
+      const socket = module.default;
+      
+      socket.on('livestream-info', (info: LivestreamInfo) => {
+        console.log('Received livestream info:', info);
+        setLivestreamInfo(info);
+        // Set document title from livestream info
+        if (!documentTitle) {
+          setDocumentTitle(`${info.title} - Notes`);
+        }
+      });
+
+      // Listen for chat messages
+      socket.on('chat-message', (message: {
+        id: number;
+        username: string;
+        message: string;
+        timestamp: string;
+        avatar: string;
+      }) => {
+        console.log('Received chat message:', message);
+        setChatMessages(prev => [...prev, message]);
+      });
+    });
+
+    return () => {
+      import('@/socket').then((module) => {
+        module.default.off('livestream-info');
+        module.default.off('chat-message');
+      });
+    };
+  }, [documentTitle]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -125,6 +181,16 @@ export default function LivestreamViewerPage() {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         avatar: ''
       };
+      
+      // Send message to socket
+      import('@/socket').then((module) => {
+        const socket = module.default;
+        socket.emit('send-chat-message', {
+          livestreamID,
+          message: chatMessage
+        });
+      });
+      
       setChatMessages([...chatMessages, newMessage]);
       setChatMessage('');
     }
@@ -132,6 +198,8 @@ export default function LivestreamViewerPage() {
 
   // Auto-save to localStorage
   const handleAutoSave = () => {
+    if (!isMounted || !livestreamInfo) return;
+    
     const docData = {
       title: documentTitle,
       content: documentContent,
@@ -139,66 +207,66 @@ export default function LivestreamViewerPage() {
       lastSaved: new Date().toISOString(),
       livestreamId: livestreamID,
       teacherId: teacherID,
-      livestreamTitle: mockLivestream.title,
-      category: mockLivestream.category
+      livestreamTitle: livestreamInfo.title,
+      category: livestreamInfo.category
     };
     localStorage.setItem(`livestream-doc-${livestreamID}`, JSON.stringify(docData));
     setLastSaved(new Date());
   };
 
   const handleSaveToDocuments = () => {
-    if (documentContent.trim()) {
-      // Save current state
-      handleAutoSave();
+    if (!isMounted || !documentContent.trim() || !livestreamInfo) return;
+    
+    // Save current state
+    handleAutoSave();
+    
+    // Save to documents list
+    const savedDocs = JSON.parse(localStorage.getItem('studentDocuments') || '[]');
+    
+    // Check if this document already exists
+    const existingIndex = savedDocs.findIndex((doc: { livestreamId?: string }) => 
+      doc.livestreamId === livestreamID
+    );
+    
+    // Create proper Document object matching the schema
+    const docData = {
+      // Required fields from Document type
+      id: existingIndex >= 0 ? savedDocs[existingIndex].id : Date.now().toString(),
+      title: documentTitle,
+      filename: `${documentTitle.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.txt`,
+      type: 'other' as const, // Use 'other' type for livestream notes
+      size: `${(documentContent.length / 1024).toFixed(2)} KB`,
+      uploadDate: existingIndex >= 0 ? savedDocs[existingIndex].uploadDate : new Date().toLocaleDateString('en-CA'), // YYYY-MM-DD format
+      lastModified: new Date().toLocaleDateString('en-CA'), // YYYY-MM-DD format
+      pinnedAt: existingIndex >= 0 ? savedDocs[existingIndex].pinnedAt : null,
+      tags: [...noteTags, 'livestream', livestreamInfo.category.toLowerCase()],
+      folder: 'Livestream Notes',
+      downloadUrl: '#',
       
-      // Save to documents list
-      const savedDocs = JSON.parse(localStorage.getItem('studentDocuments') || '[]');
-      
-      // Check if this document already exists
-      const existingIndex = savedDocs.findIndex((doc: { livestreamId?: string }) => 
-        doc.livestreamId === livestreamID
-      );
-      
-      // Create proper Document object matching the schema
-      const docData = {
-        // Required fields from Document type
-        id: existingIndex >= 0 ? savedDocs[existingIndex].id : Date.now().toString(),
-        title: documentTitle,
-        filename: `${documentTitle.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.txt`,
-        type: 'other' as const, // Use 'other' type for livestream notes
-        size: `${(documentContent.length / 1024).toFixed(2)} KB`,
-        uploadDate: existingIndex >= 0 ? savedDocs[existingIndex].uploadDate : new Date().toLocaleDateString('en-CA'), // YYYY-MM-DD format
-        lastModified: new Date().toLocaleDateString('en-CA'), // YYYY-MM-DD format
-        pinnedAt: existingIndex >= 0 ? savedDocs[existingIndex].pinnedAt : null,
-        tags: [...noteTags, 'livestream', mockLivestream.category.toLowerCase()],
-        folder: 'Livestream Notes',
-        downloadUrl: '#',
-        
-        // Optional/custom fields for livestream notes
-        previewUrl: undefined,
-        content: documentContent, // Store the actual content
-        livestreamId: livestreamID,
-        teacherId: teacherID,
-        livestreamTitle: mockLivestream.title,
-        videoTime: currentVideoTime
-      };
-      
-      if (existingIndex >= 0) {
-        // Update existing document
-        savedDocs[existingIndex] = docData;
-      } else {
-        // Add new document
-        savedDocs.push(docData);
-      }
-      
-      localStorage.setItem('studentDocuments', JSON.stringify(savedDocs));
-      
-      // Show success message
-      setShowSaveSuccess(true);
-      setTimeout(() => setShowSaveSuccess(false), 3000);
-      
-      console.log('Saved to documents:', docData);
+      // Optional/custom fields for livestream notes
+      previewUrl: undefined,
+      content: documentContent, // Store the actual content
+      livestreamId: livestreamID,
+      teacherId: teacherID,
+      livestreamTitle: livestreamInfo.title,
+      videoTime: currentVideoTime
+    };
+    
+    if (existingIndex >= 0) {
+      // Update existing document
+      savedDocs[existingIndex] = docData;
+    } else {
+      // Add new document
+      savedDocs.push(docData);
     }
+    
+    localStorage.setItem('studentDocuments', JSON.stringify(savedDocs));
+    
+    // Show success message
+    setShowSaveSuccess(true);
+    setTimeout(() => setShowSaveSuccess(false), 3000);
+    
+    console.log('Saved to documents:', docData);
   };
 
   const handleAddTag = () => {
@@ -302,14 +370,67 @@ export default function LivestreamViewerPage() {
             
             {/* Video Player */}
             <div ref={videoContainerRef} className="relative bg-black rounded-2xl overflow-hidden shadow-2xl aspect-video min-h-[600px] group">
-            {/* Video placeholder */}
-            <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
-              <div className="text-center">
-                <PlayIcon className="h-20 w-20 text-white/30 mx-auto mb-4" />
-                <p className="text-white/50 text-sm">Video Stream Placeholder</p>
-                <p className="text-white/30 text-xs mt-2">Teacher: {teacherID} | Live: {livestreamID}</p>
+            {/* Real video stream */}
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-contain bg-gray-900"
+              onLoadedMetadata={() => console.log('[Video] Metadata loaded')}
+              onPlay={() => console.log('[Video] Playing')}
+              onPause={() => console.log('[Video] Paused')}
+              onError={(e) => console.error('[Video] Error:', e)}
+            />
+            
+            {/* Connection status indicator */}
+            {!isLoading && isConnected && (
+              <div className="absolute top-4 left-4 px-3 py-1.5 bg-green-600/90 backdrop-blur-sm rounded-lg z-20">
+                <p className="text-white text-xs font-semibold">● Connected</p>
               </div>
-            </div>
+            )}
+            
+            {/* Loading state */}
+            {isLoading && (
+              <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center pointer-events-none z-10">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-white mx-auto mb-4"></div>
+                  <p className="text-white/70 text-sm">Connecting to stream...</p>
+                  <p className="text-white/30 text-xs mt-2">Teacher: {teacherID} | Live: {livestreamID}</p>
+                </div>
+              </div>
+            )}
+            
+            {/* No connection state */}
+            {!isLoading && !isConnected && (
+              <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center pointer-events-none z-10">
+                <div className="text-center max-w-md px-4">
+                  <div className="text-6xl mb-4">📹</div>
+                  <p className="text-white/70 text-lg font-semibold mb-2">Stream Not Available</p>
+                  <p className="text-white/50 text-sm mb-4">The teacher is not currently streaming</p>
+                  <div className="text-xs text-white/30 space-y-1">
+                    <p>Teacher ID: {teacherID}</p>
+                    <p>Livestream ID: {livestreamID}</p>
+                    <p className="text-yellow-400/70 mt-2">
+                      {livestreamInfo?.isLive 
+                        ? '⚠️ Teacher is marked as live but stream connection failed' 
+                        : '⏸️ Waiting for teacher to start streaming...'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Fallback placeholder when no stream and not loading */}
+            {!isConnected && !isLoading && (
+              <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center pointer-events-none z-10">
+                <div className="text-center">
+                  <PlayIcon className="h-20 w-20 text-white/30 mx-auto mb-4" />
+                  <p className="text-white/50 text-sm">Stream not available</p>
+                  <p className="text-white/30 text-xs mt-2">The broadcaster may be offline</p>
+                </div>
+              </div>
+            )}
             
               {/* Chat Overlay - Right Side */}
               {showOverlayChat && (
@@ -373,24 +494,47 @@ export default function LivestreamViewerPage() {
             
               {/* Top Info Bar */}
               <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-10">
-                {/* Live Badge */}
-                {mockLivestream.isLive && (
-                  <div className="flex items-center gap-2.5 px-4 py-2 bg-gradient-to-r from-red-600 to-red-500 rounded-xl shadow-lg">
-                    <div className="relative">
-                      <div className="h-2.5 w-2.5 bg-white rounded-full"></div>
-                      <div className="absolute inset-0 h-2.5 w-2.5 bg-white rounded-full animate-ping"></div>
-                    </div>
-                    <span className="text-white text-sm font-bold tracking-wide">LIVE</span>
-                  </div>
-                )}
-                
                 <div className="flex items-center gap-2">
-                  {/* Viewer Count */}
-                  <div className="flex items-center gap-2 px-4 py-2 bg-black/60 rounded-xl backdrop-blur-md border border-white/20 shadow-lg">
-                    <EyeIcon className="h-4 w-4 text-white" />
-                    <span className="text-white text-sm font-semibold">{mockLivestream.viewers.toLocaleString()}</span>
+                  {/* Live Badge */}
+                  {livestreamInfo?.isLive && (
+                    <div className="flex items-center gap-2.5 px-4 py-2 bg-gradient-to-r from-red-600 to-red-500 rounded-xl shadow-lg">
+                      <div className="relative">
+                        <div className="h-2.5 w-2.5 bg-white rounded-full"></div>
+                        <div className="absolute inset-0 h-2.5 w-2.5 bg-white rounded-full animate-ping"></div>
+                      </div>
+                      <span className="text-white text-sm font-bold tracking-wide">LIVE</span>
+                    </div>
+                  )}
+                  
+                  {/* Debug Status (remove later) */}
+                  <div className="px-3 py-1.5 bg-black/60 backdrop-blur-md rounded-lg text-xs text-white/70">
+                    Loading: {isLoading ? '✓' : '✗'} | Connected: {isConnected ? '✓' : '✗'}
                   </div>
                   
+                  {/* Debug Test Button */}
+                  <button
+                    onClick={() => {
+                      console.log('=== VIDEO DEBUG ===');
+                      console.log('Video ref:', remoteVideoRef.current);
+                      console.log('Video srcObject:', remoteVideoRef.current?.srcObject);
+                      console.log('Video paused:', remoteVideoRef.current?.paused);
+                      console.log('Video readyState:', remoteVideoRef.current?.readyState);
+                      if (remoteVideoRef.current?.srcObject) {
+                        const stream = remoteVideoRef.current.srcObject as MediaStream;
+                        console.log('Stream active:', stream.active);
+                        console.log('Stream tracks:', stream.getTracks());
+                        stream.getTracks().forEach(track => {
+                          console.log(`Track ${track.kind}:`, track.enabled, track.readyState);
+                        });
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-blue-600/80 hover:bg-blue-600 backdrop-blur-md rounded-lg text-xs text-white font-semibold"
+                  >
+                    Debug
+                  </button>
+                </div>
+                
+                <div className="flex items-center gap-2">
                   {/* Toggle Chat Button */}
                   <button
                     onClick={() => setShowOverlayChat(!showOverlayChat)}
@@ -491,20 +635,24 @@ export default function LivestreamViewerPage() {
               <div className="flex items-start justify-between gap-4 mb-4">
                 <div className="flex-1 min-w-0">
                   <h1 className={`text-2xl font-bold text-[#${PrimaryColor}] mb-2`}>
-                    {mockLivestream.title}
+                    {livestreamInfo?.title || 'Loading...'}
                   </h1>
                   <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
                     <div className="flex items-center gap-2">
                       <UserGroupIcon className="h-4 w-4" />
-                      <span className="font-medium">{mockLivestream.viewers.toLocaleString()} watching</span>
+                      <span className="font-medium">
+                        {livestreamInfo?.viewers ? livestreamInfo.viewers.toLocaleString() : '0'} watching
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <ClockIcon className="h-4 w-4" />
-                      <span>Started {mockLivestream.startedAt}</span>
+                      <span>{livestreamInfo?.startedAt || 'Just started'}</span>
                     </div>
-                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">
-                      {mockLivestream.category}
-                    </span>
+                    {livestreamInfo?.category && (
+                      <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">
+                        {livestreamInfo.category}
+                      </span>
+                    )}
                   </div>
                 </div>
                 
@@ -522,7 +670,7 @@ export default function LivestreamViewerPage() {
                     ) : (
                       <HeartIcon className="h-5 w-5" />
                     )}
-                    <span>{mockLivestream.likes + (isLiked ? 1 : 0)}</span>
+                    <span>{livestreamInfo?.likes ? (livestreamInfo.likes + (isLiked ? 1 : 0)) : (isLiked ? 1 : 0)}</span>
                   </button>
                   
                   <button className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors">
@@ -535,14 +683,14 @@ export default function LivestreamViewerPage() {
               <div className="pt-4 border-t border-gray-200 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="h-12 w-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 overflow-hidden flex items-center justify-center text-white text-lg font-bold">
-                    {mockLivestream.teacher.name.charAt(0)}
+                    {livestreamInfo?.teacher?.name ? livestreamInfo.teacher.name.charAt(0) : 'T'}
                   </div>
                   <div>
                     <h3 className={`font-bold text-base text-[#${PrimaryColor}]`}>
-                      {mockLivestream.teacher.name}
+                      {livestreamInfo?.teacher?.name || 'Teacher'}
                     </h3>
                     <p className="text-sm text-gray-500">
-                      {mockLivestream.teacher.followers} followers
+                      {livestreamInfo?.teacher?.followers || '0'} followers
                     </p>
                   </div>
                 </div>
@@ -555,7 +703,7 @@ export default function LivestreamViewerPage() {
               {/* Description */}
               <div className="mt-4">
                 <p className="text-gray-700 text-sm leading-relaxed">
-                  {mockLivestream.description}
+                  {livestreamInfo?.description || 'No description available.'}
                 </p>
               </div>
             </div>

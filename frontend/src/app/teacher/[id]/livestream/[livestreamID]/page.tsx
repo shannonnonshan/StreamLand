@@ -17,6 +17,11 @@ import {
   ChevronUp,
   X,
   Monitor,
+  FileText,
+  Image as ImageIcon,
+  Film,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 
 interface LivestreamInfo {
@@ -24,6 +29,15 @@ interface LivestreamInfo {
   description: string;
   category: string;
   thumbnail?: File;
+}
+
+interface DocumentFile {
+  id: number;
+  name: string;
+  type: 'pdf' | 'image' | 'video' | 'doc' | 'ppt';
+  url: string;
+  uploadedAt: string;
+  size?: number;
 }
 
 export default function BroadcasterPage() {
@@ -48,15 +62,68 @@ export default function BroadcasterPage() {
     category: "Education",
   });
 
-  const [comments] = useState<string[]>([
-    "abcd: 123456789asdfghjk",
-    "efgh: hello world",
-    "ijkl: streaming now!",
-    "mnop: nice video!",
-  ]);
-
   const [showFiles, setShowFiles] = useState(true);
   const [showComments, setShowComments] = useState(true);
+  const [documents, setDocuments] = useState<DocumentFile[]>([]);
+  const [selectedDocument, setSelectedDocument] = useState<DocumentFile | null>(null);
+  const [showDocumentViewer, setShowDocumentViewer] = useState(false);
+  const [pendingDocument, setPendingDocument] = useState<DocumentFile | null>(null);
+  const [showShareConfirm, setShowShareConfirm] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{
+    id: string;
+    username: string;
+    userRole: 'teacher' | 'student';
+    message: string;
+    timestamp: string;
+    avatar?: string;
+  }>>([]);
+  const [chatInput, setChatInput] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchTeacherDocuments();
+  }, [teacherID]);
+
+  const fetchTeacherDocuments = async () => {
+    try {
+      // TODO: Replace with actual API call when backend is ready
+      // const response = await fetch(`/api/teachers/${teacherID}/documents`);
+      // const data = await response.json();
+      // setDocuments(data);
+      
+      // Mock data for now
+      const mockDocuments: DocumentFile[] = [
+        {
+          id: 1,
+          name: 'Lesson 1 - Introduction.pdf',
+          type: 'pdf',
+          url: '/documents/sample.pdf',
+          uploadedAt: '2024-10-25',
+          size: 2048000
+        },
+        {
+          id: 2,
+          name: 'Grammar Rules.pdf',
+          type: 'pdf',
+          url: '/documents/grammar.pdf',
+          uploadedAt: '2024-10-20',
+          size: 1024000
+        },
+        {
+          id: 3,
+          name: 'Diagram Example.png',
+          type: 'image',
+          url: '/images/cat.png',
+          uploadedAt: '2024-10-18',
+          size: 512000
+        }
+      ];
+      setDocuments(mockDocuments);
+    } catch (error) {
+      console.error('Error fetching documents:', error);
+    }
+  };
 
   useEffect(() => {
     socket.on("watcher", handleWatcher);
@@ -64,6 +131,19 @@ export default function BroadcasterPage() {
     socket.on("candidate", handleCandidate);
     socket.on("bye", handleBye);
     socket.on("viewerCount", (count: number) => setWatcherCount(count));
+    
+    // Listen for chat messages
+    socket.on("chat-message", (message: {
+      id: string;
+      username: string;
+      userRole: 'teacher' | 'student';
+      message: string;
+      timestamp: string;
+      avatar?: string;
+    }) => {
+      console.log('💬 [Teacher] Received chat:', message);
+      setChatMessages(prev => [...prev, message]);
+    });
 
     return () => {
       socket.off("watcher", handleWatcher);
@@ -71,6 +151,7 @@ export default function BroadcasterPage() {
       socket.off("candidate", handleCandidate);
       socket.off("bye", handleBye);
       socket.off("viewerCount");
+      socket.off("chat-message");
 
       socket.disconnect();
       Object.values(peersRef.current).forEach((pc) => pc.close());
@@ -78,6 +159,7 @@ export default function BroadcasterPage() {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function startLive() {
@@ -91,7 +173,6 @@ export default function BroadcasterPage() {
         localVideoRef.current.srcObject = stream;
       }
 
-      // Emit broadcaster with teacherID + livestreamID + info
       socket.emit("broadcaster", { 
         teacherID, 
         livestreamID,
@@ -99,6 +180,13 @@ export default function BroadcasterPage() {
       });
       setIsLive(true);
       setShowModal(false);
+      
+      // Share uploaded documents with new viewers
+      socket.emit("sync-documents", {
+        teacherID,
+        livestreamID,
+        documents: documents
+      });
     } catch (err) {
       console.error("getUserMedia error:", err);
     }
@@ -131,38 +219,28 @@ export default function BroadcasterPage() {
   }
 
   async function handleWatcher(data: { id: string } | string) {
-    // Handle both object format { id: string } and string format
     const watcherId = typeof data === 'string' ? data : data.id;
     
-    console.log('[Broadcaster] New watcher:', watcherId);
-    
-    // Check if peer connection already exists
     if (peersRef.current[watcherId]) {
-      console.log('[Broadcaster] Peer connection already exists for:', watcherId);
       return;
     }
 
-    // Check if local stream is available
     if (!localStreamRef.current) {
-      console.error('[Broadcaster] No local stream available! Cannot send to watcher:', watcherId);
+      console.error('No local stream available');
       return;
     }
 
-    console.log('[Broadcaster] Creating peer connection for:', watcherId);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     peersRef.current[watcherId] = pc;
 
     const tracks = localStreamRef.current.getTracks();
-    console.log('[Broadcaster] Adding', tracks.length, 'tracks to peer connection');
     
     tracks.forEach((track) => {
-      console.log('[Broadcaster] Adding track:', track.kind, track.enabled);
       pc.addTrack(track, localStreamRef.current!);
     });
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log('[Broadcaster] Sending ICE candidate to:', watcherId);
         socket.emit("candidate", {
           to: watcherId,
           candidate: event.candidate,
@@ -173,14 +251,14 @@ export default function BroadcasterPage() {
     };
 
     pc.onconnectionstatechange = () => {
-      console.log('[Broadcaster] Connection state for', watcherId, ':', pc.connectionState);
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        console.error('Connection failed');
+      }
     };
 
-    console.log('[Broadcaster] Creating offer for:', watcherId);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    console.log('[Broadcaster] Sending offer to:', watcherId);
     socket.emit("offer", {
       to: watcherId,
       sdp: pc.localDescription,
@@ -190,25 +268,18 @@ export default function BroadcasterPage() {
   }
 
   function handleAnswer({ from, sdp }: { from: string; sdp: RTCSessionDescriptionInit }) {
-    console.log('[Broadcaster] Received answer from:', from);
     const pc = peersRef.current[from];
     if (pc) {
       pc.setRemoteDescription(new RTCSessionDescription(sdp));
-      console.log('[Broadcaster] Answer processed for:', from);
-    } else {
-      console.error('[Broadcaster] No peer connection found for:', from);
     }
   }
 
   function handleCandidate({ from, candidate }: { from: string; candidate: RTCIceCandidateInit }) {
-    console.log('[Broadcaster] Received ICE candidate from:', from);
     const pc = peersRef.current[from];
     if (pc) {
       pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
-        console.error('[Broadcaster] ICE candidate error:', error);
+        console.error('ICE candidate error:', error);
       });
-    } else {
-      console.error('[Broadcaster] No peer connection found for:', from);
     }
   }
 
@@ -220,35 +291,29 @@ export default function BroadcasterPage() {
     }
   }
 
-  // Toggle Mic
   function toggleMic() {
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
         setIsMicOn(audioTrack.enabled);
-        console.log('[Broadcaster] Mic', audioTrack.enabled ? 'ON' : 'OFF');
       }
     }
   }
 
-  // Toggle Camera
   function toggleCamera() {
     if (localStreamRef.current) {
       const videoTrack = localStreamRef.current.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
         setIsCameraOn(videoTrack.enabled);
-        console.log('[Broadcaster] Camera', videoTrack.enabled ? 'ON' : 'OFF');
       }
     }
   }
 
-  // Toggle Screen Share
   async function toggleScreenShare() {
     try {
       if (!isScreenSharing) {
-        // Start screen sharing
         const screenStream = await navigator.mediaDevices.getDisplayMedia({
           video: true,
           audio: false,
@@ -256,18 +321,15 @@ export default function BroadcasterPage() {
 
         const screenTrack = screenStream.getVideoTracks()[0];
         
-        // Replace video track in local stream
         const oldVideoTrack = localStreamRef.current?.getVideoTracks()[0];
         if (oldVideoTrack && localStreamRef.current) {
           localStreamRef.current.removeTrack(oldVideoTrack);
           localStreamRef.current.addTrack(screenTrack);
           
-          // Update local video display
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = localStreamRef.current;
           }
 
-          // Replace track in all peer connections
           Object.values(peersRef.current).forEach((pc) => {
             const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
             if (sender) {
@@ -275,28 +337,24 @@ export default function BroadcasterPage() {
             }
           });
 
-          // Stop old video track
           oldVideoTrack.stop();
         }
 
-        // Handle screen share stop
         screenTrack.onended = async () => {
           await stopScreenShare();
         };
 
         setIsScreenSharing(true);
-        console.log('[Broadcaster] Screen sharing started');
       } else {
         await stopScreenShare();
       }
     } catch (err) {
-      console.error('[Broadcaster] Screen share error:', err);
+      console.error('Screen share error:', err);
     }
   }
 
   async function stopScreenShare() {
     try {
-      // Get camera stream again
       const cameraStream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: false,
@@ -304,18 +362,15 @@ export default function BroadcasterPage() {
 
       const cameraTrack = cameraStream.getVideoTracks()[0];
       
-      // Replace screen track with camera track
       const oldScreenTrack = localStreamRef.current?.getVideoTracks()[0];
       if (oldScreenTrack && localStreamRef.current) {
         localStreamRef.current.removeTrack(oldScreenTrack);
         localStreamRef.current.addTrack(cameraTrack);
         
-        // Update local video display
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = localStreamRef.current;
         }
 
-        // Replace track in all peer connections
         Object.values(peersRef.current).forEach((pc) => {
           const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
           if (sender) {
@@ -323,30 +378,296 @@ export default function BroadcasterPage() {
           }
         });
 
-        // Stop old screen track
         oldScreenTrack.stop();
       }
 
       setIsScreenSharing(false);
       setIsCameraOn(true);
-      console.log('[Broadcaster] Screen sharing stopped');
     } catch (err) {
-      console.error('[Broadcaster] Stop screen share error:', err);
+      console.error('Stop screen share error:', err);
     }
   }
 
-  return (
-    <div className="relative w-full h-screen bg-black">
-      {/* Video full màn hình */}
-      <video
-        ref={localVideoRef}
-        autoPlay
-        muted
-        playsInline
-        className="w-full h-full object-cover"
-      />
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files) return;
 
-      {/* Livestream Info Modal */}
+    Array.from(files).forEach(async (file) => {
+      const fileType = file.type.startsWith('image/') ? 'image' : 
+                       file.type.startsWith('video/') ? 'video' : 
+                       file.type.includes('pdf') ? 'pdf' :
+                       file.type.includes('document') || file.type.includes('word') ? 'doc' :
+                       file.type.includes('presentation') || file.type.includes('powerpoint') ? 'ppt' : 'doc';
+      
+      const fileUrl = URL.createObjectURL(file);
+      
+      // TODO: Upload to backend when API is ready
+      // const formData = new FormData();
+      // formData.append('file', file);
+      // formData.append('teacherId', teacherID);
+      // formData.append('livestreamId', livestreamID);
+      // 
+      // try {
+      //   const response = await fetch('/api/upload/document', {
+      //     method: 'POST',
+      //     body: formData,
+      //   });
+      //   const data = await response.json();
+      //   
+      //   const newDoc: DocumentFile = {
+      //     id: data.id,
+      //     name: file.name,
+      //     type: fileType as any,
+      //     url: data.url,
+      //     uploadedAt: new Date().toISOString(),
+      //     size: file.size
+      //   };
+      //   setDocuments(prev => [...prev, newDoc]);
+      // } catch (error) {
+      //   console.error('Upload failed:', error);
+      // }
+
+      // Mock: Add to local state for now
+      const newDoc: DocumentFile = {
+        id: Date.now() + Math.random(),
+        name: file.name,
+        type: fileType as 'pdf' | 'image' | 'video' | 'doc' | 'ppt',
+        url: fileUrl,
+        uploadedAt: new Date().toISOString(),
+        size: file.size
+      };
+      setDocuments(prev => [...prev, newDoc]);
+    });
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const removeFile = (fileId: number) => {
+    setDocuments((prev) => prev.filter((f) => f.id !== fileId));
+  };
+
+  const handleDocumentClick = (doc: DocumentFile) => {
+    // Show confirmation dialog
+    setPendingDocument(doc);
+    setShowShareConfirm(true);
+  };
+
+  const confirmShareDocument = () => {
+    if (!pendingDocument) return;
+    
+    setSelectedDocument(pendingDocument);
+    setShowDocumentViewer(true);
+    
+    console.log('🔴 [Teacher] Emitting share-document event');
+    console.log('Teacher ID:', teacherID);
+    console.log('Livestream ID:', livestreamID);
+    console.log('Document:', pendingDocument);
+    
+    // Share document with all viewers
+    socket.emit("share-document", {
+      teacherID,
+      livestreamID,
+      document: pendingDocument
+    });
+    
+    console.log('✅ [Teacher] Emitted share-document successfully');
+    
+    setShowShareConfirm(false);
+    setPendingDocument(null);
+  };
+
+  const cancelShareDocument = () => {
+    setShowShareConfirm(false);
+    setPendingDocument(null);
+  };
+
+  const closeDocumentViewer = () => {
+    setShowDocumentViewer(false);
+    setSelectedDocument(null);
+    
+    // Notify viewers to close document
+    socket.emit("close-document", {
+      teacherID,
+      livestreamID
+    });
+  };
+
+  const sendChatMessage = () => {
+    if (!chatInput.trim()) return;
+    
+    const message = {
+      id: Date.now().toString() + Math.random(),
+      username: 'Teacher', // TODO: Get from auth
+      userRole: 'teacher' as const,
+      message: chatInput,
+      timestamp: new Date().toISOString(),
+      avatar: '/teacher-avatar.png'
+    };
+    
+    // Emit to backend
+    socket.emit("send-chat-message", {
+      teacherID,
+      livestreamID,
+      message
+    });
+    
+    setChatInput('');
+  };
+
+  const handleChatKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  };
+
+  const getFileIcon = (type: string) => {
+    switch (type) {
+      case 'pdf':
+      case 'doc':
+      case 'ppt':
+        return <FileText size={20} className="text-red-600" />;
+      case 'image':
+        return <ImageIcon size={20} className="text-blue-600" />;
+      case 'video':
+        return <Film size={20} className="text-purple-600" />;
+      default:
+        return <FileText size={20} className="text-gray-600" />;
+    }
+  };
+
+  return (
+    <div className="relative w-full h-screen bg-black overflow-hidden">
+      <div className={`absolute inset-0 transition-all duration-300 ${showDocumentViewer ? 'w-1/2' : 'w-full'}`}>
+        <video
+          ref={localVideoRef}
+          autoPlay
+          muted
+          playsInline
+          className="w-full h-full object-cover"
+        />
+      </div>
+
+      {showDocumentViewer && selectedDocument && (
+        <div className="absolute top-0 right-0 w-1/2 h-full bg-white flex flex-col">
+          <div className="flex items-center justify-between p-4 border-b bg-gray-50">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              {getFileIcon(selectedDocument.type)}
+              <h3 className="font-semibold text-sm truncate">{selectedDocument.name}</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowDocumentViewer(false)}
+                className="p-2 hover:bg-gray-200 rounded-full transition"
+                title="Minimize"
+              >
+                <Minimize2 size={18} />
+              </button>
+              <button
+                onClick={closeDocumentViewer}
+                className="p-2 hover:bg-gray-200 rounded-full transition"
+                title="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+          
+          <div className="flex-1 overflow-auto p-4 bg-gray-100">
+            {selectedDocument.type === 'image' ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img 
+                src={selectedDocument.url} 
+                alt={selectedDocument.name}
+                className="max-w-full h-auto mx-auto"
+              />
+            ) : selectedDocument.type === 'video' ? (
+              <video 
+                src={selectedDocument.url}
+                controls
+                className="max-w-full h-auto mx-auto"
+              />
+            ) : selectedDocument.type === 'pdf' ? (
+              <iframe
+                src={selectedDocument.url}
+                className="w-full h-full border-0"
+                title={selectedDocument.name}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                <FileText size={64} className="mb-4 opacity-50" />
+                <p className="text-lg font-medium mb-2">{selectedDocument.name}</p>
+                <p className="text-sm mb-4">Preview not available</p>
+                <a
+                  href={selectedDocument.url}
+                  download={selectedDocument.name}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                >
+                  Download File
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Share Document Confirmation Modal */}
+      {showShareConfirm && pendingDocument && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6 border-b">
+              <div className="flex items-center gap-3 mb-2">
+                <Monitor className="w-6 h-6 text-blue-600" />
+                <h2 className="text-xl font-bold text-gray-900">Share Document?</h2>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              <div className="mb-4 p-4 bg-gray-50 rounded-lg border">
+                <div className="flex items-center gap-3 mb-1">
+                  {getFileIcon(pendingDocument.type)}
+                  <p className="font-semibold text-gray-800">{pendingDocument.name}</p>
+                </div>
+                <p className="text-sm text-gray-500 ml-8">
+                  {pendingDocument.type.toUpperCase()} • {
+                    pendingDocument.size 
+                      ? `${(pendingDocument.size / 1024 / 1024).toFixed(2)} MB` 
+                      : 'Unknown size'
+                  }
+                </p>
+              </div>
+
+              <p className="text-gray-700 mb-6">
+                This document will be shared with all students watching your livestream. 
+                They will see it alongside your video.
+              </p>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={cancelShareDocument}
+                  className="flex-1 px-4 py-2.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmShareDocument}
+                  className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+                >
+                  Share with Students
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Start Livestream Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg mx-4">
@@ -361,7 +682,6 @@ export default function BroadcasterPage() {
             </div>
 
             <form onSubmit={handleModalSubmit} className="space-y-4">
-              {/* Title */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Livestream Title *
@@ -376,7 +696,6 @@ export default function BroadcasterPage() {
                 />
               </div>
 
-              {/* Description */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Description
@@ -390,7 +709,6 @@ export default function BroadcasterPage() {
                 />
               </div>
 
-              {/* Category */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Category
@@ -411,7 +729,6 @@ export default function BroadcasterPage() {
                 </select>
               </div>
 
-              {/* Actions */}
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
@@ -433,52 +750,90 @@ export default function BroadcasterPage() {
         </div>
       )}
 
-      {/* Viewer count overlay */}
-      <div className="absolute top-2 left-2 text-white text-sm bg-black/50 px-2 py-1 rounded">
+      <div className={`absolute top-2 left-2 text-white text-sm bg-black/50 px-2 py-1 rounded transition-all duration-300 ${showDocumentViewer ? 'left-2' : 'left-2'}`}>
         🔴 {watcherCount.toLocaleString()} views
       </div>
 
-      {/* Upload panel overlay */}
-      <div className="absolute top-4 right-4 w-72 bg-white rounded-lg text-black shadow-lg">
+      <div className={`absolute top-4 right-4 w-80 bg-white rounded-lg text-black shadow-lg max-h-[70vh] overflow-hidden flex flex-col transition-all duration-300 ${showDocumentViewer ? 'right-[calc(50%+1rem)]' : 'right-4'}`}>
         <div
-          className="flex justify-between items-center p-2 cursor-pointer"
+          className="flex justify-between items-center p-3 cursor-pointer border-b"
           onClick={() => setShowFiles(!showFiles)}
         >
-          <h3 className="font-bold text-sm">Uploaded files</h3>
+          <h3 className="font-bold text-sm">Documents & Files</h3>
           {showFiles ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </div>
         {showFiles && (
-          <div className="p-2">
-            <div className="flex gap-2 text-xs mb-2">
-              <span className="font-semibold">File</span>
-              <span>Picture</span>
-              <span>Video</span>
+          <div className="p-3 overflow-y-auto">
+            <div className="mb-3">
+              <button
+                onClick={handleUploadClick}
+                className="w-full bg-blue-600 text-white py-2 px-3 rounded-lg hover:bg-blue-700 transition flex items-center justify-center gap-2 text-sm font-medium"
+              >
+                <Upload size={16} />
+                Upload New File
+              </button>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="bg-gray-300 h-16"></div>
-              <div className="bg-gray-300 h-16"></div>
-              <div className="bg-gray-300 h-16"></div>
-              <div className="bg-gray-300 h-16 flex items-center justify-center">
-                +
-              </div>
+
+            <div className="space-y-2">
+              {documents.map((doc) => (
+                <div
+                  key={doc.id}
+                  onClick={() => handleDocumentClick(doc)}
+                  className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-lg cursor-pointer transition group"
+                >
+                  <div className="flex-shrink-0">
+                    {getFileIcon(doc.type)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate">{doc.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {doc.size ? `${(doc.size / 1024).toFixed(0)} KB` : 'N/A'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeFile(doc.id);
+                    }}
+                    className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition"
+                  >
+                    <X size={14} className="text-red-600" />
+                  </button>
+                </div>
+              ))}
+              
+              {documents.length === 0 && (
+                <div className="text-center py-8 text-gray-400">
+                  <FileText size={32} className="mx-auto mb-2 opacity-50" />
+                  <p className="text-xs">No documents yet</p>
+                  <p className="text-xs">Upload files to share</p>
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
 
-      {/* Comment panel overlay */}
-      <div className="absolute top-60 right-4 w-72 max-h-80 bg-transparent text-white rounded-lg shadow-lg">
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/*,video/*,.pdf,.doc,.docx,.ppt,.pptx"
+        onChange={handleFileUpload}
+        className="hidden"
+      />
+
+      <div className={`absolute right-4 w-72 max-h-80 bg-transparent text-white rounded-lg shadow-lg transition-all duration-300 ${showDocumentViewer ? 'top-[calc(70vh+2rem)] right-[calc(50%+1rem)]' : 'top-[calc(70vh+2rem)]'}`}>
         <div
           className="flex justify-between items-center p-2 cursor-pointer"
           onClick={() => setShowComments(!showComments)}
         >
-          <h3 className="font-bold text-sm">Comment</h3>
+          <h3 className="font-bold text-sm">Live Chat</h3>
           {showComments ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </div>
         {showComments && (
           <div className="p-2 flex flex-col space-y-1 text-xs overflow-y-auto max-h-64">
-            {comments.map((c, i) => {
-              const [user, message] = c.split(":");
+            {chatMessages.map((msg, i) => {
               const colors = [
                 "text-red-500/70",
                 "text-green-500/70",
@@ -488,24 +843,49 @@ export default function BroadcasterPage() {
                 "text-pink-500/70",
                 "text-indigo-500/70",
               ];
-              const colorClass = colors[i % colors.length];
+              const colorClass = msg.userRole === 'teacher' ? 'text-orange-400/90' : colors[i % colors.length];
 
               return (
                 <div
-                  key={i}
-                  className={`rounded-lg px-2 py-1 inline-block bg-white ${colorClass}`}
+                  key={msg.id}
+                  className={`rounded-lg px-2 py-1 inline-block bg-white/10 backdrop-blur-sm ${colorClass}`}
                 >
-                  <b>{user}:</b> {message}
+                  <b>{msg.username}:</b> {msg.message}
+                  {msg.userRole === 'teacher' && <span className="ml-1 text-[9px] bg-red-600/80 px-1 rounded">👨‍🏫</span>}
                 </div>
               );
             })}
+            {chatMessages.length === 0 && (
+              <div className="text-center py-4 text-white/40 text-xs">
+                No messages yet
+              </div>
+            )}
+            <div ref={chatEndRef} />
+            
+            {/* Input inline */}
+            <div className="flex gap-1 pt-2 border-t border-white/20">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyPress={handleChatKeyPress}
+                placeholder="Type message..."
+                className="flex-1 px-2 py-1 text-xs bg-white/10 border border-white/20 rounded text-white placeholder-white/50 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                onClick={sendChatMessage}
+                disabled={!chatInput.trim()}
+                className="px-2 py-1 bg-blue-600/80 text-white rounded text-xs hover:bg-blue-700/80 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Send
+              </button>
+            </div>
           </div>
         )}
       </div>
 
       {/* Control bar (bottom center) */}
       <div className="fixed bottom-4 left-3/5 -translate-x-1/2 flex gap-6 bg-white/80 p-3 rounded-full shadow-lg">
-        {/* Mic Toggle */}
         <button 
           onClick={toggleMic}
           disabled={!isLive}
@@ -514,12 +894,11 @@ export default function BroadcasterPage() {
               ? 'bg-white text-black hover:bg-gray-100' 
               : 'bg-red-600 text-white hover:bg-red-700'
           } disabled:opacity-50 disabled:cursor-not-allowed`}
-          title={isMicOn ? 'Tắt mic' : 'Bật mic'}
+          title={isMicOn ? 'Mute' : 'Unmute'}
         >
           {isMicOn ? <Mic /> : <MicOff />}
         </button>
 
-        {/* Camera Toggle */}
         <button 
           onClick={toggleCamera}
           disabled={!isLive || isScreenSharing}
@@ -528,17 +907,16 @@ export default function BroadcasterPage() {
               ? 'bg-white text-black hover:bg-gray-100' 
               : 'bg-red-600 text-white hover:bg-red-700'
           } disabled:opacity-50 disabled:cursor-not-allowed`}
-          title={isCameraOn ? 'Tắt camera' : 'Bật camera'}
+          title={isCameraOn ? 'Turn Off Camera' : 'Turn On Camera'}
         >
           {isCameraOn ? <Video /> : <VideoOff />}
         </button>
 
-        {/* Start/Stop Live */}
         {!isLive ? (
           <button
             onClick={handleStartClick}
             className="p-3 bg-green-600 rounded-full shadow text-white hover:bg-green-700 transition"
-            title="Bắt đầu livestream"
+            title="Start Livestream"
           >
             <Play />
           </button>
@@ -546,13 +924,12 @@ export default function BroadcasterPage() {
           <button
             onClick={stopLive}
             className="p-3 bg-red-600 rounded-full shadow text-white hover:bg-red-700 transition"
-            title="Dừng livestream"
+            title="Stop Livestream"
           >
             <Square />
           </button>
         )}
 
-        {/* Screen Share Toggle */}
         <button 
           onClick={toggleScreenShare}
           disabled={!isLive}
@@ -561,21 +938,32 @@ export default function BroadcasterPage() {
               ? 'bg-blue-600 text-white hover:bg-blue-700' 
               : 'bg-white text-black hover:bg-gray-100'
           } disabled:opacity-50 disabled:cursor-not-allowed`}
-          title={isScreenSharing ? 'Dừng chia sẻ màn hình' : 'Chia sẻ màn hình'}
+          title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen'}
         >
           <Monitor />
         </button>
 
         <button 
+          onClick={handleUploadClick}
           className="p-3 bg-white rounded-full shadow hover:bg-gray-100 transition"
-          title="Tải file"
+          title="Upload File"
         >
           <Upload className="text-black" />
         </button>
         
+        {selectedDocument && !showDocumentViewer && (
+          <button
+            onClick={() => setShowDocumentViewer(true)}
+            className="p-3 bg-green-600 rounded-full shadow hover:bg-green-700 transition text-white animate-pulse"
+            title="Show Document"
+          >
+            <Maximize2 />
+          </button>
+        )}
+        
         <button 
           className="p-3 bg-white rounded-full shadow hover:bg-gray-100 transition"
-          title="Thêm tùy chọn"
+          title="More Options"
         >
           <MoreVertical className="text-black" />
         </button>

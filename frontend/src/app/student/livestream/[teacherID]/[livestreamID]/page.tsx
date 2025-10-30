@@ -20,7 +20,10 @@ import {
   ShareIcon,
   FolderIcon,
   CheckIcon,
-  EyeSlashIcon
+  EyeSlashIcon,
+  DocumentIcon,
+  PhotoIcon,
+  VideoCameraIcon,
 } from '@heroicons/react/24/outline';
 import { HeartIcon as HeartSolidIcon } from '@heroicons/react/24/solid';
 
@@ -43,6 +46,15 @@ interface LivestreamInfo {
   startedAt: string;
 }
 
+interface SharedDocument {
+  id: number;
+  name: string;
+  type: 'pdf' | 'image' | 'video' | 'doc' | 'ppt';
+  url: string;
+  uploadedAt: string;
+  size?: number;
+}
+
 export default function LivestreamViewerPage() {
   const params = useParams();
   const { teacherID, livestreamID } = params;
@@ -53,15 +65,22 @@ export default function LivestreamViewerPage() {
   // Livestream info from backend
   const [livestreamInfo, setLivestreamInfo] = useState<LivestreamInfo | null>(null);
   
+  // Error and status states
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [isStreamEnded, setIsStreamEnded] = useState(false);
+  
   // WebRTC connection using custom hook
   const { isConnected, isLoading, remoteVideoRef } = useLivestreamViewer({
     teacherID: teacherID as string,
     livestreamID: livestreamID as string,
     onError: (error) => {
       console.error('Livestream error:', error);
+      setStreamError(error.message || 'Unable to connect to livestream');
     },
     onStreamEnded: () => {
       console.log('Stream ended');
+      setIsStreamEnded(true);
+      setStreamError('This livestream has ended');
     },
   });
   
@@ -77,11 +96,12 @@ export default function LivestreamViewerPage() {
   const [showOverlayChat, setShowOverlayChat] = useState(true);
   const [chatMessage, setChatMessage] = useState('');
   const [chatMessages, setChatMessages] = useState<Array<{
-    id: number;
+    id: string;
     username: string;
+    userRole: 'teacher' | 'student';
     message: string;
     timestamp: string;
-    avatar: string;
+    avatar?: string;
   }>>([]);
   
   // Note taking states
@@ -95,6 +115,10 @@ export default function LivestreamViewerPage() {
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [currentVideoTime, setCurrentVideoTime] = useState('00:00');
+  
+  // Shared document states
+  const [sharedDocument, setSharedDocument] = useState<SharedDocument | null>(null);
+  const [showSharedDocument, setShowSharedDocument] = useState(false);
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
@@ -135,14 +159,47 @@ export default function LivestreamViewerPage() {
 
       // Listen for chat messages
       socket.on('chat-message', (message: {
-        id: number;
+        id: string;
         username: string;
+        userRole: 'teacher' | 'student';
         message: string;
         timestamp: string;
-        avatar: string;
+        avatar?: string;
       }) => {
-        console.log('Received chat message:', message);
+        console.log('💬 [Student] Received chat:', message);
         setChatMessages(prev => [...prev, message]);
+      });
+
+      // Listen for shared documents from teacher
+      socket.on('share-document', (data: { document: SharedDocument }) => {
+        console.log('✅ [Student] Received share-document event:', data);
+        console.log('Document details:', data.document);
+        setSharedDocument(data.document);
+        setShowSharedDocument(true);
+        
+        // Show browser notification if possible
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+          if (Notification.permission === 'granted') {
+            new Notification('Teacher is sharing a document', {
+              body: `${data.document.name}`,
+              icon: '/favicon.ico'
+            });
+          }
+        }
+      });
+
+      // Listen for document close event
+      socket.on('close-document', () => {
+        console.log('Teacher closed document');
+        setShowSharedDocument(false);
+        setSharedDocument(null);
+      });
+
+      // Listen for documents sync when joining
+      socket.on('sync-documents', (data: { documents: SharedDocument[] }) => {
+        console.log('Synced documents:', data.documents);
+        // If there were documents shared, we could show them in a list
+        // For now, just log them
       });
     });
 
@@ -150,6 +207,9 @@ export default function LivestreamViewerPage() {
       import('@/socket').then((module) => {
         module.default.off('livestream-info');
         module.default.off('chat-message');
+        module.default.off('share-document');
+        module.default.off('close-document');
+        module.default.off('sync-documents');
       });
     };
   }, [documentTitle]);
@@ -171,30 +231,6 @@ export default function LivestreamViewerPage() {
     
     return () => clearInterval(interval);
   }, [isPlaying]);
-
-  const handleSendMessage = () => {
-    if (chatMessage.trim()) {
-      const newMessage = {
-        id: chatMessages.length + 1,
-        username: 'You',
-        message: chatMessage,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        avatar: ''
-      };
-      
-      // Send message to socket
-      import('@/socket').then((module) => {
-        const socket = module.default;
-        socket.emit('send-chat-message', {
-          livestreamID,
-          message: chatMessage
-        });
-      });
-      
-      setChatMessages([...chatMessages, newMessage]);
-      setChatMessage('');
-    }
-  };
 
   // Auto-save to localStorage
   const handleAutoSave = () => {
@@ -278,6 +314,39 @@ export default function LivestreamViewerPage() {
 
   const handleRemoveTag = (tag: string) => {
     setNoteTags(noteTags.filter(t => t !== tag));
+  };
+
+  const sendChatMessage = () => {
+    if (!chatMessage.trim()) return;
+    
+    import('@/socket').then((module) => {
+      const socket = module.default;
+      
+      const message = {
+        id: Date.now().toString() + Math.random(),
+        username: 'Student', // TODO: Get from auth
+        userRole: 'student' as const,
+        message: chatMessage,
+        timestamp: new Date().toISOString(),
+        avatar: '/student-avatar.png'
+      };
+      
+      // Emit to backend
+      socket.emit("send-chat-message", {
+        teacherID,
+        livestreamID,
+        message
+      });
+      
+      setChatMessage('');
+    });
+  };
+
+  const handleChatKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
   };
 
   const applyFormatting = (format: 'bold' | 'italic' | 'underline') => {
@@ -370,18 +439,83 @@ export default function LivestreamViewerPage() {
             
             {/* Video Player */}
             <div ref={videoContainerRef} className="relative bg-black rounded-2xl overflow-hidden shadow-2xl aspect-video min-h-[600px] group">
-            {/* Real video stream */}
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="absolute inset-0 w-full h-full object-contain bg-gray-900"
-              onLoadedMetadata={() => console.log('[Video] Metadata loaded')}
-              onPlay={() => console.log('[Video] Playing')}
-              onPause={() => console.log('[Video] Paused')}
-              onError={(e) => console.error('[Video] Error:', e)}
-            />
+            
+            {/* Split view: Video + Shared Document */}
+            <div className="absolute inset-0 flex">
+              {/* Video Stream - takes full width or 50% if document is shared */}
+              <div className={`relative transition-all duration-300 ${showSharedDocument ? 'w-1/2' : 'w-full'}`}>
+                <video
+                  ref={remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="absolute inset-0 w-full h-full object-contain bg-gray-900"
+                  onLoadedMetadata={() => console.log('[Video] Metadata loaded')}
+                  onPlay={() => console.log('[Video] Playing')}
+                  onPause={() => console.log('[Video] Paused')}
+                  onError={(e) => console.error('[Video] Error:', e)}
+                />
+              </div>
+
+              {/* Shared Document Viewer - 50% when active */}
+              {showSharedDocument && sharedDocument && (
+                <div className="w-1/2 bg-white flex flex-col border-l-4 border-green-500 shadow-2xl">
+                  {/* Document Header */}
+                  <div className="flex items-center justify-between p-3 bg-green-50 border-b-2 border-green-200">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      {sharedDocument.type === 'pdf' || sharedDocument.type === 'doc' || sharedDocument.type === 'ppt' ? (
+                        <DocumentIcon className="h-5 w-5 text-red-600 flex-shrink-0" />
+                      ) : sharedDocument.type === 'image' ? (
+                        <PhotoIcon className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                      ) : (
+                        <VideoCameraIcon className="h-5 w-5 text-purple-600 flex-shrink-0" />
+                      )}
+                      <h3 className="font-semibold text-sm truncate">{sharedDocument.name}</h3>
+                    </div>
+                    <span className="text-xs text-white px-3 py-1 bg-green-600 rounded-full flex-shrink-0 font-semibold animate-pulse">
+                      🎓 Shared by Teacher
+                    </span>
+                  </div>
+                  
+                  {/* Document Content */}
+                  <div className="flex-1 overflow-auto p-4 bg-gray-50">
+                    {sharedDocument.type === 'image' ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img 
+                        src={sharedDocument.url} 
+                        alt={sharedDocument.name}
+                        className="max-w-full h-auto mx-auto"
+                      />
+                    ) : sharedDocument.type === 'video' ? (
+                      <video 
+                        src={sharedDocument.url}
+                        controls
+                        className="max-w-full h-auto mx-auto"
+                      />
+                    ) : sharedDocument.type === 'pdf' ? (
+                      <iframe
+                        src={sharedDocument.url}
+                        className="w-full h-full border-0"
+                        title={sharedDocument.name}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                        <DocumentIcon className="h-16 w-16 mb-4 opacity-50" />
+                        <p className="text-lg font-medium mb-2">{sharedDocument.name}</p>
+                        <p className="text-sm mb-4">Preview not available</p>
+                        <a
+                          href={sharedDocument.url}
+                          download={sharedDocument.name}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                        >
+                          Download File
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             
             {/* Connection status indicator */}
             {!isLoading && isConnected && (
@@ -405,17 +539,42 @@ export default function LivestreamViewerPage() {
             {!isLoading && !isConnected && (
               <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center pointer-events-none z-10">
                 <div className="text-center max-w-md px-4">
-                  <div className="text-6xl mb-4">📹</div>
-                  <p className="text-white/70 text-lg font-semibold mb-2">Stream Not Available</p>
-                  <p className="text-white/50 text-sm mb-4">The teacher is not currently streaming</p>
-                  <div className="text-xs text-white/30 space-y-1">
+                  {isStreamEnded ? (
+                    <>
+                      <div className="text-6xl mb-4">👋</div>
+                      <p className="text-white/70 text-lg font-semibold mb-2">Livestream Has Ended</p>
+                      <p className="text-white/50 text-sm mb-4">Thanks for watching! The teacher has ended this stream.</p>
+                    </>
+                  ) : streamError ? (
+                    <>
+                      <div className="text-6xl mb-4">⚠️</div>
+                      <p className="text-white/70 text-lg font-semibold mb-2">Connection Error</p>
+                      <p className="text-white/50 text-sm mb-4">{streamError}</p>
+                      <button 
+                        onClick={() => window.location.reload()}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition text-sm"
+                      >
+                        Try Again
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-6xl mb-4">📹</div>
+                      <p className="text-white/70 text-lg font-semibold mb-2">Stream Not Available</p>
+                      <p className="text-white/50 text-sm mb-4">The teacher is not currently streaming</p>
+                      <div className="animate-pulse text-white/40 text-sm mt-4">
+                        Waiting for teacher to go live...
+                      </div>
+                    </>
+                  )}
+                  <div className="text-xs text-white/30 space-y-1 mt-6">
                     <p>Teacher ID: {teacherID}</p>
                     <p>Livestream ID: {livestreamID}</p>
-                    <p className="text-yellow-400/70 mt-2">
-                      {livestreamInfo?.isLive 
-                        ? '⚠️ Teacher is marked as live but stream connection failed' 
-                        : '⏸️ Waiting for teacher to start streaming...'}
-                    </p>
+                    {livestreamInfo?.isLive && !isStreamEnded && (
+                      <p className="text-yellow-400/70 mt-2">
+                        ⚠️ Teacher is marked as live but stream connection failed
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -450,15 +609,31 @@ export default function LivestreamViewerPage() {
                   <div className="flex-1 overflow-y-auto p-3 space-y-2.5 scrollbar-hide">
                     {chatMessages.map((msg) => (
                       <div key={msg.id} className="flex gap-2 animate-slide-up">
-                        <div className="h-7 w-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex-shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-lg">
+                        <div className={`h-7 w-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-lg ${
+                          msg.userRole === 'teacher' 
+                            ? 'bg-gradient-to-br from-red-500 to-orange-600' 
+                            : 'bg-gradient-to-br from-blue-500 to-purple-600'
+                        }`}>
                           {msg.username.charAt(0)}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-xs font-bold text-white">
+                            <span className={`text-xs font-bold ${
+                              msg.userRole === 'teacher' ? 'text-orange-400' : 'text-white'
+                            }`}>
                               {msg.username}
                             </span>
-                            <span className="text-[10px] text-gray-400">{msg.timestamp}</span>
+                            {msg.userRole === 'teacher' && (
+                              <span className="text-[9px] bg-red-600 text-white px-1.5 py-0.5 rounded font-bold">
+                                TEACHER
+                              </span>
+                            )}
+                            <span className="text-[10px] text-gray-400">
+                              {new Date(msg.timestamp).toLocaleTimeString('en-US', { 
+                                hour: '2-digit', 
+                                minute: '2-digit' 
+                              })}
+                            </span>
                           </div>
                           <p className="text-sm text-white/90 break-words leading-snug">
                             {msg.message}
@@ -466,6 +641,13 @@ export default function LivestreamViewerPage() {
                         </div>
                       </div>
                     ))}
+                    {chatMessages.length === 0 && (
+                      <div className="text-center py-12 text-white/40">
+                        <ChatBubbleLeftRightIcon className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No messages yet</p>
+                        <p className="text-xs mt-1">Say hi to the teacher!</p>
+                      </div>
+                    )}
                     <div ref={chatEndRef} />
                   </div>
                   
@@ -476,12 +658,12 @@ export default function LivestreamViewerPage() {
                         type="text"
                         value={chatMessage}
                         onChange={(e) => setChatMessage(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                        onKeyPress={handleChatKeyPress}
                         placeholder="Message..."
                         className="flex-1 min-w-0 px-2.5 py-1.5 bg-white/10 border border-white/20 rounded-lg text-xs text-white placeholder-white/50 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
                       />
                       <button 
-                        onClick={handleSendMessage}
+                        onClick={sendChatMessage}
                         disabled={!chatMessage.trim()}
                         className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg whitespace-nowrap"
                       >

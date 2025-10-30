@@ -42,6 +42,28 @@ interface CandidatePayload extends BroadcasterPayload {
   candidate: unknown;
 }
 
+interface ShareDocumentPayload extends BroadcasterPayload {
+  document: {
+    id: number;
+    name: string;
+    type: string;
+    url: string;
+    uploadedAt: string;
+    size?: number;
+  };
+}
+
+interface ChatMessagePayload extends BroadcasterPayload {
+  message: {
+    id: string;
+    username: string;
+    userRole: 'teacher' | 'student';
+    message: string;
+    timestamp: string;
+    avatar?: string;
+  };
+}
+
 interface Channel {
   broadcaster: string;
   watchers: Set<string>;
@@ -177,6 +199,74 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (channel) {
       this.server.to([...channel.watchers]).emit('stream-ended', data);
       delete this.channels[key];
+    }
+  }
+
+  @SubscribeMessage('share-document')
+  handleShareDocument(
+    @MessageBody() data: ShareDocumentPayload,
+    @ConnectedSocket() socket: Socket,
+  ) {
+    const key = this.getKey(data.teacherID, data.livestreamID);
+    const channel = this.channels[key];
+    
+    if (channel && channel.broadcaster === socket.id) {
+      // Broadcast document to all watchers
+      this.server.to([...channel.watchers]).emit('share-document', {
+        document: data.document,
+      });
+      console.log('📄 Document shared to', channel.watchers.size, 'viewers:', data.document.name);
+    } else {
+      console.log('❌ Cannot share document - channel not found or not broadcaster');
+    }
+  }
+
+  @SubscribeMessage('close-document')
+  handleCloseDocument(
+    @MessageBody() data: BroadcasterPayload,
+    @ConnectedSocket() socket: Socket,
+  ) {
+    const key = this.getKey(data.teacherID, data.livestreamID);
+    const channel = this.channels[key];
+    
+    if (channel && channel.broadcaster === socket.id) {
+      // Notify all watchers to close document
+      this.server.to([...channel.watchers]).emit('close-document');
+      console.log('🗙 Document closed for', channel.watchers.size, 'viewers');
+    }
+  }
+
+  @SubscribeMessage('sync-documents')
+  handleSyncDocuments(
+    @MessageBody() data: { teacherID: string; livestreamID: string; documents: unknown[] },
+    @ConnectedSocket() socket: Socket,
+  ) {
+    const key = this.getKey(data.teacherID, data.livestreamID);
+    const channel = this.channels[key];
+    
+    if (channel && channel.broadcaster === socket.id) {
+      // Send available documents to all watchers
+      this.server.to([...channel.watchers]).emit('sync-documents', {
+        documents: data.documents,
+      });
+      console.log('🔄 Documents synced to', channel.watchers.size, 'viewers');
+    }
+  }
+
+  @SubscribeMessage('send-chat-message')
+  handleChatMessage(
+    @MessageBody() data: ChatMessagePayload,
+    @ConnectedSocket() socket: Socket,
+  ) {
+    const key = this.getKey(data.teacherID, data.livestreamID);
+    const channel = this.channels[key];
+    
+    if (channel) {
+      // Broadcast message to everyone in the channel (broadcaster + all watchers)
+      const allParticipants = [channel.broadcaster, ...Array.from(channel.watchers)];
+      this.server.to(allParticipants).emit('chat-message', data.message);
+      
+      console.log('💬 Chat message from', data.message.username, '(', data.message.userRole, '):', data.message.message);
     }
   }
 }

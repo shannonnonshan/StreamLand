@@ -8,16 +8,14 @@ import { useRouter } from 'next/navigation';
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
 
-// Mock Data - Chỉ các kênh đã follow
 const followedChannels = [
   { id: 1, name: 'Mr. David Nguyen', avatar: '/avatars/teacher-1.png', followers: '12.5k', isFollowing: true },
   { id: 2, name: 'Ms. Lan Anh', avatar: '/avatars/teacher-2.png', followers: '8.3k', isFollowing: true },
-  { id: 3, name: 'Cô Thảo', avatar: '/avatars/teacher-3.png', followers: '15.2k', isFollowing: true },
+  { id: 3, name: 'Ms. Thao', avatar: '/avatars/teacher-3.png', followers: '15.2k', isFollowing: true },
   { id: 4, name: 'Mr. Minh Tuan', avatar: '/avatars/teacher-4.png', followers: '9.7k', isFollowing: true },
   { id: 5, name: 'Ms. Phuong Linh', avatar: '/avatars/teacher-5.png', followers: '11.1k', isFollowing: true },
 ];
 
-// Livestreams và Videos từ các kênh đã follow
 const followedLivestreams = [
   { id: 1, title: 'IELTS Speaking Prep', teacher: 'Mr. David Nguyen', teacherId: 1, views: '2.5k', viewCount: 2500, image: '/images/cat.png', isLive: true, duration: null, uploadedAt: null },
   { id: 2, title: 'Calculus I - Chapter 3', teacher: 'Ms. Lan Anh', teacherId: 2, views: '1.2k', viewCount: 1200, image: '', isLive: true, duration: null, uploadedAt: null },
@@ -26,15 +24,14 @@ const followedLivestreams = [
 ];
 
 const followedVideos = [
-  { id: 5, title: 'Hóa học Hữu cơ - Bài 5', teacher: 'Cô Thảo', teacherId: 3, views: '5.2k', viewCount: 5200, image: '', isLive: false, duration: '45:30', uploadedAt: '2 days ago' },
+  { id: 5, title: 'Organic Chemistry - Lesson 5', teacher: 'Ms. Thao', teacherId: 3, views: '5.2k', viewCount: 5200, image: '', isLive: false, duration: '45:30', uploadedAt: '2 days ago' },
   { id: 6, title: 'English Grammar Advanced', teacher: 'Mr. David Nguyen', teacherId: 1, views: '3.8k', viewCount: 3800, image: '', isLive: false, duration: '32:15', uploadedAt: '1 week ago' },
   { id: 7, title: 'Calculus Practice Problems', teacher: 'Ms. Lan Anh', teacherId: 2, views: '2.9k', viewCount: 2900, image: '', isLive: false, duration: '28:45', uploadedAt: '3 days ago' },
   { id: 8, title: 'Physics Experiments Lab', teacher: 'Mr. Minh Tuan', teacherId: 4, views: '4.1k', viewCount: 4100, image: '/images/cat.png', isLive: false, duration: '52:20', uploadedAt: '5 days ago' },
   { id: 9, title: 'Literature Analysis Session', teacher: 'Ms. Phuong Linh', teacherId: 5, views: '2.3k', viewCount: 2300, image: '', isLive: false, duration: '38:50', uploadedAt: '1 week ago' },
-  { id: 10, title: 'Chemistry Lab Tutorial', teacher: 'Cô Thảo', teacherId: 3, views: '3.5k', viewCount: 3500, image: '', isLive: false, duration: '41:10', uploadedAt: '4 days ago' },
+  { id: 10, title: 'Chemistry Lab Tutorial', teacher: 'Ms. Thao', teacherId: 3, views: '3.5k', viewCount: 3500, image: '', isLive: false, duration: '41:10', uploadedAt: '4 days ago' },
 ];
 
-// --- Sub-Component: Channel Card ---
 function ChannelCard({ channel }: { channel: { id: number; name: string; avatar: string; followers: string; isFollowing: boolean } }) {
   const [isHovered, setIsHovered] = useState(false);
   const following = channel.isFollowing;
@@ -46,7 +43,6 @@ function ChannelCard({ channel }: { channel: { id: number; name: string; avatar:
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="p-5 flex flex-col items-center">
-        {/* Avatar */}
         <div className="relative mb-4">
           <div className={`h-20 w-20 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 ${following ? `border-[#${SecondaryColor}]` : 'border-gray-300'} transition-all duration-300`}>
             {channel.avatar ? (
@@ -65,17 +61,14 @@ function ChannelCard({ channel }: { channel: { id: number; name: string; avatar:
           )}
         </div>
 
-        {/* Name */}
         <h3 className={`text-sm font-semibold text-[#${PrimaryColor}] text-center mb-2 line-clamp-2`}>
           {channel.name}
         </h3>
 
-        {/* Followers */}
         <p className="text-xs text-gray-500 mb-3">
           {channel.followers} followers
         </p>
 
-        {/* Following Badge */}
         <div className={`px-3 py-1.5 rounded-full text-xs font-medium ${following ? `bg-[#${SecondaryColor}]/10 text-[#${SecondaryColor}]` : `bg-gray-100 text-gray-600`} transition-all duration-300`}>
           {following ? 'Following' : 'Not Following'}
         </div>
@@ -84,7 +77,6 @@ function ChannelCard({ channel }: { channel: { id: number; name: string; avatar:
   );
 }
 
-// --- Sub-Component: Video Card ---
 function VideoCard({ video }: { 
   video: { 
     id: number; 
@@ -103,8 +95,11 @@ function VideoCard({ video }: {
   const router = useRouter();
 
   const handleClick = () => {
-    // Navigate to livestream viewer page
-    router.push(`/student/livestream/teacher-${video.teacherId}/livestream-${video.id}`);
+    if (video.isLive) {
+      router.push(`/student/livestream/teacher-${video.teacherId}/livestream-${video.id}`);
+    } else {
+      router.push(`/student/video/teacher-${video.teacherId}/video-${video.id}`);
+    }
   };
 
   return (
@@ -114,7 +109,6 @@ function VideoCard({ video }: {
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
     >
-      {/* Image/Placeholder */}
       <div className="relative bg-gray-200 overflow-hidden h-48">
         {video.image ? (
           <div 
@@ -127,7 +121,6 @@ function VideoCard({ video }: {
           </div>
         )}
         
-        {/* LIVE Tag or Duration */}
         {video.isLive ? (
           <div className={`absolute top-3 left-3 flex items-center space-x-1 px-2 py-1 rounded-md text-xs font-bold text-white bg-[#${SecondaryColor}] ${isHovered ? 'animate-pulse' : ''}`}>
             <SignalIcon className={`h-3 w-3 ${isHovered ? 'animate-pulse' : ''}`} />
@@ -139,7 +132,6 @@ function VideoCard({ video }: {
           </div>
         )}
 
-        {/* Teacher Info Overlay */}
         <div className={`absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent text-white`}>
           <p className="font-semibold text-sm truncate">{video.title}</p>
           <div className="flex items-center text-xs mt-1">
@@ -149,7 +141,6 @@ function VideoCard({ video }: {
         </div>
       </div>
       
-      {/* Metrics row */}
       <div className="p-3 flex justify-between items-center">
         <div className="flex flex-col">
           <span className={`text-xs font-medium text-[#${PrimaryColor}]`}>
@@ -170,7 +161,6 @@ function VideoCard({ video }: {
   );
 }
 
-// --- Main Live Following Page ---
 export default function LiveFollowingPage() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'live' | 'videos'>('all');
@@ -188,23 +178,16 @@ export default function LiveFollowingPage() {
 
   const scrollLeft = (ref: React.RefObject<HTMLDivElement | null>) => {
     if (ref.current) {
-      ref.current.scrollBy({
-        left: -300,
-        behavior: 'smooth'
-      });
+      ref.current.scrollBy({ left: -300, behavior: 'smooth' });
     }
   };
 
   const scrollRight = (ref: React.RefObject<HTMLDivElement | null>) => {
     if (ref.current) {
-      ref.current.scrollBy({
-        left: 300,
-        behavior: 'smooth'
-      });
+      ref.current.scrollBy({ left: 300, behavior: 'smooth' });
     }
   };
 
-  // Filter content based on active tab
   const filteredLivestreams = activeTab === 'videos' ? [] : followedLivestreams;
   const filteredVideos = activeTab === 'live' ? [] : followedVideos;
   
@@ -216,17 +199,15 @@ export default function LiveFollowingPage() {
     >
       <div className="w-full">
         
-        {/* Header */}
         <motion.div variants={fadeInUp} className="mb-8 mt-4">
           <h1 className={`text-3xl font-extrabold text-[#${PrimaryColor}] mb-2`}>
-            Kênh Đang Follow
+            Following Channels
           </h1>
           <p className="text-gray-600">
-            Xem nội dung mới nhất từ {followedChannels.length} kênh bạn đang theo dõi
+            Watch latest content from {followedChannels.length} channels you follow
           </p>
         </motion.div>
 
-        {/* Filter Tabs */}
         <motion.div variants={fadeInUp} className="mb-8">
           <div className="flex space-x-2 border-b border-gray-200">
             <button
@@ -237,7 +218,7 @@ export default function LiveFollowingPage() {
                   : 'text-gray-500 border-transparent hover:text-gray-700'
               }`}
             >
-              Tất cả ({followedLivestreams.length + followedVideos.length})
+              All ({followedLivestreams.length + followedVideos.length})
             </button>
             <button
               onClick={() => setActiveTab('live')}
@@ -249,7 +230,7 @@ export default function LiveFollowingPage() {
             >
               <span className="flex items-center gap-2">
                 <SignalIcon className="h-4 w-4" />
-                Đang Live ({followedLivestreams.length})
+                Live Now ({followedLivestreams.length})
               </span>
             </button>
             <button
@@ -268,13 +249,12 @@ export default function LiveFollowingPage() {
           </div>
         </motion.div>
 
-        {/* Followed Channels Section */}
         <motion.section variants={fadeInUp} className="mb-12">
           <div className="flex justify-between items-center mb-4">
             <h2 className={`text-xl font-bold text-[#${PrimaryColor}]`}>
-              Kênh Đang Theo Dõi
+              Following Channels
             </h2>
-            <span className="text-sm text-gray-500">{followedChannels.length} kênh</span>
+            <span className="text-sm text-gray-500">{followedChannels.length} channels</span>
           </div>
           
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -291,14 +271,13 @@ export default function LiveFollowingPage() {
           </div>
         </motion.section>
 
-        {/* Live Streams Section */}
         {filteredLivestreams.length > 0 && (
           <motion.section variants={fadeInUp} className="mb-12">
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center">
                 <h2 className={`text-xl font-bold text-[#${SecondaryColor}] mr-3 flex items-center gap-2`}>
                   <SignalIcon className="h-6 w-6" />
-                  Đang Live Ngay Bây Giờ
+                  Live Now
                 </h2>
                 <span className="text-sm text-gray-500">{filteredLivestreams.length} livestreams</span>
               </div>
@@ -339,13 +318,12 @@ export default function LiveFollowingPage() {
           </motion.section>
         )}
 
-        {/* Videos Section */}
         {filteredVideos.length > 0 && (
           <motion.section variants={fadeInUp} className="mb-12">
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center">
                 <h2 className={`text-xl font-bold text-[#${PrimaryColor}] mr-3`}>
-                  Video Gần Đây
+                  Recent Videos
                 </h2>
                 <span className="text-sm text-gray-500">{filteredVideos.length} videos</span>
               </div>
@@ -366,7 +344,6 @@ export default function LiveFollowingPage() {
           </motion.section>
         )}
 
-        {/* Empty State */}
         {filteredLivestreams.length === 0 && filteredVideos.length === 0 && (
           <motion.div 
             variants={fadeInUp}
@@ -376,12 +353,12 @@ export default function LiveFollowingPage() {
               <UserPlusIcon className={`h-12 w-12 text-[#${PrimaryColor}]`} />
             </div>
             <h3 className={`text-xl font-semibold text-[#${PrimaryColor}] mb-2`}>
-              {activeTab === 'live' ? 'Chưa có livestream nào' : 'Chưa có video nào'}
+              {activeTab === 'live' ? 'No livestreams available' : 'No videos available'}
             </h3>
             <p className="text-gray-500 text-center max-w-md">
               {activeTab === 'live' 
-                ? 'Các kênh bạn theo dõi hiện không có livestream nào. Hãy quay lại sau!'
-                : 'Các kênh bạn theo dõi chưa đăng video mới. Hãy khám phá thêm các kênh khác!'}
+                ? 'Channels you follow are not live at the moment. Check back later!'
+                : 'Channels you follow have not posted new videos. Explore more channels!'}
             </p>
           </motion.div>
         )}

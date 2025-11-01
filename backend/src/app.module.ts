@@ -7,6 +7,7 @@ import { StreamModule } from './stream/stream.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { MongodbModule } from './mongodb/mongodb.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { PrismaModule } from './prisma/prisma.module';
     }),
     ScheduleModule.forRoot(),
     PrismaModule,
+    MongodbModule,
     StreamModule,
     UsersModule,
     AuthModule,

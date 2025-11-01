@@ -84,9 +84,7 @@ export type NotificationType = (typeof NotificationType)[keyof typeof Notificati
 
 export const UserStatus: {
   ONLINE: 'ONLINE',
-  OFFLINE: 'OFFLINE',
-  AWAY: 'AWAY',
-  BUSY: 'BUSY'
+  OFFLINE: 'OFFLINE'
 };
 
 export type UserStatus = (typeof UserStatus)[keyof typeof UserStatus]

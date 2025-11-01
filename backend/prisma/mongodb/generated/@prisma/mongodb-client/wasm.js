@@ -185,9 +185,7 @@ exports.NotificationType = exports.$Enums.NotificationType = {
 
 exports.UserStatus = exports.$Enums.UserStatus = {
   ONLINE: 'ONLINE',
-  OFFLINE: 'OFFLINE',
-  AWAY: 'AWAY',
-  BUSY: 'BUSY'
+  OFFLINE: 'OFFLINE'
 };
 
 exports.Prisma.ModelName = {
@@ -209,7 +207,7 @@ const config = {
       "value": "prisma-client-js"
     },
     "output": {
-      "value": "D:\\streamland\\StreamLand\\backend\\prisma\\node_modules\\@prisma\\mongodb-client",
+      "value": "D:\\streamland\\StreamLand\\backend\\prisma\\mongodb\\generated\\@prisma\\mongodb-client",
       "fromEnvVar": null
     },
     "config": {
@@ -227,10 +225,10 @@ const config = {
     "isCustomOutput": true
   },
   "relativeEnvPaths": {
-    "rootEnvPath": "../../../../.env",
-    "schemaEnvPath": "../../../../.env"
+    "rootEnvPath": "../../../../../.env",
+    "schemaEnvPath": "../../../../../.env"
   },
-  "relativePath": "../../../mongodb",
+  "relativePath": "../../..",
   "clientVersion": "6.18.0",
   "engineVersion": "34b5a692b7bd79939a9a2c3ef97d816e749cda2f",
   "datasourceNames": [
@@ -246,8 +244,8 @@ const config = {
       }
     }
   },
-  "inlineSchema": "// MongoDB Schema - For Real-time Data\ngenerator mongoClient {\n  provider = \"prisma-client-js\"\n  output   = \"../node_modules/@prisma/mongodb-client\"\n}\n\ndatasource mongodb {\n  provider = \"mongodb\"\n  url      = env(\"MONGODB_URL\")\n}\n\nmodel ChatMessage {\n  id          String      @id @default(auto()) @map(\"_id\") @mongodb.ObjectId\n  senderId    String\n  receiverId  String\n  content     String\n  type        MessageType @default(TEXT)\n  attachments String[]\n  readAt      DateTime?\n  createdAt   DateTime    @default(now())\n  updatedAt   DateTime    @updatedAt\n\n  @@index([senderId, receiverId])\n  @@index([createdAt])\n  @@map(\"chat_messages\")\n}\n\nenum MessageType {\n  TEXT\n  IMAGE\n  VIDEO\n  FILE\n  VOICE\n}\n\n// Live Stream Chat\nmodel LiveStreamChat {\n  id           String   @id @default(auto()) @map(\"_id\") @mongodb.ObjectId\n  livestreamId String\n  userId       String\n  username     String\n  userAvatar   String?\n  message      String\n  type         ChatType @default(MESSAGE)\n  createdAt    DateTime @default(now())\n\n  @@index([livestreamId, createdAt])\n  @@map(\"livestream_chats\")\n}\n\nenum ChatType {\n  MESSAGE\n  SYSTEM\n  GIFT\n  SUPER_CHAT\n}\n\n// Notifications\nmodel Notification {\n  id        String           @id @default(auto()) @map(\"_id\") @mongodb.ObjectId\n  userId    String\n  type      NotificationType\n  title     String\n  content   String\n  data      Json?\n  read      Boolean          @default(false)\n  createdAt DateTime         @default(now())\n\n  @@index([userId, read])\n  @@index([createdAt])\n  @@map(\"notifications\")\n}\n\nenum NotificationType {\n  NEW_FOLLOWER\n  NEW_MESSAGE\n  LIVESTREAM_START\n  COURSE_UPDATE\n  COMMENT\n  LIKE\n  SYSTEM\n}\n\n// User Activity Logs\nmodel ActivityLog {\n  id        String   @id @default(auto()) @map(\"_id\") @mongodb.ObjectId\n  userId    String\n  action    String\n  resource  String?\n  metadata  Json?\n  ipAddress String?\n  userAgent String?\n  createdAt DateTime @default(now())\n\n  @@index([userId, createdAt])\n  @@index([action])\n  @@map(\"activity_logs\")\n}\n\n// Live Stream Sessions (for analytics)\nmodel LiveStreamSession {\n  id           String    @id @default(auto()) @map(\"_id\") @mongodb.ObjectId\n  livestreamId String\n  viewerId     String\n  joinedAt     DateTime  @default(now())\n  leftAt       DateTime?\n  duration     Int? // in seconds\n  interactions Int       @default(0)\n\n  @@index([livestreamId, viewerId])\n  @@map(\"livestream_sessions\")\n}\n\n// Real-time User Presence\nmodel UserPresence {\n  id       String     @id @default(auto()) @map(\"_id\") @mongodb.ObjectId\n  userId   String     @unique\n  status   UserStatus @default(OFFLINE)\n  lastSeen DateTime   @default(now())\n  socketId String?\n  metadata Json?\n\n  @@index([status])\n  @@map(\"user_presences\")\n}\n\nenum UserStatus {\n  ONLINE\n  OFFLINE\n  AWAY\n  BUSY\n}\n",
-  "inlineSchemaHash": "d13bf3376855c04579ee006d82c0844d445a195807732314bd6c3f14cca623d3",
+  "inlineSchema": "// MongoDB Schema - For Real-time Data\ngenerator mongoClient {\n  provider = \"prisma-client-js\"\n  output   = \"../../prisma/mongodb/generated/@prisma/mongodb-client\"\n}\n\ndatasource mongodb {\n  provider = \"mongodb\"\n  url      = env(\"MONGODB_URL\")\n}\n\nmodel ChatMessage {\n  id          String      @id @default(auto()) @map(\"_id\") @mongodb.ObjectId\n  senderId    String\n  receiverId  String\n  content     String\n  type        MessageType @default(TEXT)\n  attachments String[]\n  readAt      DateTime?\n  createdAt   DateTime    @default(now())\n  updatedAt   DateTime    @updatedAt\n\n  @@index([senderId, receiverId])\n  @@index([createdAt])\n  @@map(\"chat_messages\")\n}\n\nenum MessageType {\n  TEXT\n  IMAGE\n  VIDEO\n  FILE\n  VOICE\n}\n\n// Live Stream Chat\nmodel LiveStreamChat {\n  id           String   @id @default(auto()) @map(\"_id\") @mongodb.ObjectId\n  livestreamId String\n  userId       String\n  username     String\n  userAvatar   String?\n  message      String\n  type         ChatType @default(MESSAGE)\n  createdAt    DateTime @default(now())\n\n  @@index([livestreamId, createdAt])\n  @@map(\"livestream_chats\")\n}\n\nenum ChatType {\n  MESSAGE\n  SYSTEM\n  GIFT\n  SUPER_CHAT\n}\n\n// Notifications\nmodel Notification {\n  id        String           @id @default(auto()) @map(\"_id\") @mongodb.ObjectId\n  userId    String\n  type      NotificationType\n  title     String\n  content   String\n  data      Json?\n  read      Boolean          @default(false)\n  createdAt DateTime         @default(now())\n\n  @@index([userId, read])\n  @@index([createdAt])\n  @@map(\"notifications\")\n}\n\nenum NotificationType {\n  NEW_FOLLOWER\n  NEW_MESSAGE\n  LIVESTREAM_START\n  COURSE_UPDATE\n  COMMENT\n  LIKE\n  SYSTEM\n}\n\n// User Activity Logs\nmodel ActivityLog {\n  id        String   @id @default(auto()) @map(\"_id\") @mongodb.ObjectId\n  userId    String\n  action    String\n  resource  String?\n  metadata  Json?\n  ipAddress String?\n  userAgent String?\n  createdAt DateTime @default(now())\n\n  @@index([userId, createdAt])\n  @@index([action])\n  @@map(\"activity_logs\")\n}\n\n// Live Stream Sessions (for analytics)\nmodel LiveStreamSession {\n  id           String    @id @default(auto()) @map(\"_id\") @mongodb.ObjectId\n  livestreamId String\n  viewerId     String\n  joinedAt     DateTime  @default(now())\n  leftAt       DateTime?\n  duration     Int? // in seconds\n  interactions Int       @default(0)\n\n  @@index([livestreamId, viewerId])\n  @@map(\"livestream_sessions\")\n}\n\n// Real-time User Presence\nmodel UserPresence {\n  id       String     @id @default(auto()) @map(\"_id\") @mongodb.ObjectId\n  userId   String     @unique\n  status   UserStatus @default(OFFLINE)\n  lastSeen DateTime   @default(now())\n  socketId String?\n  metadata Json?\n\n  @@index([status])\n  @@map(\"user_presences\")\n}\n\nenum UserStatus {\n  ONLINE\n  OFFLINE\n}\n",
+  "inlineSchemaHash": "d2b309176d313ab56cea9a239f625cb5c7a8465035c97982ae9a7ba7634c1460",
   "copyEngine": true
 }
 config.dirname = '/'

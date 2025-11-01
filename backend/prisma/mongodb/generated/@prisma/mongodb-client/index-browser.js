@@ -213,9 +213,7 @@ exports.NotificationType = exports.$Enums.NotificationType = {
 
 exports.UserStatus = exports.$Enums.UserStatus = {
   ONLINE: 'ONLINE',
-  OFFLINE: 'OFFLINE',
-  AWAY: 'AWAY',
-  BUSY: 'BUSY'
+  OFFLINE: 'OFFLINE'
 };
 
 exports.Prisma.ModelName = {

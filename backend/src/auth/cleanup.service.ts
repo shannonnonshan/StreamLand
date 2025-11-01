@@ -23,7 +23,6 @@ export class CleanupService {
       });
 
       if (result.count > 0) {
-        // eslint-disable-next-line prettier/prettier
         this.logger.log(`Cleaned up ${result.count} expired pending registrations`);
       }
     } catch (error) {

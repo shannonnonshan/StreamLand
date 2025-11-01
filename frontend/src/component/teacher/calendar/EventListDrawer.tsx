@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { CalendarEvent } from "@/utils/calendar";
+import { CalendarEvent } from "@/utils/data/teacher/calendar";
 import { XIcon, ChevronRightIcon } from "lucide-react";
 import EventDrawer from "./EventDrawer";
 import { raleway } from "@/utils/front";

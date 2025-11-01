@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useParams } from "next/navigation";
-import { Paperclip, Send, X } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { Paperclip, Send, X, ArrowLeft, MessageCircle } from "lucide-react";
 import Image from "next/image";
-import {raleway} from "@/utils/front";
+import { raleway } from "@/utils/front";
+
 type ChatMessage = {
   id: number;
   text?: string;
@@ -15,12 +16,19 @@ type ChatMessage = {
 
 export default function ChatWithAdminPage() {
   const params = useParams();
+  const router = useRouter();
   const chatId = params.id || "unknown";
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [message, setMessage] = useState("");
   const [images, setImages] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  // Auto scroll to bottom when new message
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   // Upload nhiều ảnh
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -91,68 +99,95 @@ const handleSend = () => {
   };
 
   return (
-    <div className={`${raleway.variable} flex top-[10%] justify-center min-h-screen bg-gray-50 text-black overflow-hidden p-4`}>
-      <div className="w-[85%] h-[80vh] border rounded-4xl shadow-sm flex flex-col justify-between bg-white">
+    <div className={`${raleway.className} flex justify-center min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4`}>
+      <div className="w-full max-w-5xl h-[85vh] rounded-2xl shadow-xl flex flex-col bg-white overflow-hidden">
         {/* Header */}
-        <div className="px-3 py-2 font-semibold text-sm border-b">
-          Chat with Admin – ID: {chatId}
+        <div className="bg-gradient-to-r from-[#292C6D] to-[#1f2350] px-6 py-4 flex items-center gap-4">
+          <button
+            onClick={() => router.back()}
+            className="text-white hover:text-[#FAEDF0] transition-colors"
+          >
+            <ArrowLeft size={24} />
+          </button>
+          <div className="flex items-center gap-3 flex-1">
+            <div className="w-10 h-10 bg-[#FAEDF0] rounded-full flex items-center justify-center">
+              <MessageCircle className="text-[#292C6D]" size={20} />
+            </div>
+            <div>
+              <h1 className="text-white font-semibold text-lg">Admin Support</h1>
+              <p className="text-[#FAEDF0] text-sm">We&apos;re here to help</p>
+            </div>
+          </div>
         </div>
 
         {/* Chat body */}
-        <div className="flex-1 p-3 overflow-y-auto text-sm space-y-2">
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${
-                msg.sender === "me" ? "justify-end" : "justify-start"
-              }`}
-            >
+        <div className="flex-1 p-6 overflow-y-auto bg-gray-50 space-y-4">
+          {messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-400">
+              <MessageCircle size={64} className="mb-4 opacity-30" />
+              <p className="text-lg font-medium">No messages yet</p>
+              <p className="text-sm">Start a conversation with admin</p>
+            </div>
+          ) : (
+            messages.map((msg) => (
               <div
-                className={`rounded-lg px-3 py-2 max-w-[70%] ${
-                  msg.sender === "me"
-                    ? "bg-blue-500 text-white"
-                    : "bg-gray-200 text-black"
+                key={msg.id}
+                className={`flex ${
+                  msg.sender === "me" ? "justify-end" : "justify-start"
                 }`}
               >
-                {msg.text && <p>{msg.text}</p>}
-                {msg.images && (
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    {msg.images.map((src, i) => (
-                      <div key={i} className="relative w-32 h-32">
-                        <Image
-                          src={src}
-                          alt="uploaded"
-                          fill
-                          className="rounded object-cover"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <span className={`block text-xs  ${
-                  msg.sender === "me" ? "text-white mt-1 text-right" : "text-gray-500 mt-1 text-left"
-                }`}>
-                  {msg.time}
-                </span>
+                <div
+                  className={`rounded-2xl px-4 py-3 max-w-[70%] shadow-sm ${
+                    msg.sender === "me"
+                      ? "bg-[#292C6D] text-white rounded-br-sm"
+                      : "bg-white text-gray-900 border border-gray-200 rounded-bl-sm"
+                  }`}
+                >
+                  {msg.text && <p className="leading-relaxed">{msg.text}</p>}
+                  {msg.images && (
+                    <div className="grid grid-cols-2 gap-2 mt-3">
+                      {msg.images.map((src, i) => (
+                        <div key={i} className="relative w-32 h-32 rounded-lg overflow-hidden">
+                          <Image
+                            src={src}
+                            alt="uploaded"
+                            fill
+                            className="object-cover"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <span
+                    className={`block text-xs mt-2 ${
+                      msg.sender === "me"
+                        ? "text-[#FAEDF0] text-right"
+                        : "text-gray-400 text-left"
+                    }`}
+                  >
+                    {msg.time}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
+          <div ref={messagesEndRef} />
         </div>
 
         {/* Preview ảnh trước khi gửi */}
         {previews.length > 0 && (
-          <div className="flex flex-wrap gap-2 p-2 border-t bg-gray-50">
+          <div className="flex flex-wrap gap-3 p-4 bg-white border-t">
             {previews.map((src, i) => (
-              <div key={i} className="relative w-20 h-20">
+              <div key={i} className="relative w-24 h-24 rounded-lg overflow-hidden border-2 border-gray-200">
                 <Image
                   src={src}
                   alt={`preview-${i}`}
                   fill
-                  className="rounded border object-cover"
+                  className="object-cover"
                 />
                 <button
                   onClick={() => removeImage(i)}
-                  className="absolute top-0 right-0 bg-black bg-opacity-60 text-white p-1 rounded-bl"
+                  className="absolute -top-2 -right-2 bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center hover:bg-red-600 shadow-lg transition-colors"
                 >
                   <X size={14} />
                 </button>
@@ -162,9 +197,9 @@ const handleSend = () => {
         )}
 
         {/* Input + Upload + Send */}
-        <div className="flex items-center p-2 gap-2 border-t">
-          <label className="cursor-pointer text-gray-500 hover:text-gray-700">
-            <Paperclip size={20} />
+        <div className="flex items-center gap-3 p-4 bg-white border-t">
+          <label className="cursor-pointer text-gray-400 hover:text-[#292C6D] transition-colors">
+            <Paperclip size={24} />
             <input
               type="file"
               accept="image/*"
@@ -178,14 +213,15 @@ const handleSend = () => {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Aa"
-            className="flex-1 border rounded px-2 py-1 text-sm focus:outline-none"
+            placeholder="Type your message..."
+            className="flex-1 border border-gray-300 rounded-full px-5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900 placeholder-gray-400"
           />
           <button
             onClick={handleSend}
-            className="bg-black text-white p-2 rounded-full hover:bg-gray-800"
+            disabled={!message && previews.length === 0}
+            className="bg-[#292C6D] text-white p-3 rounded-full hover:bg-[#1f2350] transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
           >
-            <Send size={18} />
+            <Send size={20} />
           </button>
         </div>
       </div>

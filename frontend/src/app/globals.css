@@ -1,16 +1,12 @@
 @import "tailwindcss";
-@import "./font-styles.css";
+
+.dark * {
+  color-scheme: dark;
+}
 
 :root {
   --background: #ffffff;
   --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-raleway);
-  --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,23 +18,53 @@
 
 html, body {
   background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-raleway), sans-serif;
+  color: #171717; /* Force dark text color instead of using CSS variable */
   margin: 0;
   padding: 0;
-  overflow: hidden; /* Loại bỏ thanh cuộn mặc định */
   height: 100%;
   width: 100%;
 }
 
+/* Override dark mode text color */
+@media (prefers-color-scheme: dark) {
+  html, body {
+    color: #171717; /* Keep text dark even in dark mode */
+  }
+}
+
+/* Custom Scrollbar Styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #FAEDF0 #161853;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #161853;
+  border-radius: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #FAEDF0;
+  border-radius: 10px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #f0d5dd;
+}
+
 /* Ẩn thanh cuộn nhưng vẫn cho phép cuộn */
 .scrollbar-none::-webkit-scrollbar {
-  display: none; /* Cho Chrome, Safari và Opera */
+  display: none;
 }
 
 .scrollbar-none {
-  -ms-overflow-style: none;  /* Cho IE và Edge */
-  scrollbar-width: none;  /* Cho Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Ẩn scrollbar - alternative class */
@@ -51,58 +77,7 @@ html, body {
   scrollbar-width: none;
 }
 
-/* Animation for fade-in effect */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.3s ease-in-out;
-}
-
-/* Animation for chat overlay slide-up effect */
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-slide-up {
-  animation: slideUp 0.4s ease-out;
-}
-
-/* Blob animation for landing page */
-@keyframes blob {
-  0% {
-    transform: translate(0px, 0px) scale(1);
-  }
-  33% {
-    transform: translate(30px, -50px) scale(1.1);
-  }
-  66% {
-    transform: translate(-20px, 20px) scale(0.9);
-  }
-  100% {
-    transform: translate(0px, 0px) scale(1);
-  }
-}
-
-.animate-blob {
-  animation: blob 7s infinite;
-}
-
+/* Animation delay utilities */
 .animation-delay-2000 {
   animation-delay: 2s;
 }

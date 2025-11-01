@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { raleway } from '@/utils/front';
 import { useParams } from 'next/navigation';
 import { 
   PlayIcon, 
@@ -293,7 +294,7 @@ export default function LivestreamViewerPage() {
   }, []);
 
   return (
-    <div className="h-full w-full bg-gray-50">
+    <div className={`${raleway.className} h-full w-full bg-gray-50`}>
       <div className="h-full flex gap-4 p-4">
         
         {/* Main Content Area */}

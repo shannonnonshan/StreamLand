@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import { raleway } from "@/utils/front";
 import { useParams } from "next/navigation";
 import { addDays, startOfWeek, format, isBefore, endOfDay } from "date-fns";
-import { CalendarEvent, sampleEvents } from "@/utils/calendar";
+import { CalendarEvent, sampleEvents } from "@/utils/data/teacher/calendar";
 import pastelise from "@/utils/colorise";
 import EventDrawer from "@/component/teacher/calendar/EventDrawer";
 

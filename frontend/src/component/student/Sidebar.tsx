@@ -1,7 +1,6 @@
 'use client';
 
 import { ChartBarIcon, ComputerDesktopIcon, EnvelopeIcon, DocumentTextIcon, QuestionMarkCircleIcon, UserGroupIcon } from '@heroicons/react/24/outline';
-import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -18,24 +17,11 @@ const PrimaryColor = '161853';
 export default function Sidebar() {
   const pathname = usePathname();
   return (
-    <div className={`fixed left-0 top-0 h-full w-20 bg-white shadow-xl flex flex-col items-center py-6 border-r border-gray-100 z-30`}>
+    <div className={`fixed left-0 top-16 h-[calc(100vh-64px)] w-20 bg-white shadow-xl flex flex-col items-center py-6 border-r border-gray-100 z-30`}>
       
-      {/* Logo */}
-      <div className="mb-10 flex flex-col items-center">
-        {/* Logo Streamland từ thư mục public */}
-        <Image 
-          src="/logo.png" 
-          alt="StreamLand Logo" 
-          width={32} 
-          height={32} 
-          className="h-8 w-auto"
-        />
-      </div>
-
-      {/* Nav Items */}
-      <nav className="flex flex-col items-center space-y-6">
+      {/* Navigation items */}
+      <nav className="flex flex-col items-center space-y-6 flex-1">
         {navItems.map((item) => {
-          // Check if current path starts with the item href (to handle nested routes)
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
           
           return (
@@ -50,14 +36,14 @@ export default function Sidebar() {
             >
               <item.icon className="h-6 w-6" />
               
-              {/* Thanh màu Active bên trái (indicator bar) */}
+              {/* Active indicator bar */}
               {isActive && (
                 <div 
                   className={`absolute -left-5 top-1/2 -translate-y-1/2 w-1 h-8 rounded-full bg-[#${PrimaryColor}] shadow-md animate-pulse`} 
                 />
               )}
               
-              {/* Glow effect khi active */}
+              {/* Glow effect when active */}
               {isActive && (
                 <div className={`absolute inset-0 bg-[#${PrimaryColor}] opacity-20 blur-xl rounded-xl -z-10`} />
               )}
@@ -74,7 +60,7 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Help Icon (Dưới cùng) */}
+      {/* Help icon at bottom */}
       <div className="mt-auto">
         <a 
           href="#" 

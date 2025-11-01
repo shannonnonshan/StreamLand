@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { CalendarEvent } from "@/utils/calendar";
+import { CalendarEvent } from "@/utils/data/teacher/calendar";
 import pastelize from "@/utils/colorise";
 import { raleway } from "@/utils/front";
 import { XIcon, Clock, Users, Bell, StickyNote, Palette, UserRound, CalendarDays, ChevronRightIcon } from "lucide-react";

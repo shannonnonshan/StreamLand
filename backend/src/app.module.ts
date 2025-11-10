@@ -7,6 +7,7 @@ import { StreamModule } from './stream/stream.module';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MongodbModule } from './mongodb/mongodb.module';
+import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { MongodbModule } from './mongodb/mongodb.module';
     MongodbModule,
     StreamModule,
     AuthModule,
+    RedisModule,
   ],
   controllers: [AppController],
   providers: [AppService],

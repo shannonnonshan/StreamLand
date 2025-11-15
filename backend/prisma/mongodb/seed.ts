@@ -1,4 +1,4 @@
-import { PrismaClient as MongoClient } from '../../node_modules/@prisma/mongodb-client';
+import { PrismaClient as MongoClient } from '../../prisma/mongodb/generated/@prisma/mongodb-client';
 
 const mongo = new MongoClient();
 

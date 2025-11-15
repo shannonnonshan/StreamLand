@@ -6,7 +6,6 @@ import { AppService } from './app.service';
 import { StreamModule } from './stream/stream.module';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
-import { MongodbModule } from './mongodb/mongodb.module';
 import { RedisModule } from './redis/redis.module';
 
 @Module({
@@ -17,7 +16,6 @@ import { RedisModule } from './redis/redis.module';
     }),
     ScheduleModule.forRoot(),
     PrismaModule,
-    MongodbModule,
     StreamModule,
     AuthModule,
     RedisModule,

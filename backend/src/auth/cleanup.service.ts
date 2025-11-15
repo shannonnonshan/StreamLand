@@ -14,7 +14,7 @@ export class CleanupService {
     try {
       const now = new Date();
       // Xóa các pending registration có OTP đã hết hạn
-      const result = await this.prisma.pendingRegistration.deleteMany({
+      const result = await this.prisma.postgres.pendingRegistration.deleteMany({
         where: {
           otpExpiry: {
             lt: now,
@@ -39,7 +39,7 @@ export class CleanupService {
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-      const result = await this.prisma.pendingRegistration.deleteMany({
+      const result = await this.prisma.postgres.pendingRegistration.deleteMany({
         where: {
           createdAt: {
             lt: oneHourAgo,

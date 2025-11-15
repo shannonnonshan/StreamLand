@@ -149,6 +149,7 @@ const mockFolders = [
 export default function DocumentsPage() {
   // States
   const [documents, setDocuments] = useState<Document[]>(mockDocuments);
+  const [folders, setFolders] = useState<string[]>(mockFolders);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -159,6 +160,9 @@ export default function DocumentsPage() {
   const [editingDocument, setEditingDocument] = useState<Document | null>(null);
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
   const [showFolderDropdown, setShowFolderDropdown] = useState(false);
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -333,6 +337,23 @@ export default function DocumentsPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
   
+  // Tạo folder mới
+  const handleCreateFolder = () => {
+    if (!newFolderName.trim()) {
+      alert('Vui lòng nhập tên thư mục!');
+      return;
+    }
+    
+    if (folders.includes(newFolderName.trim())) {
+      alert('Thư mục này đã tồn tại!');
+      return;
+    }
+    
+    setFolders(prev => [...prev, newFolderName.trim()]);
+    setNewFolderName('');
+    setShowNewFolderModal(false);
+  };
+  
   // Render UI
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -395,7 +416,7 @@ export default function DocumentsPage() {
                     >
                       Tất cả thư mục
                     </button>
-                    {mockFolders.map(folder => (
+                    {folders.map(folder => (
                       <button
                         key={folder}
                         onClick={() => {
@@ -407,6 +428,17 @@ export default function DocumentsPage() {
                         {folder}
                       </button>
                     ))}
+                    <div className="border-t border-gray-200 my-1"></div>
+                    <button
+                      onClick={() => {
+                        setShowFolderDropdown(false);
+                        setShowNewFolderModal(true);
+                      }}
+                      className="w-full text-left px-4 py-2 text-[#161853] hover:bg-gray-50 flex items-center font-medium"
+                    >
+                      <FolderPlusIcon className="h-4 w-4 mr-2" />
+                      Tạo thư mục mới
+                    </button>
                   </div>
                 </div>
               )}
@@ -792,6 +824,53 @@ export default function DocumentsPage() {
                   Lưu thay đổi
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Modal tạo thư mục mới */}
+      {showNewFolderModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-xl font-bold text-[#161853] mb-4">Tạo thư mục mới</h3>
+            
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Tên thư mục
+              </label>
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    handleCreateFolder();
+                  }
+                }}
+                placeholder="Nhập tên thư mục..."
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#161853] focus:border-transparent"
+                autoFocus
+              />
+            </div>
+            
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowNewFolderModal(false);
+                  setNewFolderName('');
+                }}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleCreateFolder}
+                className="px-4 py-2 bg-[#161853] text-white rounded-lg hover:bg-opacity-90 transition flex items-center"
+              >
+                <FolderPlusIcon className="h-5 w-5 mr-2" />
+                Tạo thư mục
+              </button>
             </div>
           </div>
         </div>

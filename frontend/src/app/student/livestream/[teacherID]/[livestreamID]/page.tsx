@@ -11,7 +11,6 @@ import {
   ArrowsPointingOutIcon,
   ArrowsPointingInIcon,
   ChatBubbleLeftRightIcon,
-  DocumentTextIcon,
   XMarkIcon,
   ClockIcon,
   UserGroupIcon,
@@ -20,7 +19,8 @@ import {
   EyeIcon,
   FolderIcon,
   CheckIcon,
-  EyeSlashIcon
+  EyeSlashIcon,
+  ArrowDownTrayIcon
 } from '@heroicons/react/24/outline';
 import { HeartIcon as HeartSolidIcon } from '@heroicons/react/24/solid';
 
@@ -65,56 +65,57 @@ export default function LivestreamViewerPage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   
   // UI states
-  const [showNotes, setShowNotes] = useState(false);
+  const [showDocuments, setShowDocuments] = useState(false);
   const [showOverlayChat, setShowOverlayChat] = useState(true);
   const [chatMessage, setChatMessage] = useState('');
   const [chatMessages, setChatMessages] = useState(mockChatMessages);
   
-  // Note taking states - Single document approach (like Google Docs)
-  const [documentTitle, setDocumentTitle] = useState(`${mockLivestream.title} - Notes`);
-  const [documentContent, setDocumentContent] = useState('');
-  const [noteTags, setNoteTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState('');
-  const [isBold, setIsBold] = useState(false);
-  const [isItalic, setIsItalic] = useState(false);
-  const [isUnderline, setIsUnderline] = useState(false);
-  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [currentVideoTime, setCurrentVideoTime] = useState('00:00');
+  // Documents shared by teacher
+  const [teacherDocuments] = useState([
+    {
+      id: '1',
+      title: 'IELTS Speaking Part 2 - Sample Topics',
+      filename: 'ielts-speaking-part2.pdf',
+      type: 'pdf' as const,
+      size: '2.4 MB',
+      uploadedAt: '2 hours ago',
+      description: 'Collection of common Part 2 topics with sample answers',
+      downloadUrl: '#',
+      isSaved: false,
+    },
+    {
+      id: '2',
+      title: 'Speaking Band Descriptors',
+      filename: 'speaking-band-descriptors.pdf',
+      type: 'pdf' as const,
+      size: '1.2 MB',
+      uploadedAt: '1 hour ago',
+      description: 'Official IELTS speaking assessment criteria',
+      downloadUrl: '#',
+      isSaved: false,
+    },
+    {
+      id: '3',
+      title: 'Useful Phrases and Idioms',
+      filename: 'phrases-idioms.docx',
+      type: 'doc' as const,
+      size: '890 KB',
+      uploadedAt: '30 minutes ago',
+      description: 'Advanced vocabulary for high band scores',
+      downloadUrl: '#',
+      isSaved: true,
+    },
+  ]);
+  const [savedDocuments, setSavedDocuments] = useState<string[]>(
+    teacherDocuments.filter(doc => doc.isSaved).map(doc => doc.id)
+  );
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
-  const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Load document from localStorage on mount
-  useEffect(() => {
-    const savedDoc = localStorage.getItem(`livestream-doc-${livestreamID}`);
-    if (savedDoc) {
-      const parsed = JSON.parse(savedDoc);
-      setDocumentTitle(parsed.title);
-      setDocumentContent(parsed.content);
-      setNoteTags(parsed.tags || []);
-      setLastSaved(parsed.lastSaved ? new Date(parsed.lastSaved) : null);
-    }
-  }, [livestreamID]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
-
-  useEffect(() => {
-    // Simulate video time updates
-    const interval = setInterval(() => {
-      if (isPlaying) {
-        const now = new Date();
-        const minutes = now.getMinutes().toString().padStart(2, '0');
-        const seconds = now.getSeconds().toString().padStart(2, '0');
-        setCurrentVideoTime(`${minutes}:${seconds}`);
-      }
-    }, 1000);
-    
-    return () => clearInterval(interval);
-  }, [isPlaying]);
 
   const handleSendMessage = () => {
     if (chatMessage.trim()) {
@@ -130,118 +131,69 @@ export default function LivestreamViewerPage() {
     }
   };
 
-  // Auto-save to localStorage
-  const handleAutoSave = () => {
-    const docData = {
-      title: documentTitle,
-      content: documentContent,
-      tags: noteTags,
-      lastSaved: new Date().toISOString(),
-      livestreamId: livestreamID,
-      teacherId: teacherID,
-      livestreamTitle: mockLivestream.title,
-      category: mockLivestream.category
-    };
-    localStorage.setItem(`livestream-doc-${livestreamID}`, JSON.stringify(docData));
-    setLastSaved(new Date());
-  };
+  // Save document to student's document library
+  const handleSaveDocument = (docId: string) => {
+    const doc = teacherDocuments.find(d => d.id === docId);
+    if (!doc) return;
 
-  const handleSaveToDocuments = () => {
-    if (documentContent.trim()) {
-      // Save current state
-      handleAutoSave();
+    // Toggle save status
+    if (savedDocuments.includes(docId)) {
+      setSavedDocuments(savedDocuments.filter(id => id !== docId));
+      // Remove from localStorage
+      const saved = JSON.parse(localStorage.getItem('studentDocuments') || '[]');
+      const filtered = saved.filter((d: { livestreamDocId?: string }) => d.livestreamDocId !== docId);
+      localStorage.setItem('studentDocuments', JSON.stringify(filtered));
+    } else {
+      setSavedDocuments([...savedDocuments, docId]);
       
-      // Save to documents list
+      // Save to student documents
       const savedDocs = JSON.parse(localStorage.getItem('studentDocuments') || '[]');
       
-      // Check if this document already exists
-      const existingIndex = savedDocs.findIndex((doc: { livestreamId?: string }) => 
-        doc.livestreamId === livestreamID
-      );
-      
-      // Create proper Document object matching the schema
       const docData = {
-        // Required fields from Document type
-        id: existingIndex >= 0 ? savedDocs[existingIndex].id : Date.now().toString(),
-        title: documentTitle,
-        filename: `${documentTitle.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.txt`,
-        type: 'other' as const, // Use 'other' type for livestream notes
-        size: `${(documentContent.length / 1024).toFixed(2)} KB`,
-        uploadDate: existingIndex >= 0 ? savedDocs[existingIndex].uploadDate : new Date().toLocaleDateString('en-CA'), // YYYY-MM-DD format
-        lastModified: new Date().toLocaleDateString('en-CA'), // YYYY-MM-DD format
-        pinnedAt: existingIndex >= 0 ? savedDocs[existingIndex].pinnedAt : null,
-        tags: [...noteTags, 'livestream', mockLivestream.category.toLowerCase()],
-        folder: 'Livestream Notes',
-        downloadUrl: '#',
-        
-        // Optional/custom fields for livestream notes
-        previewUrl: undefined,
-        content: documentContent, // Store the actual content
+        id: Date.now().toString(),
+        title: doc.title,
+        filename: doc.filename,
+        type: doc.type,
+        size: doc.size,
+        uploadDate: new Date().toLocaleDateString('en-CA'),
+        lastModified: new Date().toLocaleDateString('en-CA'),
+        pinnedAt: null,
+        tags: ['livestream', mockLivestream.category, 'teacher-shared'],
+        folder: 'Livestream Materials',
+        downloadUrl: doc.downloadUrl,
+        description: doc.description,
+        livestreamDocId: docId,
         livestreamId: livestreamID,
         teacherId: teacherID,
         livestreamTitle: mockLivestream.title,
-        videoTime: currentVideoTime
       };
       
-      if (existingIndex >= 0) {
-        // Update existing document
-        savedDocs[existingIndex] = docData;
-      } else {
-        // Add new document
-        savedDocs.push(docData);
-      }
-      
+      savedDocs.push(docData);
       localStorage.setItem('studentDocuments', JSON.stringify(savedDocs));
-      
-      // Show success message
-      setShowSaveSuccess(true);
-      setTimeout(() => setShowSaveSuccess(false), 3000);
-      
-      console.log('Saved to documents:', docData);
     }
   };
 
-  const handleAddTag = () => {
-    if (tagInput.trim() && !noteTags.includes(tagInput.trim())) {
-      setNoteTags([...noteTags, tagInput.trim()]);
-      setTagInput('');
-    }
+  // Download document
+  const handleDownloadDocument = (doc: typeof teacherDocuments[0]) => {
+    // In real app, this would trigger actual download
+    console.log('Downloading:', doc.filename);
+    // Simulate download
+    alert(`Đang tải xuống: ${doc.filename}`);
   };
 
-  const handleRemoveTag = (tag: string) => {
-    setNoteTags(noteTags.filter(t => t !== tag));
-  };
-
-  const applyFormatting = (format: 'bold' | 'italic' | 'underline') => {
-    const textarea = noteTextareaRef.current;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = documentContent.substring(start, end);
-
-    if (selectedText) {
-      let formattedText = selectedText;
-      
-      // Note: This is a simple demonstration. In a real app, you'd use a rich text editor
-      switch (format) {
-        case 'bold':
-          formattedText = `**${selectedText}**`;
-          setIsBold(!isBold);
-          break;
-        case 'italic':
-          formattedText = `*${selectedText}*`;
-          setIsItalic(!isItalic);
-          break;
-        case 'underline':
-          formattedText = `__${selectedText}__`;
-          setIsUnderline(!isUnderline);
-          break;
-      }
-
-      const newContent = documentContent.substring(0, start) + formattedText + documentContent.substring(end);
-      setDocumentContent(newContent);
-      handleAutoSave();
+  // Get file icon based on type
+  const getFileIcon = (type: string) => {
+    switch(type) {
+      case 'pdf':
+        return '📄';
+      case 'doc':
+        return '📝';
+      case 'ppt':
+        return '📊';
+      case 'xls':
+        return '📈';
+      default:
+        return '📎';
     }
   };
 
@@ -404,21 +356,21 @@ export default function LivestreamViewerPage() {
                     )}
                   </button>
                   
-                  {/* Toggle Notes Button */}
+                  {/* Toggle Documents Button */}
                   <button
-                    onClick={() => setShowNotes(!showNotes)}
+                    onClick={() => setShowDocuments(!showDocuments)}
                     className={`flex items-center gap-2 px-4 py-2.5 rounded-xl backdrop-blur-md transition-all border shadow-lg font-semibold text-sm ${
-                      showNotes 
+                      showDocuments 
                         ? 'bg-[#EC255A] border-white/20 text-white' 
                         : 'bg-black/60 hover:bg-black/80 border-white/20 text-white'
                     }`}
-                    title={showNotes ? "Hide notes" : "Take notes"}
+                    title={showDocuments ? "Hide documents" : "View documents"}
                   >
-                    <DocumentTextIcon className="h-5 w-5" />
-                    <span>{showNotes ? 'Hide' : 'Notes'}</span>
-                    {documentContent && (
+                    <FolderIcon className="h-5 w-5" />
+                    <span>{showDocuments ? 'Hide' : 'Documents'}</span>
+                    {teacherDocuments.length > 0 && (
                       <span className="px-2 py-0.5 bg-white/30 rounded-full text-xs font-bold">
-                        {documentContent.length > 0 ? '📝' : ''}
+                        {teacherDocuments.length}
                       </span>
                     )}
                   </button>
@@ -460,12 +412,6 @@ export default function LivestreamViewerPage() {
                     onChange={handleVolumeChange}
                     className="w-20 accent-red-600"
                   />
-                </div>
-                
-                {/* Time */}
-                <div className="flex items-center gap-2 text-white text-sm">
-                  <ClockIcon className="h-4 w-4" />
-                  <span>{currentVideoTime}</span>
                 </div>
                 
                 <div className="flex-1"></div>
@@ -561,175 +507,141 @@ export default function LivestreamViewerPage() {
             </div>
           </div>
         
-        {/* Notes Sidebar - Single Document (Google Docs style) */}
-        {showNotes && (
-          <div className="w-96 flex flex-col bg-gradient-to-b from-blue-50 to-white rounded-xl shadow-2xl overflow-hidden border border-blue-100">
-            {/* Notes Header */}
-            <div className="p-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between shadow-lg">
+        {/* Documents Sidebar - Teacher's Shared Materials */}
+        {showDocuments && (
+          <div className="w-96 flex flex-col bg-gradient-to-b from-purple-50 to-white rounded-xl shadow-2xl overflow-hidden border border-purple-100">
+            {/* Documents Header */}
+            <div className="p-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white flex items-center justify-between shadow-lg">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
-                  <DocumentTextIcon className="h-5 w-5" />
+                  <FolderIcon className="h-5 w-5" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <input
-                    type="text"
-                    value={documentTitle}
-                    onChange={(e) => setDocumentTitle(e.target.value)}
-                    onBlur={handleAutoSave}
-                    className="w-full bg-transparent border-none outline-none font-bold text-base text-white placeholder-blue-200 truncate"
-                    placeholder="Document Title"
-                  />
-                  <p className="text-xs text-blue-100">
-                    {lastSaved 
-                      ? `Saved ${lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                      : 'Auto-saving...'}
+                  <h3 className="font-bold text-base">Learning Materials</h3>
+                  <p className="text-xs text-purple-100">
+                    {teacherDocuments.length} document{teacherDocuments.length !== 1 ? 's' : ''} shared
                   </p>
                 </div>
               </div>
               <button 
-                onClick={() => setShowNotes(false)}
+                onClick={() => setShowDocuments(false)}
                 className="p-2 rounded-lg hover:bg-white/20 transition-all"
-                title="Close notes"
+                title="Close documents"
               >
                 <XMarkIcon className="h-5 w-5" />
               </button>
             </div>
             
-            {/* Document Editor */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Toolbar */}
-              <div className="p-3 border-b-2 border-blue-100 bg-white">
-                {/* Success Message */}
-                {showSaveSuccess && (
-                  <div className="mb-3 p-3 bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 rounded-r-lg flex items-center gap-2 text-green-700 animate-fade-in shadow-sm">
-                    <CheckIcon className="h-5 w-5 text-green-600" />
-                    <span className="font-semibold">Saved to Documents!</span>
-                  </div>
-                )}
-                
-                {/* Current Time Badge */}
-                <div className="mb-3 flex items-center gap-2 text-xs font-bold text-blue-700 bg-gradient-to-r from-blue-100 to-blue-50 px-4 py-2.5 rounded-xl border border-blue-200 shadow-sm">
-                  <ClockIcon className="h-4 w-4" />
-                  <span>Video Time: {currentVideoTime}</span>
-                  <button
-                    onClick={() => {
-                      const timestamp = `\n[${currentVideoTime}] `;
-                      setDocumentContent(documentContent + timestamp);
-                      noteTextareaRef.current?.focus();
-                    }}
-                    className="ml-auto px-2 py-1 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all text-xs"
-                  >
-                    Insert Timestamp
-                  </button>
+            {/* Documents List */}
+            <div className="flex-1 overflow-y-auto">
+              {teacherDocuments.length === 0 ? (
+                <div className="p-8 text-center">
+                  <FolderIcon className="h-16 w-16 mx-auto text-gray-300 mb-3" />
+                  <p className="text-gray-500 font-medium">No documents yet</p>
+                  <p className="text-xs text-gray-400 mt-1">Teacher hasn&apos;t shared any materials</p>
                 </div>
-                
-                {/* Formatting Toolbar */}
-                <div className="flex items-center gap-1.5 p-2 bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl border-2 border-gray-200 shadow-sm">
-                  <button
-                    onClick={() => applyFormatting('bold')}
-                    className={`p-2 rounded-lg transition-all ${isBold ? 'bg-blue-500 text-white shadow-md' : 'bg-white hover:bg-blue-100'}`}
-                    title="Bold"
-                  >
-                    <span className="text-sm font-bold">B</span>
-                  </button>
-                  <button
-                    onClick={() => applyFormatting('italic')}
-                    className={`p-2 rounded-lg transition-all ${isItalic ? 'bg-blue-500 text-white shadow-md' : 'bg-white hover:bg-blue-100'}`}
-                    title="Italic"
-                  >
-                    <span className="text-sm italic font-serif">I</span>
-                  </button>
-                  <button
-                    onClick={() => applyFormatting('underline')}
-                    className={`p-2 rounded-lg transition-all ${isUnderline ? 'bg-blue-500 text-white shadow-md' : 'bg-white hover:bg-blue-100'}`}
-                    title="Underline"
-                  >
-                    <span className="text-sm underline">U</span>
-                  </button>
-                  <div className="w-px h-7 bg-gray-300 mx-1"></div>
-                  <span className="text-xs font-semibold text-gray-600 ml-auto">
-                    {documentContent.length} characters
-                  </span>
-                </div>
-              </div>
-              
-              {/* Main Document Editor */}
-              <textarea
-                ref={noteTextareaRef}
-                value={documentContent}
-                onChange={(e) => setDocumentContent(e.target.value)}
-                onBlur={handleAutoSave}
-                placeholder="📝 Start writing your notes here...
-
-Tips:
-• Click 'Insert Timestamp' to mark specific moments in the video
-• Your work is automatically saved
-• Use formatting buttons for better organization
-• All notes for this livestream are saved in one document"
-                className="flex-1 p-6 border-none focus:outline-none resize-none text-sm leading-relaxed bg-white"
-              />
-              
-              {/* Tags and Save Section */}
-              <div className="p-4 border-t-2 border-blue-100 bg-white">
-                {/* Tags Input */}
-                <div className="mb-3">
-                  <div className="flex gap-2 mb-2">
-                    <input
-                      type="text"
-                      value={tagInput}
-                      onChange={(e) => setTagInput(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleAddTag()}
-                      placeholder="🏷️ Add tags..."
-                      className="flex-1 px-3 py-2 border-2 border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs font-medium hover:border-blue-300 transition-colors"
-                    />
-                    <button
-                      onClick={handleAddTag}
-                      className="px-4 py-2 bg-blue-100 hover:bg-blue-200 rounded-lg text-xs font-bold text-blue-700 transition-colors"
-                    >
-                      Add
-                    </button>
-                  </div>
-                  {noteTags.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {noteTags.map((tag, index) => (
-                        <span
-                          key={index}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-full text-xs font-bold shadow-sm hover:shadow-md transition-shadow"
-                        >
-                          {tag}
+              ) : (
+                <div className="p-4 space-y-3">
+                  {teacherDocuments.map((doc) => {
+                    const isSaved = savedDocuments.includes(doc.id);
+                    
+                    return (
+                      <div 
+                        key={doc.id}
+                        className="bg-white rounded-xl border-2 border-purple-100 hover:border-purple-300 hover:shadow-lg transition-all p-4"
+                      >
+                        {/* Document Header */}
+                        <div className="flex items-start gap-3 mb-3">
+                          <div className="text-3xl flex-shrink-0">
+                            {getFileIcon(doc.type)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-gray-800 text-sm mb-1 truncate">
+                              {doc.title}
+                            </h4>
+                            <p className="text-xs text-gray-500 mb-2">
+                              {doc.filename}
+                            </p>
+                            <p className="text-xs text-gray-600 leading-relaxed line-clamp-2">
+                              {doc.description}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        {/* Document Meta */}
+                        <div className="flex items-center gap-3 text-xs text-gray-500 mb-3 pb-3 border-b border-gray-100">
+                          <span className="flex items-center gap-1">
+                            <ClockIcon className="h-3.5 w-3.5" />
+                            {doc.uploadedAt}
+                          </span>
+                          <span>•</span>
+                          <span>{doc.size}</span>
+                        </div>
+                        
+                        {/* Action Buttons */}
+                        <div className="flex gap-2">
                           <button
-                            onClick={() => handleRemoveTag(tag)}
-                            className="hover:bg-white/20 rounded-full p-0.5 transition-colors"
+                            onClick={() => handleSaveDocument(doc.id)}
+                            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all ${
+                              isSaved
+                                ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-md'
+                                : 'bg-gradient-to-r from-purple-100 to-indigo-100 text-purple-700 hover:from-purple-200 hover:to-indigo-200'
+                            }`}
                           >
-                            <XMarkIcon className="h-3 w-3" />
+                            {isSaved ? (
+                              <>
+                                <CheckIcon className="h-4 w-4" />
+                                Saved
+                              </>
+                            ) : (
+                              <>
+                                <FolderIcon className="h-4 w-4" />
+                                Save to My Docs
+                              </>
+                            )}
                           </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                          
+                          <button
+                            onClick={() => handleDownloadDocument(doc)}
+                            className="px-4 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-medium text-sm hover:from-blue-600 hover:to-cyan-600 transition-all shadow-md hover:shadow-lg"
+                            title="Download"
+                          >
+                            <ArrowDownTrayIcon className="h-4 w-4" />
+                          </button>
+                        </div>
+                        
+                        {/* Saved Indicator */}
+                        {isSaved && (
+                          <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+                            <CheckIcon className="h-4 w-4 text-green-600 flex-shrink-0" />
+                            <p className="text-xs text-green-700 font-medium">
+                              Available in your Documents library
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-                
-                {/* Action Buttons */}
-                <div className="flex gap-3">
-                  <button
-                    onClick={handleAutoSave}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 font-bold hover:from-gray-200 hover:to-gray-300 transition-all shadow-sm hover:shadow-md"
-                  >
-                    <ClockIcon className="h-5 w-5" />
-                    Save Now
-                  </button>
-                  <button
-                    onClick={handleSaveToDocuments}
-                    disabled={!documentContent.trim()}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
-                  >
-                    <FolderIcon className="h-5 w-5" />
-                    Export
-                  </button>
+              )}
+            </div>
+            
+            {/* Footer Info */}
+            <div className="p-4 border-t-2 border-purple-100 bg-gradient-to-r from-purple-50 to-indigo-50">
+              <div className="flex items-start gap-2 text-xs text-gray-600">
+                <div className="p-1.5 bg-purple-100 rounded-lg flex-shrink-0">
+                  <svg className="h-4 w-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
                 </div>
-                <p className="text-xs text-gray-500 mt-2 text-center">
-                  💾 Your document is auto-saved as you type
-                </p>
+                <div>
+                  <p className="font-semibold text-gray-700 mb-1">Quick Tips:</p>
+                  <ul className="space-y-1 text-gray-600">
+                    <li>• Click &quot;Save to My Docs&quot; to access later</li>
+                    <li>• Download files for offline viewing</li>
+                    <li>• Saved docs appear in your Documents page</li>
+                  </ul>
+                </div>
               </div>
             </div>
           </div>

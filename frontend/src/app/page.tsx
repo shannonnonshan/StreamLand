@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import Image from 'next/image';
 import { 
   AcademicCapIcon, 
   UserGroupIcon, 
@@ -9,8 +10,11 @@ import {
   ChartBarIcon,
   SparklesIcon,
   PlayCircleIcon,
-  CheckCircleIcon
+  CheckCircleIcon,
+  SignalIcon,
+  UserIcon
 } from '@heroicons/react/24/outline';
+import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import LoginModal from '@/component/(modal)/login';
 import RegisterModal from '@/component/(modal)/register';
 import OTPModal from '@/component/(modal)/verifyOtp';
@@ -80,6 +84,69 @@ export default function Home() {
     { number: '1,000+', label: 'Khóa Học' },
     { number: '95%', label: 'Hài Lòng' }
   ];
+
+  const liveStreams = [
+    {
+      id: 1,
+      title: 'Toán Học Cơ Bản - Phương trình bậc 2',
+      teacher: 'Thầy Nguyễn Văn A',
+      viewers: 234,
+      thumbnail: 'https://images.unsplash.com/photo-1509228468518-180dd4864904?w=800&h=450&fit=crop',
+      subject: 'Toán',
+      isLive: true
+    },
+    {
+      id: 2,
+      title: 'Hóa Học Hữu Cơ - Ancol và Phenol',
+      teacher: 'Cô Trần Thị B',
+      viewers: 189,
+      thumbnail: 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=800&h=450&fit=crop',
+      subject: 'Hóa',
+      isLive: true
+    },
+    {
+      id: 3,
+      title: 'Vật Lý - Dao động điều hòa',
+      teacher: 'Thầy Lê Văn C',
+      viewers: 156,
+      thumbnail: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=800&h=450&fit=crop',
+      subject: 'Lý',
+      isLive: false
+    }
+  ];
+
+  const testimonials = [
+    {
+      name: 'Nguyễn Thị Mai',
+      role: 'Học sinh lớp 12',
+      avatar: 'https://i.pravatar.cc/150?img=1',
+      rating: 5,
+      comment: 'StreamLand đã giúp em cải thiện điểm số rất nhiều. Các thầy cô dạy rất tận tình và dễ hiểu!'
+    },
+    {
+      name: 'Trần Văn Nam',
+      role: 'Phụ huynh',
+      avatar: 'https://i.pravatar.cc/150?img=2',
+      rating: 5,
+      comment: 'Con tôi rất thích học trên StreamLand. Nền tảng này thật sự hiệu quả và tiện lợi.'
+    },
+    {
+      name: 'Lê Thu Hương',
+      role: 'Học sinh lớp 11',
+      avatar: 'https://i.pravatar.cc/150?img=3',
+      rating: 5,
+      comment: 'Tương tác trực tiếp với giáo viên giúp em hiểu bài nhanh hơn nhiều. Rất đáng để thử!'
+    }
+  ];
+
+  const [activeVideoIndex, setActiveVideoIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveVideoIndex((prev) => (prev + 1) % liveStreams.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [liveStreams.length]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
@@ -179,6 +246,203 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Live Showcase Section */}
+      <section className="py-20 bg-gradient-to-b from-gray-50 to-white relative overflow-hidden">
+        {/* Background Decoration */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500 rounded-full filter blur-3xl"></div>
+          <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500 rounded-full filter blur-3xl"></div>
+        </div>
+
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            viewport={{ once: true }}
+            className="text-center mb-12"
+          >
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 border border-red-200 rounded-full mb-4">
+              <div className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+              </div>
+              <span className="text-sm font-semibold text-red-600">ĐANG LIVESTREAM</span>
+            </div>
+            <h2 className="text-4xl font-extrabold text-gray-900 mb-4">
+              Trải Nghiệm Lớp Học Trực Tuyến
+            </h2>
+            <p className="text-xl text-gray-600">
+              Tham gia ngay các buổi học livestream đang diễn ra
+            </p>
+          </motion.div>
+
+          {/* Main Video Showcase */}
+          <div className="grid lg:grid-cols-2 gap-8 items-center mb-12">
+            {/* Video Player */}
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8 }}
+              viewport={{ once: true }}
+              className="relative group"
+            >
+              <div className="relative rounded-2xl overflow-hidden shadow-2xl">
+                {/* Video/Image */}
+                <div className="aspect-video bg-gradient-to-br from-gray-800 to-gray-900 relative">
+                  <Image 
+                    src={liveStreams[activeVideoIndex].thumbnail}
+                    alt={liveStreams[activeVideoIndex].title}
+                    fill
+                    className="object-cover"
+                    unoptimized
+                  />
+                  
+                  {/* Live Badge */}
+                  {liveStreams[activeVideoIndex].isLive && (
+                    <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 bg-red-600 rounded-full">
+                      <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                      <span className="text-white font-bold text-sm">LIVE</span>
+                    </div>
+                  )}
+
+                  {/* Viewer Count */}
+                  <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 bg-black/50 backdrop-blur-sm rounded-full">
+                    <UserIcon className="h-4 w-4 text-white" />
+                    <span className="text-white font-semibold text-sm">{liveStreams[activeVideoIndex].viewers}</span>
+                  </div>
+
+                  {/* Play Overlay */}
+                  <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-all duration-300 flex items-center justify-center">
+                    <motion.div
+                      whileHover={{ scale: 1.1 }}
+                      className="w-20 h-20 bg-white/90 rounded-full flex items-center justify-center cursor-pointer shadow-lg"
+                    >
+                      <PlayCircleIcon className="h-12 w-12 text-purple-600" />
+                    </motion.div>
+                  </div>
+
+                  {/* Chat Overlay */}
+                  <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
+                    <div className="space-y-2">
+                      <div className="flex items-start gap-2">
+                        <div className="w-6 h-6 bg-blue-500 rounded-full flex-shrink-0"></div>
+                        <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg">
+                          <p className="text-white text-sm">Bài giảng rất hay ạ! 🔥</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-6 h-6 bg-purple-500 rounded-full flex-shrink-0"></div>
+                        <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg">
+                          <p className="text-white text-sm">Em hiểu rồi, cảm ơn thầy! ❤️</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Video Info */}
+                <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/80 to-transparent">
+                  <h3 className="text-xl font-bold text-white mb-2">
+                    {liveStreams[activeVideoIndex].title}
+                  </h3>
+                  <div className="flex items-center gap-3 text-gray-200">
+                    <span className="font-medium">{liveStreams[activeVideoIndex].teacher}</span>
+                    <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+                    <span className="text-sm">{liveStreams[activeVideoIndex].subject}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Floating Stats */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+                className="absolute -bottom-6 -right-6 bg-white rounded-2xl shadow-xl p-6 hidden lg:block"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-gradient-to-br from-green-400 to-green-600 rounded-xl flex items-center justify-center">
+                    <SignalIcon className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-gray-900">99.9%</p>
+                    <p className="text-sm text-gray-500">Uptime</p>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+
+            {/* Live Stream List */}
+            <motion.div
+              initial={{ opacity: 0, x: 30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8 }}
+              viewport={{ once: true }}
+              className="space-y-4"
+            >
+              <h3 className="text-2xl font-bold text-gray-900 mb-6">Các Buổi Học Đang Diễn Ra</h3>
+              
+              {liveStreams.map((stream, index) => (
+                <motion.div
+                  key={stream.id}
+                  whileHover={{ scale: 1.02, x: 10 }}
+                  onClick={() => setActiveVideoIndex(index)}
+                  className={`cursor-pointer rounded-xl p-4 transition-all duration-300 ${
+                    activeVideoIndex === index 
+                      ? 'bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-purple-300 shadow-lg' 
+                      : 'bg-white border-2 border-gray-100 hover:border-purple-200 shadow-sm'
+                  }`}
+                >
+                  <div className="flex gap-4">
+                    {/* Thumbnail */}
+                    <div className="relative w-32 h-20 rounded-lg overflow-hidden flex-shrink-0">
+                      <Image 
+                        src={stream.thumbnail}
+                        alt={stream.title}
+                        fill
+                        className="object-cover"
+                        unoptimized
+                      />
+                      {stream.isLive && (
+                        <div className="absolute top-1 left-1 px-2 py-0.5 bg-red-600 rounded text-white text-xs font-bold">
+                          LIVE
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-semibold text-gray-900 mb-1 line-clamp-1">
+                        {stream.title}
+                      </h4>
+                      <p className="text-sm text-gray-600 mb-2">{stream.teacher}</p>
+                      <div className="flex items-center gap-3 text-xs text-gray-500">
+                        <div className="flex items-center gap-1">
+                          <UserIcon className="h-3 w-3" />
+                          <span>{stream.viewers}</span>
+                        </div>
+                        <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full font-medium">
+                          {stream.subject}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+
+              {/* View All Button */}
+              <button 
+                onClick={() => window.location.href = '/student'}
+                className="w-full mt-4 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-300"
+              >
+                Xem Tất Cả Livestream
+              </button>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
       {/* Features Section */}
       <section className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -275,6 +539,102 @@ export default function Home() {
               </motion.div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* Testimonials Section */}
+      <section className="py-20 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            viewport={{ once: true }}
+            className="text-center mb-16"
+          >
+            <h2 className="text-4xl font-extrabold text-gray-900 mb-4">
+              Học Viên Nói Gì Về Chúng Tôi
+            </h2>
+            <p className="text-xl text-gray-600">
+              Hàng ngàn học viên đã tin tưởng và thành công cùng StreamLand
+            </p>
+          </motion.div>
+
+          <div className="grid md:grid-cols-3 gap-8">
+            {testimonials.map((testimonial, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: index * 0.1 }}
+                viewport={{ once: true }}
+                whileHover={{ y: -10 }}
+                className="bg-gradient-to-br from-white to-gray-50 p-8 rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 border border-gray-100"
+              >
+                {/* Stars */}
+                <div className="flex gap-1 mb-4">
+                  {[...Array(testimonial.rating)].map((_, i) => (
+                    <StarIconSolid key={i} className="h-5 w-5 text-yellow-400" />
+                  ))}
+                </div>
+
+                {/* Comment */}
+                <p className="text-gray-700 mb-6 italic leading-relaxed">
+                  &quot;{testimonial.comment}&quot;
+                </p>
+
+                {/* User Info */}
+                <div className="flex items-center gap-4">
+                  <div className="relative w-12 h-12">
+                    <Image 
+                      src={testimonial.avatar}
+                      alt={testimonial.name}
+                      fill
+                      className="rounded-full object-cover"
+                      unoptimized
+                    />
+                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-white"></div>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-gray-900">{testimonial.name}</h4>
+                    <p className="text-sm text-gray-500">{testimonial.role}</p>
+                  </div>
+                </div>
+
+                {/* Decoration */}
+                <div className="absolute top-6 right-6 text-6xl text-purple-100 font-serif">&quot;</div>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Success Stories Counter */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.4 }}
+            viewport={{ once: true }}
+            className="mt-16 text-center"
+          >
+            <div className="inline-flex items-center gap-6 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-full shadow-xl">
+              <div className="flex -space-x-2">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className="relative w-10 h-10">
+                    <Image 
+                      src={`https://i.pravatar.cc/40?img=${i + 10}`}
+                      alt={`User ${i}`}
+                      fill
+                      className="rounded-full border-2 border-white object-cover"
+                      unoptimized
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="text-left">
+                <p className="font-bold text-lg">10,000+ Học viên hài lòng</p>
+                <p className="text-sm text-blue-100">Tham gia cộng đồng ngay hôm nay</p>
+              </div>
+            </div>
+          </motion.div>
         </div>
       </section>
 

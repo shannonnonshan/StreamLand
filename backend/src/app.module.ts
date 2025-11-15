@@ -6,7 +6,6 @@ import { AppService } from './app.service';
 import { StreamModule } from './stream/stream.module';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
-import { MongodbModule } from './mongodb/mongodb.module';
 
 @Module({
   imports: [
@@ -16,7 +15,6 @@ import { MongodbModule } from './mongodb/mongodb.module';
     }),
     ScheduleModule.forRoot(),
     PrismaModule,
-    MongodbModule,
     StreamModule,
     AuthModule,
   ],

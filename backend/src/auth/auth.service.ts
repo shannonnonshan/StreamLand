@@ -38,7 +38,7 @@ export class AuthService {
     const { email, password, fullName, role } = registerDto;
 
     // Check if user already exists
-    const existingUser = await this.prisma.user.findUnique({
+    const existingUser = await this.prisma.postgres.user.findUnique({
       where: { email },
     });
 
@@ -47,7 +47,7 @@ export class AuthService {
     }
 
     // Check if pending registration exists
-    const existingPending = await this.prisma.pendingRegistration.findUnique({
+    const existingPending = await this.prisma.postgres.pendingRegistration.findUnique({
       where: { email },
     });
 
@@ -60,7 +60,7 @@ export class AuthService {
 
     // Create or update pending registration
     if (existingPending) {
-      await this.prisma.pendingRegistration.update({
+      await this.prisma.postgres.pendingRegistration.update({
         where: { email },
         data: {
           password: hashedPassword,
@@ -71,7 +71,7 @@ export class AuthService {
         },
       });
     } else {
-      await this.prisma.pendingRegistration.create({
+      await this.prisma.postgres.pendingRegistration.create({
         data: {
           email,
           password: hashedPassword,
@@ -96,7 +96,7 @@ export class AuthService {
     const { email, password } = loginDto;
 
     // Find user
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.postgres.user.findUnique({
       where: { email },
     });
 
@@ -119,7 +119,7 @@ export class AuthService {
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
     // Create session
-    await this.prisma.session.create({
+    await this.prisma.postgres.session.create({
       data: {
         userId: user.id,
         token: tokens.refreshToken,
@@ -144,7 +144,7 @@ export class AuthService {
     const { email, otp } = verifyOtpDto;
 
     // Find pending registration
-    const pendingReg = await this.prisma.pendingRegistration.findUnique({
+    const pendingReg = await this.prisma.postgres.pendingRegistration.findUnique({
       where: { email },
     });
 
@@ -165,7 +165,7 @@ export class AuthService {
     }
 
     // Create user in database
-    const user = await this.prisma.user.create({
+    const user = await this.prisma.postgres.user.create({
       data: {
         email: pendingReg.email,
         password: pendingReg.password,
@@ -177,13 +177,13 @@ export class AuthService {
 
     // Create role-specific profile
     if (pendingReg.role === 'TEACHER') {
-      await this.prisma.teacherProfile.create({
+      await this.prisma.postgres.teacherProfile.create({
         data: {
           userId: user.id,
         },
       });
     } else if (pendingReg.role === 'STUDENT') {
-      await this.prisma.studentProfile.create({
+      await this.prisma.postgres.studentProfile.create({
         data: {
           userId: user.id,
         },
@@ -191,7 +191,7 @@ export class AuthService {
     }
 
     // Delete pending registration
-    await this.prisma.pendingRegistration.delete({
+    await this.prisma.postgres.pendingRegistration.delete({
       where: { email },
     });
 
@@ -199,7 +199,7 @@ export class AuthService {
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
     // Create session
-    await this.prisma.session.create({
+    await this.prisma.postgres.session.create({
       data: {
         userId: user.id,
         token: tokens.refreshToken,
@@ -235,7 +235,7 @@ export class AuthService {
     }
 
     // Check if this is a pending registration
-    const pendingReg = await this.prisma.pendingRegistration.findUnique({
+    const pendingReg = await this.prisma.postgres.pendingRegistration.findUnique({
       where: { email },
     });
 
@@ -245,7 +245,7 @@ export class AuthService {
 
     if (pendingReg) {
       // Update pending registration with new OTP
-      await this.prisma.pendingRegistration.update({
+      await this.prisma.postgres.pendingRegistration.update({
         where: { email },
         data: { otp, otpExpiry },
       });
@@ -262,7 +262,7 @@ export class AuthService {
     }
 
     // Otherwise check for existing user (for password reset)
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.postgres.user.findUnique({
       where: { email },
     });
 
@@ -271,7 +271,7 @@ export class AuthService {
     }
 
     // Update user with new OTP
-    await this.prisma.user.update({
+    await this.prisma.postgres.user.update({
       where: { id: user.id },
       data: { otp, otpExpiry },
     });
@@ -291,7 +291,7 @@ export class AuthService {
     const { email, newPassword } = resetPasswordDto;
 
     // Find user
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.postgres.user.findUnique({
       where: { email },
     });
 
@@ -303,7 +303,7 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     // Update password
-    await this.prisma.user.update({
+    await this.prisma.postgres.user.update({
       where: { id: user.id },
       data: { password: hashedPassword },
     });
@@ -315,7 +315,7 @@ export class AuthService {
 
   async refreshToken(userId: string, refreshToken: string) {
     // Find active session
-    const session = await this.prisma.session.findFirst({
+    const session = await this.prisma.postgres.session.findFirst({
       where: {
         userId,
         token: refreshToken,
@@ -329,7 +329,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.postgres.user.findUnique({
       where: { id: userId },
     });
 
@@ -340,7 +340,7 @@ export class AuthService {
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
     // Update session with new refresh token
-    await this.prisma.session.update({
+    await this.prisma.postgres.session.update({
       where: { id: session.id },
       data: {
         token: tokens.refreshToken,
@@ -353,7 +353,7 @@ export class AuthService {
 
   async logout(userId: string) {
     // Delete all sessions for user
-    await this.prisma.session.deleteMany({
+    await this.prisma.postgres.session.deleteMany({
       where: { userId },
     });
 
@@ -361,7 +361,7 @@ export class AuthService {
   }
 
   async getProfile(userId: string) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.postgres.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
@@ -412,19 +412,19 @@ export class AuthService {
     role?: Role;
   }) {
     // Check if user exists with this googleId
-    let user = await this.prisma.user.findUnique({
+    let user = await this.prisma.postgres.user.findUnique({
       where: { googleId: googleData.googleId },
     });
 
     if (!user) {
       // Check if user exists with this email
-      user = await this.prisma.user.findUnique({
+      user = await this.prisma.postgres.user.findUnique({
         where: { email: googleData.email },
       });
 
       if (user) {
         // Link Google account to existing user
-        user = await this.prisma.user.update({
+        user = await this.prisma.postgres.user.update({
           where: { id: user.id },
           data: {
             googleId: googleData.googleId,
@@ -451,7 +451,7 @@ export class AuthService {
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
     // Create session
-    await this.prisma.session.create({
+    await this.prisma.postgres.session.create({
       data: {
         userId: user.id,
         token: tokens.refreshToken,
@@ -481,19 +481,19 @@ export class AuthService {
     role?: Role;
   }) {
     // Check if user exists with this githubId
-    let user = await this.prisma.user.findUnique({
+    let user = await this.prisma.postgres.user.findUnique({
       where: { githubId: githubData.githubId },
     });
 
     if (!user) {
       // Check if user exists with this email
-      user = await this.prisma.user.findUnique({
+      user = await this.prisma.postgres.user.findUnique({
         where: { email: githubData.email },
       });
 
       if (user) {
         // Link GitHub account to existing user
-        user = await this.prisma.user.update({
+        user = await this.prisma.postgres.user.update({
           where: { id: user.id },
           data: {
             githubId: githubData.githubId,
@@ -520,7 +520,7 @@ export class AuthService {
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
     // Create session
-    await this.prisma.session.create({
+    await this.prisma.postgres.session.create({
       data: {
         userId: user.id,
         token: tokens.refreshToken,
@@ -558,7 +558,7 @@ export class AuthService {
     } = completeOAuthDto;
 
     // Check if user already exists with this email or social ID
-    const existingUser = await this.prisma.user.findFirst({
+    const existingUser = await this.prisma.postgres.user.findFirst({
       where: {
         OR: [
           { email },
@@ -609,19 +609,19 @@ export class AuthService {
     }
 
     // Create new user with OAuth data
-    const user = await this.prisma.user.create({
+    const user = await this.prisma.postgres.user.create({
       data: userData,
     });
 
     // Create role-specific profile
     if (role === 'TEACHER') {
-      await this.prisma.teacherProfile.create({
+      await this.prisma.postgres.teacherProfile.create({
         data: {
           userId: user.id,
         },
       });
     } else if (role === 'STUDENT') {
-      await this.prisma.studentProfile.create({
+      await this.prisma.postgres.studentProfile.create({
         data: {
           userId: user.id,
           school: studentSchool,
@@ -634,7 +634,7 @@ export class AuthService {
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
     // Create session
-    await this.prisma.session.create({
+    await this.prisma.postgres.session.create({
       data: {
         userId: user.id,
         token: tokens.refreshToken,
@@ -657,7 +657,7 @@ export class AuthService {
 
   // Update user profile methods
   async updateUserProfile(userId: string, updateDto: UpdateUserProfileDto) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.postgres.user.findUnique({
       where: { id: userId },
     });
 
@@ -665,7 +665,7 @@ export class AuthService {
       throw new NotFoundException('User not found');
     }
 
-    const updatedUser = await this.prisma.user.update({
+    const updatedUser = await this.prisma.postgres.user.update({
       where: { id: userId },
       data: updateDto,
       select: {
@@ -690,7 +690,7 @@ export class AuthService {
     userId: string,
     updateDto: UpdateStudentProfileDto,
   ) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.postgres.user.findUnique({
       where: { id: userId },
       include: { studentProfile: true },
     });
@@ -705,21 +705,21 @@ export class AuthService {
 
     // Create profile if it doesn't exist
     if (!user.studentProfile) {
-      await this.prisma.studentProfile.create({
+      await this.prisma.postgres.studentProfile.create({
         data: {
           userId: user.id,
           ...updateDto,
         },
       });
     } else {
-      await this.prisma.studentProfile.update({
+      await this.prisma.postgres.studentProfile.update({
         where: { userId: user.id },
         data: updateDto,
       });
     }
 
     // Return updated user with profile
-    return await this.prisma.user.findUnique({
+    return await this.prisma.postgres.user.findUnique({
       where: { id: userId },
       include: { studentProfile: true },
     });
@@ -729,7 +729,7 @@ export class AuthService {
     userId: string,
     updateDto: UpdateTeacherProfileDto,
   ) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.postgres.user.findUnique({
       where: { id: userId },
       include: { teacherProfile: true },
     });
@@ -744,21 +744,21 @@ export class AuthService {
 
     // Create profile if it doesn't exist
     if (!user.teacherProfile) {
-      await this.prisma.teacherProfile.create({
+      await this.prisma.postgres.teacherProfile.create({
         data: {
           userId: user.id,
           ...updateDto,
         },
       });
     } else {
-      await this.prisma.teacherProfile.update({
+      await this.prisma.postgres.teacherProfile.update({
         where: { userId: user.id },
         data: updateDto,
       });
     }
 
     // Return updated user with profile
-    return await this.prisma.user.findUnique({
+    return await this.prisma.postgres.user.findUnique({
       where: { id: userId },
       include: { teacherProfile: true },
     });

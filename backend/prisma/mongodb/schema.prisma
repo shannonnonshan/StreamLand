@@ -1,7 +1,7 @@
 // MongoDB Schema - For Real-time Data
 generator mongoClient {
   provider = "prisma-client-js"
-  output   = "../../prisma/mongodb/generated/@prisma/mongodb-client"
+  output   = "../../node_modules/@prisma/mongodb-client"
 }
 
 datasource mongodb {

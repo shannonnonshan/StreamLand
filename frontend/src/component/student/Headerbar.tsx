@@ -15,7 +15,7 @@ const PrimaryColor = '161853';
 const searchResults = [
   { id: 1, title: 'IELTS Speaking Prep', teacher: 'Mr. David Nguyen', type: 'livestream' },
   { id: 2, title: 'Calculus I - Chapter 3', teacher: 'Ms. Lan Anh', type: 'video' },
-  { id: 3, title: 'Hóa học Hữu cơ', teacher: 'Cô Thảo', type: 'course' },
+  { id: 3, title: 'Organic Chemistry', teacher: 'Ms. Thao', type: 'course' },
   { id: 4, title: 'English Grammar', teacher: 'Mr. John', type: 'livestream' },
 ];
 
@@ -171,7 +171,7 @@ export default function Header() {
                     <input
                       ref={searchInputRef}
                       type="text"
-                      placeholder="Tìm kiếm khóa học, giáo viên..."
+                      placeholder="Search courses, teachers..."
                       className="w-full p-2 bg-transparent border-none focus:outline-none text-sm"
                       value={searchQuery}
                       onChange={handleSearch}
@@ -217,7 +217,7 @@ export default function Header() {
                     </div>
                   ) : (
                     <div className="p-4 text-center text-gray-500">
-                      Không tìm thấy kết quả phù hợp.
+                      No matching results found.
                     </div>
                   )}
                 </div>
@@ -225,7 +225,7 @@ export default function Header() {
                 {filteredResults.length > 0 && (
                   <div className="p-2 text-center border-t border-gray-100">
                     <button className="text-xs text-[#161853] hover:underline">
-                      Xem tất cả kết quả
+                      View all results
                     </button>
                   </div>
                 )}
@@ -289,7 +289,7 @@ export default function Header() {
                     }}
                   >
                     <UserCircleIcon className="h-5 w-5 text-gray-500" />
-                    <span>Thông tin cá nhân</span>
+                    <span>Personal Information</span>
                   </button>
 
                   {/* 2FA Toggle */}
@@ -297,7 +297,7 @@ export default function Header() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <ShieldCheckIcon className="h-5 w-5 text-gray-500" />
-                        <span className="text-sm text-gray-700">Xác thực 2 yếu tố</span>
+                        <span className="text-sm text-gray-700">Two-Factor Authentication</span>
                       </div>
                       <button
                         onClick={() => setTwoFactorEnabled(!twoFactorEnabled)}
@@ -313,7 +313,7 @@ export default function Header() {
                       </button>
                     </div>
                     <p className="text-xs text-gray-500 mt-1 ml-8">
-                      {twoFactorEnabled ? 'Đã bật bảo mật 2FA' : 'Tăng cường bảo mật tài khoản'}
+                      {twoFactorEnabled ? '2FA security enabled' : 'Enhance account security'}
                     </p>
                   </div>
 
@@ -326,7 +326,7 @@ export default function Header() {
                     className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 border-t border-gray-100 mt-1"
                   >
                     <ArrowRightOnRectangleIcon className="h-5 w-5" />
-                    <span>Đăng xuất</span>
+                    <span>Logout</span>
                   </button>
                 </motion.div>
               )}

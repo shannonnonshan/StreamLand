@@ -18,12 +18,13 @@ enum Role {
 }
 
 model User {
-  id         String  @id @default(uuid())
-  email      String  @unique
-  password   String
-  fullName   String
-  role       Role    @default(STUDENT)
-  isVerified Boolean @default(false)
+  id               String  @id @default(uuid())
+  email            String  @unique
+  password         String
+  fullName         String
+  role             Role    @default(STUDENT)
+  isVerified       Boolean @default(false)
+  twoFactorEnabled Boolean @default(false)
 
   // Social login IDs
   googleId String? @unique
@@ -95,10 +96,37 @@ model StudentProfile {
   // Preferences
   learningGoals String[]
 
+  // Friends
+  sentFriendRequests     FriendList[] @relation("SentFriendRequests")
+  receivedFriendRequests FriendList[] @relation("ReceivedFriendRequests")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  // friendLists FriendList[]
+  // friendLists FriendList[]
 
   @@map("student_profiles")
+}
+
+model FriendList {
+  id         String         @id @default(uuid())
+  requestId  String
+  requester  StudentProfile @relation("SentFriendRequests", fields: [requestId], references: [id], onDelete: Cascade)
+  receiverId String
+  receiver   StudentProfile @relation("ReceivedFriendRequests", fields: [receiverId], references: [id], onDelete: Cascade)
+  status     FriendStatus   @default(PENDING)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([requestId, receiverId])
+  @@map("friend_lists")
+}
+
+enum FriendStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  BLOCKED
 }
 
 model PendingRegistration {

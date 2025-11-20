@@ -15,8 +15,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.postgres = new PostgresClient({
       datasources: {
         db: {
-          // Use DIRECT_URL to bypass pgBouncer pooling issues
-          url: process.env.DIRECT_URL || process.env.DATABASE_URL,
+          url: process.env.DIRECT_URL,
         },
       },
       log: ['error', 'warn'],

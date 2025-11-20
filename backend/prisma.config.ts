@@ -20,7 +20,7 @@ if (schemaArg) {
   } else if (schemaArg.includes('postgres')) {
     schemaPath = path.resolve('prisma/postgres/schema.prisma');
     migrationsPath = path.resolve('prisma/postgres/migrations');
-    datasourceUrl = env('DATABASE_URL');
+    datasourceUrl = env('DIRECT_URL');
   }
 }
 

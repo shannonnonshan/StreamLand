@@ -10,6 +10,8 @@ import {
   Res,
   Patch,
   Param,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
@@ -58,6 +60,12 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async verifyOtp(@Body() verifyOtpDto: VerifyOtpDto) {
     return this.authService.verifyOtp(verifyOtpDto);
+  }
+
+  @Post('verify-2fa-otp')
+  @HttpCode(HttpStatus.OK)
+  async verify2FAOtp(@Body() verifyOtpDto: VerifyOtpDto) {
+    return this.authService.verify2FAOtp(verifyOtpDto);
   }
 
   @Post('request-otp')
@@ -111,7 +119,6 @@ export class AuthController {
   @Get('google')
   @UseGuards(GoogleAuthGuard)
   async googleAuth() {
-    // Initiates Google OAuth flow
   }
 
   @Get('google/callback')
@@ -119,9 +126,7 @@ export class AuthController {
   googleAuthCallback(@Request() req: { user: any }, @Res() res: Response) {
     const result = req.user as OAuthResult;
 
-    // Check if this is a new user or existing user
     if (result.isNewUser) {
-      // New user - redirect to frontend with profile data to complete registration
       const profileData = encodeURIComponent(JSON.stringify(result.profile));
       res.redirect(
         `${process.env.FRONTEND_URL}/auth/oauth-complete?provider=${result.provider}&profile=${profileData}`,
@@ -207,17 +212,17 @@ export class AuthController {
     return this.authService.updateTeacherProfile(req.user.sub, updateDto);
   }
 
-  //  @Patch(':id/2fa')
-  // @UseGuards(AuthGuard('jwt'))
-  // async updateTwoFA(
-  //   @Param('id', ParseIntPipe) id: number,
-  //   @Body('twoFactorEnabled') twoFactorEnabled: boolean, // phải giống frontend
-  //   @Req() req: any, // để lấy thông tin user từ JWT
-  // ) {
-  //   if (req.user.id !== id) {
-  //     throw new ForbiddenException("Bạn không được phép chỉnh sửa 2FA của user khác");
-  //   }
+  @Patch(':id/2fa')
+  @UseGuards(JwtAuthGuard)
+  async updateTwoFA(
+    @Param('id') id: string,
+    @Body('twoFactorEnabled') twoFactorEnabled: boolean,
+    @Req() req: { user: { id: string; sub: string } }, 
+  ) {
+    if (req.user.sub !== id) {
+      throw new ForbiddenException("Bạn không được phép chỉnh sửa 2FA của user khác");
+    }
 
-  //   return this.usersService.updateTwoFA(id, twoFactorEnabled);
-  // }
+    return this.authService.updateTwoFA(id, twoFactorEnabled);
+  }
 }

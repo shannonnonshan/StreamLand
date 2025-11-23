@@ -15,6 +15,7 @@ import {
   Play,
   ArrowLeft
 } from "lucide-react";
+import { useFollow } from "@/hooks/useFollow";
 
 // Mock recordings data
 import { mockRecordings } from "@/utils/data/teacher/mockRecordings";
@@ -23,6 +24,7 @@ export default function PublicTeacherProfilePage() {
   const params = useParams();
   const router = useRouter();
   const teacherId = params?.id as string;
+  const { followTeacher, unfollowTeacher, isFollowingTeacher, loading } = useFollow();
 
   // Check if user is logged in - sẽ lấy từ context/session
   const [isLoggedIn] = useState(true); // Mock - TODO: get from auth context
@@ -53,22 +55,42 @@ export default function PublicTeacherProfilePage() {
     .slice(0, 6);
 
   useEffect(() => {
-    // TODO: Check if user is subscribed to this teacher
-  }, [teacherId]);
+    // Check if user is following this teacher
+    const checkFollowStatus = async () => {
+      if (isLoggedIn) {
+        const result = await isFollowingTeacher(teacherId);
+        setIsSubscribed(result.isFollowing);
+      }
+    };
+    
+    checkFollowStatus();
+  }, [teacherId, isLoggedIn, isFollowingTeacher]);
 
-  const handleSubscribe = () => {
+  const handleSubscribe = async () => {
     if (!isLoggedIn) {
       // Redirect to login/register page
       router.push('/login?redirect=' + encodeURIComponent(window.location.pathname));
       return;
     }
 
-    // TODO: Call API to subscribe/unsubscribe
-    setIsSubscribed(!isSubscribed);
-    if (!isSubscribed) {
-      setTeacher({ ...teacher, subscribers: teacher.subscribers + 1 });
-    } else {
-      setTeacher({ ...teacher, subscribers: teacher.subscribers - 1 });
+    try {
+      if (!isSubscribed) {
+        // Follow teacher
+        const result = await followTeacher(teacherId);
+        if (result.success) {
+          setIsSubscribed(true);
+          setTeacher({ ...teacher, subscribers: teacher.subscribers + 1 });
+        }
+      } else {
+        // Unfollow teacher
+        const result = await unfollowTeacher(teacherId);
+        if (result.success) {
+          setIsSubscribed(false);
+          setTeacher({ ...teacher, subscribers: teacher.subscribers - 1 });
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling follow:', error);
     }
   };
 
@@ -143,21 +165,22 @@ export default function PublicTeacherProfilePage() {
                 <div className="flex gap-3">
                   <button
                     onClick={handleSubscribe}
+                    disabled={loading}
                     className={`flex items-center gap-2 px-6 py-2 rounded-lg transition-colors ${
                       isSubscribed
                         ? "bg-gray-200 text-gray-700 hover:bg-gray-300"
                         : "bg-[#292C6D] text-white hover:bg-[#1f2350]"
-                    }`}
+                    } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     {isSubscribed ? (
                       <>
                         <BellOff size={18} />
-                        Subscribed
+                        Following
                       </>
                     ) : (
                       <>
                         <Bell size={18} />
-                        Subscribe
+                        Follow
                       </>
                     )}
                   </button>

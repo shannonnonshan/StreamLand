@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 import { 
   XMarkIcon, 
   ArrowLeftIcon, 
@@ -218,10 +219,12 @@ export default function CompleteOAuthModal({
             <div className="p-6 border-b border-gray-200 bg-gray-50">
               <div className="flex items-center gap-4">
                 {profile.avatar && (
-                  <img
+                  <Image
                     src={profile.avatar}
                     alt={profile.fullName}
-                    className="w-16 h-16 rounded-full border-2 border-purple-500"
+                    width={64}
+                    height={64}
+                    className="rounded-full border-2 border-purple-500"
                   />
                 )}
                 <div>

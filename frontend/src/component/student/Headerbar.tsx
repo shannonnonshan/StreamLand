@@ -2,6 +2,7 @@
 import { MagnifyingGlassIcon, BellIcon, XMarkIcon, ChevronDownIcon, UserCircleIcon, ShieldCheckIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import LoginModal from '@/component/(modal)/login';
 import RegisterModal from '@/component/(modal)/register';
 import OTPModal from '@/component/(modal)/verifyOtp';
@@ -22,6 +23,7 @@ const searchResults = [
 export default function Header() {
   const router = useRouter();
   const { user, isAuthenticated, logout } = useAuth();
+  
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [isOTPModalOpen, setIsOTPModalOpen] = useState(false);
@@ -35,6 +37,16 @@ export default function Header() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Load 2FA status from user data
+  useEffect(() => {
+    if (user) {
+      console.log('👤 Full User object:', JSON.stringify(user, null, 2));
+      console.log('🔑 User keys:', Object.keys(user));
+      console.log('🔐 twoFactorEnabled:', user.twoFactorEnabled);
+      setTwoFactorEnabled(!!user.twoFactorEnabled);
+    }
+  }, [user]);
   
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -100,13 +112,14 @@ export default function Header() {
   };
 
   const [otpEmail, setOtpEmail] = useState('');
-  const [otpPurpose, setOtpPurpose] = useState<'registration' | 'password-reset'>('registration');
+  const [otpPurpose, setOtpPurpose] = useState<'registration' | 'password-reset' | '2fa'>('registration');
 
-  const openOTPModal = (email: string = '', purpose: 'registration' | 'password-reset' = 'registration') => {
+  const openOTPModal = (email: string = '', purpose: 'registration' | 'password-reset' | '2fa' = 'registration') => {
     setOtpEmail(email);
     setOtpPurpose(purpose);
     setIsRegisterModalOpen(false);
     setIsForgotPasswordModalOpen(false);
+    setIsLoginModalOpen(false);
     setIsOTPModalOpen(true);
   };
 
@@ -135,13 +148,43 @@ export default function Header() {
   const closeResetPasswordModal = () => {
     setIsResetPasswordModalOpen(false);
   };
+
+  const handleToggle2FA = async () => {
+    if (!user) return;
+
+    const newStatus = !twoFactorEnabled;
+    
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/${user.id}/2fa`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ twoFactorEnabled: newStatus }),
+      });
+
+      if (response.ok) {
+        setTwoFactorEnabled(newStatus);
+        // Update user in localStorage
+        const updatedUser = { ...user, twoFactorEnabled: newStatus };
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+      } else {
+        console.error('Failed to update 2FA status');
+        alert('Failed to update 2FA setting. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error updating 2FA:', error);
+      alert('Error updating 2FA setting. Please try again.');
+    }
+  };
   
   return (
     <header className={`fixed top-0 left-0 right-0 h-16 bg-white flex items-center justify-between px-8 shadow-sm border-b border-gray-100 z-40`}>
-      
       {/* Logo on left */}
       <div className="flex items-center">
-        <img src="/logo.png" alt="StreamLand Logo" className="h-8 w-auto" />
+        <Image src="/logo.png" alt="StreamLand Logo" width={32} height={32} className="h-8 w-auto" />
       </div>
       
       {/* Right side icons */}
@@ -252,7 +295,7 @@ export default function Header() {
             >
               <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 border-2 border-white shadow-sm overflow-hidden flex items-center justify-center text-white font-semibold">
                 {user.avatar ? (
-                  <img src={user.avatar} alt={user.fullName || 'User'} className="w-full h-full object-cover" />
+                  <Image src={user.avatar} alt={user.fullName || 'User'} width={32} height={32} className="w-full h-full object-cover" />
                 ) : (
                   <span>{user.fullName?.charAt(0)?.toUpperCase() || 'U'}</span>
                 )}
@@ -300,7 +343,7 @@ export default function Header() {
                         <span className="text-sm text-gray-700">Two-Factor Authentication</span>
                       </div>
                       <button
-                        onClick={() => setTwoFactorEnabled(!twoFactorEnabled)}
+                        onClick={handleToggle2FA}
                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ${
                           twoFactorEnabled ? 'bg-blue-600' : 'bg-gray-300'
                         }`}
@@ -349,6 +392,7 @@ export default function Header() {
           closeModal={closeLoginModal} 
           openRegisterModal={openRegisterModal}
           openForgotPasswordModal={openForgotPasswordModal}
+          openOTPModal={openOTPModal}
         />
         
         {/* Register Modal */}

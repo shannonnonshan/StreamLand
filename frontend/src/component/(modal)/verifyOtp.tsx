@@ -13,7 +13,7 @@ interface OTPModalProps {
   isOpen: boolean;
   closeModal: () => void;
   email?: string;
-  otpPurpose?: 'registration' | 'password-reset';
+  otpPurpose?: 'registration' | 'password-reset' | '2fa';
   openResetPasswordModal?: (email: string) => void;
 }
 
@@ -25,7 +25,7 @@ export default function OTPModal({
   openResetPasswordModal
 }: OTPModalProps) {
   const router = useRouter();
-  const { verifyOtp, requestOtp } = useAuth();
+  const { verifyOtp, verify2FAOtp, requestOtp } = useAuth();
   const [otp, setOtp] = useState(new Array(OTP_LENGTH).fill(''));
   const [isVerifying, setIsVerifying] = useState(false);
   const [error, setError] = useState('');
@@ -67,11 +67,20 @@ export default function OTPModal({
     setSuccessMessage('');
 
     try {
-      // Call verify OTP API
-      const result = await verifyOtp({
-        email,
-        otp: finalOtp,
-      });
+      let result;
+      
+      // Use different API based on purpose
+      if (otpPurpose === '2fa') {
+        result = await verify2FAOtp({
+          email,
+          otp: finalOtp,
+        });
+      } else {
+        result = await verifyOtp({
+          email,
+          otp: finalOtp,
+        });
+      }
 
       if (result.success) {
         setSuccessMessage('OTP verified successfully!');
@@ -81,8 +90,8 @@ export default function OTPModal({
           closeModal();
           
           // Redirect based on purpose and user role
-          if (otpPurpose === 'registration') {
-            // After registration verification, redirect to dashboard
+          if (otpPurpose === 'registration' || otpPurpose === '2fa') {
+            // After registration or 2FA verification, redirect to dashboard
             if (result.user?.role === 'TEACHER') {
               router.push(`/teacher/${result.user.id}`);
             } else {
@@ -96,7 +105,7 @@ export default function OTPModal({
       } else {
         setError(result.error || 'Invalid OTP. Please try again.');
       }
-    } catch (err) {
+    } catch {
       setError('An error occurred. Please try again.');
     } finally {
       setIsVerifying(false);
@@ -119,7 +128,7 @@ export default function OTPModal({
       } else {
         setError(result.error || 'Unable to resend OTP. Please try again.');
       }
-    } catch (err) {
+    } catch {
       setError('An error occurred. Please try again.');
     }
   };

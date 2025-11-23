@@ -141,7 +141,6 @@ export default function BroadcasterPage() {
       timestamp: string;
       avatar?: string;
     }) => {
-      console.log('💬 [Teacher] Received chat:', message);
       setChatMessages(prev => [...prev, message]);
     });
 
@@ -178,6 +177,7 @@ export default function BroadcasterPage() {
         livestreamID,
         info: livestreamInfo 
       });
+      
       setIsLive(true);
       setShowModal(false);
       
@@ -464,19 +464,12 @@ export default function BroadcasterPage() {
     setSelectedDocument(pendingDocument);
     setShowDocumentViewer(true);
     
-    console.log('🔴 [Teacher] Emitting share-document event');
-    console.log('Teacher ID:', teacherID);
-    console.log('Livestream ID:', livestreamID);
-    console.log('Document:', pendingDocument);
-    
     // Share document with all viewers
     socket.emit("share-document", {
       teacherID,
       livestreamID,
       document: pendingDocument
     });
-    
-    console.log('✅ [Teacher] Emitted share-document successfully');
     
     setShowShareConfirm(false);
     setPendingDocument(null);

@@ -102,13 +102,198 @@ model LiveStreamSession {
   id           String    @id @default(auto()) @map("_id") @mongodb.ObjectId
   livestreamId String
   viewerId     String
+  viewerName   String?
+  viewerAvatar String?
   joinedAt     DateTime  @default(now())
   leftAt       DateTime?
   duration     Int? // in seconds
   interactions Int       @default(0)
+  
+  // Additional tracking
+  deviceType   String? // mobile, desktop, tablet
+  browser      String?
+  location     String? // country/city
+  referrer     String?
 
   @@index([livestreamId, viewerId])
+  @@index([livestreamId, joinedAt])
   @@map("livestream_sessions")
+}
+
+// Live Stream Analytics (aggregated)
+model LiveStreamAnalytics {
+  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  livestreamId String   @unique
+  
+  // Viewer stats
+  totalViews      Int      @default(0)
+  uniqueViewers   Int      @default(0)
+  peakViewers     Int      @default(0)
+  avgWatchTime    Float    @default(0) // in minutes
+  
+  // Engagement stats
+  totalComments   Int      @default(0)
+  totalLikes      Int      @default(0)
+  totalShares     Int      @default(0)
+  totalQuestions  Int      @default(0)
+  
+  // Demographics
+  viewersByDevice Json? // {mobile: 50, desktop: 30, tablet: 20}
+  viewersByCountry Json? // {VN: 80, US: 10, ...}
+  
+  // Time series data
+  viewerTimeline  Json? // [{timestamp, count}, ...]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("livestream_analytics")
+}
+
+// Q&A During Livestream
+model Question {
+  id           String        @id @default(auto()) @map("_id") @mongodb.ObjectId
+  livestreamId String
+  studentId    String
+  studentName  String
+  studentAvatar String?
+  question     String
+  status       QuestionStatus @default(PENDING)
+  
+  // Answer
+  answeredBy   String?
+  answer       String?
+  answeredAt   DateTime?
+  
+  // Engagement
+  upvotes      Int       @default(0)
+  upvotedBy    String[] // Array of user IDs
+  isHighlighted Boolean  @default(false)
+  isPinned     Boolean   @default(false)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([livestreamId, status])
+  @@index([livestreamId, createdAt])
+  @@map("questions")
+}
+
+enum QuestionStatus {
+  PENDING
+  ANSWERED
+  DISMISSED
+}
+
+// Polls during livestream
+model Poll {
+  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  livestreamId String
+  teacherId    String
+  question     String
+  options      Json // [{id, text, votes: 0}]
+  
+  // Settings
+  multipleChoice Boolean  @default(false)
+  anonymous      Boolean  @default(false)
+  duration       Int? // in seconds, null = no time limit
+  
+  // Status
+  isActive       Boolean  @default(true)
+  endedAt        DateTime?
+  
+  // Results
+  totalVotes     Int      @default(0)
+  voters         String[] // Array of user IDs who voted
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([livestreamId, isActive])
+  @@map("polls")
+}
+
+// Reactions/Emojis during livestream
+model Reaction {
+  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  livestreamId String
+  userId       String
+  emoji        String // 👍, ❤️, 😂, 😮, etc
+  timestamp    DateTime @default(now())
+
+  @@index([livestreamId, timestamp])
+  @@map("reactions")
+}
+
+// Watch history
+model WatchHistory {
+  id           String    @id @default(auto()) @map("_id") @mongodb.ObjectId
+  userId       String
+  livestreamId String
+  watchedAt    DateTime  @default(now())
+  duration     Int // in seconds
+  completed    Boolean   @default(false)
+  progress     Float     @default(0) // 0-100%
+  
+  // Resume point
+  lastPosition Int @default(0) // in seconds
+
+  @@index([userId, watchedAt])
+  @@index([livestreamId])
+  @@map("watch_history")
+}
+
+// Notebook/Notes taken during livestream
+model Notebook {
+  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  userId       String
+  livestreamId String
+  title        String?
+  content      String
+  timestamp    Int? // at what point in video (seconds)
+  
+  // Organization
+  tags         String[]
+  isPrivate    Boolean  @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, livestreamId])
+  @@index([userId, createdAt])
+  @@map("notebooks")
+}
+
+// Comments on recorded livestreams
+model Comment {
+  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  livestreamId String
+  userId       String
+  userName     String
+  userAvatar   String?
+  content      String
+  timestamp    Int? // at what point in video (seconds)
+  
+  // Thread support
+  parentId     String? // for replies
+  replies      Int      @default(0)
+  
+  // Engagement
+  likes        Int      @default(0)
+  likedBy      String[] // Array of user IDs
+  
+  // Moderation
+  isEdited     Boolean  @default(false)
+  isDeleted    Boolean  @default(false)
+  isPinned     Boolean  @default(false)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([livestreamId, createdAt])
+  @@index([parentId])
+  @@index([userId])
+  @@map("comments")
 }
 
 // Real-time User Presence
@@ -127,4 +312,6 @@ model UserPresence {
 enum UserStatus {
   ONLINE
   OFFLINE
+  BUSY
+  AWAY
 }

@@ -22,38 +22,40 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     });
 
     // Initialize MongoDB client
-    this.mongo = new MongoClient();
+    this.mongo = new MongoClient({
+      log: ['error', 'warn'],
+    });
   }
 
   async onModuleInit() {
     // Connect to both databases with retry logic
     try {
       await this.postgres.$connect();
-      console.log('✅ PostgreSQL connected successfully');
+      console.log('PostgreSQL connected successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('❌ Failed to connect to PostgreSQL:', errorMessage);
-      console.log('🔄 Retrying PostgreSQL connection in 2 seconds...');
+      console.error('Failed to connect to PostgreSQL:', errorMessage);
+      console.log('Retrying PostgreSQL connection in 2 seconds...');
       
       // Retry after 2 seconds
       await new Promise((resolve) => setTimeout(resolve, 2000));
       
       try {
         await this.postgres.$connect();
-        console.log('✅ PostgreSQL connected successfully on retry');
+        console.log('PostgreSQL connected successfully on retry');
       } catch (retryError) {
         const retryErrorMessage = retryError instanceof Error ? retryError.message : String(retryError);
-        console.error('❌ Failed to connect to PostgreSQL on retry:', retryErrorMessage);
+        console.error('Failed to connect to PostgreSQL on retry:', retryErrorMessage);
         throw retryError;
       }
     }
 
     try {
       await this.mongo.$connect();
-      console.log('✅ MongoDB connected successfully');
+      console.log('MongoDB connected successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('❌ Failed to connect to MongoDB:', errorMessage);
+      console.error('Failed to connect to MongoDB:', errorMessage);
       throw error;
     }
   }

@@ -6,7 +6,6 @@ import Image from "next/image";
 import {
   Search,
   Bell,
-  User,
   Headset,
   LayoutDashboard,
   Flag,
@@ -17,6 +16,7 @@ import {
 import { ReactNode, useState } from "react";
 import HoverTooltip from "@/component/HoverTooltip";
 import SearchModal from "@/component/admin/SearchModal";
+import AuthButton from "@/component/AuthButton";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -24,6 +24,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const params = useParams();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+
   const accountId =
     typeof window !== "undefined" ? localStorage.getItem("accountId") : null;
   const id = (params?.id as string) || accountId || "1"; // fallback id = 1
@@ -56,8 +57,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     }
   ];
 
-
-    // Trong navItems, thay href của Start LiveStream thành null
   const navItems = [
     { type: "link", href: "", label: "Dashboard", icon: LayoutDashboard },
     { type: "link", href: "/manage-account", label: "Manage Account", icon: Users },
@@ -125,20 +124,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   </span>
                 </button>
               </li>
-              <li className="relative group">
-                <a
-                  href={`/admin/${id}/profile`}
-                  className={`flex items-center ${
-                    pathname === `/admin/${id}/profile`
-                      ? "text-blue-500"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`}
-                >
-                  <User className="mr-2 flex-shrink-0" />
-                  <span className="absolute right-0 top-8 hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 transform translate-x-8">
-                    Account
-                  </span>
-                </a>
+              <li>
+                <AuthButton 
+                  role="admin" 
+                  basePath={`/admin/${id}`}
+                />
               </li>
             </ul>
           </nav>
@@ -232,7 +222,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                               <Flag className="text-red-500" size={20} />
                             )}
                             {notification.type === 'user' && (
-                              <User className="text-blue-500" size={20} />
+                              <Users className="text-blue-500" size={20} />
                             )}
                             {notification.type === 'system' && (
                               <Bell className="text-yellow-500" size={20} />

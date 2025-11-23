@@ -70,6 +70,21 @@ export class StudentController {
     return this.studentService.getSuggestions(req.user.sub);
   }
 
+  // Get blocked users
+  @Get('friends/blocked')
+  async getBlockedUsers(@Request() req: { user: { sub: string } }) {
+    return this.studentService.getBlockedUsers(req.user.sub);
+  }
+
+  // Check friendship status with another user
+  @Get('friendship-status/:userId')
+  async getFriendshipStatus(
+    @Request() req: { user: { sub: string } },
+    @Param('userId') userId: string,
+  ) {
+    return this.studentService.getFriendshipStatus(req.user.sub, userId);
+  }
+
   // Remove friend
   @Delete('friends/:friendshipId')
   async removeFriend(

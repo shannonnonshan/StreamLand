@@ -217,6 +217,15 @@ export class StudentService {
                 fullName: true,
                 email: true,
                 avatar: true,
+                bio: true,
+                studentProfile: {
+                  select: {
+                    id: true,
+                    school: true,
+                    grade: true,
+                    interests: true,
+                  },
+                },
               },
             },
           },
@@ -229,6 +238,15 @@ export class StudentService {
                 fullName: true,
                 email: true,
                 avatar: true,
+                bio: true,
+                studentProfile: {
+                  select: {
+                    id: true,
+                    school: true,
+                    grade: true,
+                    interests: true,
+                  },
+                },
               },
             },
           },
@@ -271,6 +289,14 @@ export class StudentService {
                 email: true,
                 avatar: true,
                 bio: true,
+                studentProfile: {
+                  select: {
+                    id: true,
+                    school: true,
+                    grade: true,
+                    interests: true,
+                  },
+                },
               },
             },
           },
@@ -284,6 +310,14 @@ export class StudentService {
                 email: true,
                 avatar: true,
                 bio: true,
+                studentProfile: {
+                  select: {
+                    id: true,
+                    school: true,
+                    grade: true,
+                    interests: true,
+                  },
+                },
               },
             },
           },
@@ -451,10 +485,11 @@ export class StudentService {
       select: {
         requestId: true,
         receiverId: true,
+        status: true,
       },
     });
 
-    // Extract friend IDs
+    // Extract friend IDs (both ACCEPTED and PENDING should be excluded)
     const excludedProfileIds = new Set<string>();
     friendships.forEach(f => {
       if (f.requestId === studentProfileId) {
@@ -495,6 +530,120 @@ export class StudentService {
     }));
 
     return results;
+  }
+
+  // Get blocked users
+  async getBlockedUsers(userId: string) {
+    // Get user's student profile
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true },
+    });
+
+    if (!user || !user.studentProfile) {
+      throw new ForbiddenException('Only students can get blocked users');
+    }
+
+    const studentProfileId = user.studentProfile.id;
+
+    // Get blocked friendships
+    const blockedFriendships = await this.prisma.postgres.friendList.findMany({
+      where: {
+        OR: [
+          { requestId: studentProfileId, status: FriendStatus.BLOCKED },
+          { receiverId: studentProfileId, status: FriendStatus.BLOCKED },
+        ],
+      },
+      include: {
+        requester: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                email: true,
+                avatar: true,
+                bio: true,
+              },
+            },
+          },
+        },
+        receiver: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                email: true,
+                avatar: true,
+                bio: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Map to friend objects
+    const blockedUsers = blockedFriendships.map(friendship => {
+      const blockedUser = friendship.requestId === studentProfileId
+        ? friendship.receiver.user
+        : friendship.requester.user;
+
+      return {
+        ...blockedUser,
+        friendshipId: friendship.id,
+        studentProfile: friendship.requestId === studentProfileId
+          ? friendship.receiver
+          : friendship.requester,
+      };
+    });
+
+    return blockedUsers;
+  }
+
+  // Check friendship status with another user
+  async getFriendshipStatus(userId: string, targetUserId: string) {
+    // Get both users' student profiles
+    const [user, targetUser] = await Promise.all([
+      this.prisma.postgres.user.findUnique({
+        where: { id: userId },
+        include: { studentProfile: true },
+      }),
+      this.prisma.postgres.user.findUnique({
+        where: { id: targetUserId },
+        include: { studentProfile: true },
+      }),
+    ]);
+
+    if (!user || !user.studentProfile || !targetUser || !targetUser.studentProfile) {
+      return { status: 'NONE', friendshipId: null };
+    }
+
+    // Check if friendship exists
+    const friendship = await this.prisma.postgres.friendList.findFirst({
+      where: {
+        OR: [
+          {
+            requestId: user.studentProfile.id,
+            receiverId: targetUser.studentProfile.id,
+          },
+          {
+            requestId: targetUser.studentProfile.id,
+            receiverId: user.studentProfile.id,
+          },
+        ],
+      },
+    });
+
+    if (!friendship) {
+      return { status: 'NONE', friendshipId: null };
+    }
+
+    return {
+      status: friendship.status,
+      friendshipId: friendship.id,
+    };
   }
 
   // Follow a teacher

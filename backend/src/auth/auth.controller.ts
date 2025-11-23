@@ -206,4 +206,18 @@ export class AuthController {
   ) {
     return this.authService.updateTeacherProfile(req.user.sub, updateDto);
   }
+
+  //  @Patch(':id/2fa')
+  // @UseGuards(AuthGuard('jwt'))
+  // async updateTwoFA(
+  //   @Param('id', ParseIntPipe) id: number,
+  //   @Body('twoFactorEnabled') twoFactorEnabled: boolean, // phải giống frontend
+  //   @Req() req: any, // để lấy thông tin user từ JWT
+  // ) {
+  //   if (req.user.id !== id) {
+  //     throw new ForbiddenException("Bạn không được phép chỉnh sửa 2FA của user khác");
+  //   }
+
+  //   return this.usersService.updateTwoFA(id, twoFactorEnabled);
+  // }
 }

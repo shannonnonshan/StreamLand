@@ -1,14 +1,10 @@
 'use client';
-import { MagnifyingGlassIcon, BellIcon, XMarkIcon, ChevronDownIcon, UserCircleIcon, ShieldCheckIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, BellIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import LoginModal from '@/component/(modal)/login';
-import RegisterModal from '@/component/(modal)/register';
-import OTPModal from '@/component/(modal)/verifyOtp';
-import ForgotPasswordModal from '@/component/(modal)/forgotPassword';
-import ResetPasswordModal from '@/component/(modal)/resetPassword';
+import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/hooks/useAuth';
+import AuthButton from '@/component/AuthButton';
 
 const PrimaryColor = '161853';
 
@@ -20,21 +16,12 @@ const searchResults = [
 ];
 
 export default function Header() {
-  const router = useRouter();
-  const { user, isAuthenticated, logout } = useAuth();
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
-  const [isOTPModalOpen, setIsOTPModalOpen] = useState(false);
-  const [isForgotPasswordModalOpen, setIsForgotPasswordModalOpen] = useState(false);
-  const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
+  const { user } = useAuth();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredResults, setFilteredResults] = useState(searchResults);
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
-  const userMenuRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -43,12 +30,6 @@ export default function Header() {
         !searchContainerRef.current.contains(event.target as Node)
       ) {
         setIsSearchOpen(false);
-      }
-      if (
-        userMenuRef.current && 
-        !userMenuRef.current.contains(event.target as Node)
-      ) {
-        setIsUserMenuOpen(false);
       }
     };
     
@@ -79,69 +60,12 @@ export default function Header() {
     setFilteredResults(filtered);
   };
   
-  const openLoginModal = () => {
-    setIsLoginModalOpen(true);
-    setIsRegisterModalOpen(false);
-    setIsOTPModalOpen(false);
-  };
-
-  const closeLoginModal = () => {
-    setIsLoginModalOpen(false);
-  };
-  
-  const openRegisterModal = () => {
-    setIsLoginModalOpen(false);
-    setIsRegisterModalOpen(true);
-    setIsOTPModalOpen(false);
-  };
-
-  const closeRegisterModal = () => {
-    setIsRegisterModalOpen(false);
-  };
-
-  const [otpEmail, setOtpEmail] = useState('');
-  const [otpPurpose, setOtpPurpose] = useState<'registration' | 'password-reset'>('registration');
-
-  const openOTPModal = (email: string = '', purpose: 'registration' | 'password-reset' = 'registration') => {
-    setOtpEmail(email);
-    setOtpPurpose(purpose);
-    setIsRegisterModalOpen(false);
-    setIsForgotPasswordModalOpen(false);
-    setIsOTPModalOpen(true);
-  };
-
-  const closeOTPModal = () => {
-    setIsOTPModalOpen(false);
-  };
-
-  const openForgotPasswordModal = () => {
-    setIsForgotPasswordModalOpen(true);
-    setIsLoginModalOpen(false);
-    setIsRegisterModalOpen(false);
-    setIsResetPasswordModalOpen(false);
-  };
-  
-  const closeForgotPasswordModal = () => {
-    setIsForgotPasswordModalOpen(false);
-  };
-  
-  const openResetPasswordModal = (email: string = '') => {
-    setOtpEmail(email);
-    setIsForgotPasswordModalOpen(false);
-    setIsOTPModalOpen(false);
-    setIsResetPasswordModalOpen(true);
-  };
-  
-  const closeResetPasswordModal = () => {
-    setIsResetPasswordModalOpen(false);
-  };
-  
   return (
     <header className={`fixed top-0 left-0 right-0 h-16 bg-white flex items-center justify-between px-8 shadow-sm border-b border-gray-100 z-40`}>
       
       {/* Logo on left */}
       <div className="flex items-center">
-        <img src="/logo.png" alt="StreamLand Logo" className="h-8 w-auto" />
+        <Image src="/logo.png" alt="StreamLand Logo" width={120} height={32} className="h-8 w-auto" />
       </div>
       
       {/* Right side icons */}
@@ -243,145 +167,12 @@ export default function Header() {
         {/* Divider */}
         <div className="w-px h-6 bg-gray-200 mx-2" />
         
-        {/* Profile Avatar / Login Button */}
-        {isAuthenticated && user ? (
-          <div className="relative" ref={userMenuRef}>
-            <div 
-              className="flex items-center space-x-2 cursor-pointer hover:opacity-80 transition-all duration-300 px-2 py-1 rounded-lg hover:bg-gray-50"
-              onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-            >
-              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 border-2 border-white shadow-sm overflow-hidden flex items-center justify-center text-white font-semibold">
-                {user.avatar ? (
-                  <img src={user.avatar} alt={user.fullName || 'User'} className="w-full h-full object-cover" />
-                ) : (
-                  <span>{user.fullName?.charAt(0)?.toUpperCase() || 'U'}</span>
-                )}
-              </div>
-              <div className="hidden md:block text-left">
-                <p className="text-sm font-semibold text-gray-800">{user.fullName || 'User'}</p>
-                <p className="text-xs text-gray-500">{user.role || 'STUDENT'}</p>
-              </div>
-              <ChevronDownIcon className={`h-4 w-4 text-gray-500 transition-transform duration-200 ${isUserMenuOpen ? 'rotate-180' : ''}`} />
-            </div>
-
-            {/* Dropdown Menu */}
-            <AnimatePresence>
-              {isUserMenuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.2 }}
-                  className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-100 py-2 z-50"
-                >
-                  {/* User Info */}
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-sm font-semibold text-gray-800">{user.fullName || 'User'}</p>
-                    <p className="text-xs text-gray-500">{user.email || 'email@example.com'}</p>
-                  </div>
-
-                  {/* Profile Link */}
-                  <button
-                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
-                    onClick={() => {
-                      setIsUserMenuOpen(false);
-                      router.push(`/student/${user.id}/profile`);
-                    }}
-                  >
-                    <UserCircleIcon className="h-5 w-5 text-gray-500" />
-                    <span>Personal Information</span>
-                  </button>
-
-                  {/* 2FA Toggle */}
-                  <div className="px-4 py-2 border-t border-gray-100">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <ShieldCheckIcon className="h-5 w-5 text-gray-500" />
-                        <span className="text-sm text-gray-700">Two-Factor Authentication</span>
-                      </div>
-                      <button
-                        onClick={() => setTwoFactorEnabled(!twoFactorEnabled)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ${
-                          twoFactorEnabled ? 'bg-blue-600' : 'bg-gray-300'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
-                            twoFactorEnabled ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1 ml-8">
-                      {twoFactorEnabled ? '2FA security enabled' : 'Enhance account security'}
-                    </p>
-                  </div>
-
-                  {/* Logout */}
-                  <button
-                    onClick={() => {
-                      setIsUserMenuOpen(false);
-                      logout();
-                    }}
-                    className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 border-t border-gray-100 mt-1"
-                  >
-                    <ArrowRightOnRectangleIcon className="h-5 w-5" />
-                    <span>Logout</span>
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        ) : (
-          <div 
-            className="flex items-center space-x-3 cursor-pointer hover:opacity-80 transition-all duration-300"
-            onClick={openLoginModal}
-          >
-            <div className="h-8 w-8 rounded-full bg-gray-300 border-2 border-white shadow-sm overflow-hidden hover:border-[#EC255A] transition-all duration-300">
-              {/* <img src="/avatar.jpg" alt="User Avatar" /> */}
-            </div>
-          </div>
-        )}
-        
-        {/* Login Modal */}
-        <LoginModal 
-          isOpen={isLoginModalOpen} 
-          closeModal={closeLoginModal} 
-          openRegisterModal={openRegisterModal}
-          openForgotPasswordModal={openForgotPasswordModal}
-        />
-        
-        {/* Register Modal */}
-        <RegisterModal 
-          isOpen={isRegisterModalOpen}
-          closeModal={closeRegisterModal}
-          openLoginModal={openLoginModal}
-          openOTPModal={openOTPModal}
-        />
-        
-        {/* OTP Verification Modal */}
-        <OTPModal
-          isOpen={isOTPModalOpen}
-          closeModal={closeOTPModal}
-          email={otpEmail}
-          otpPurpose={otpPurpose}
-          openResetPasswordModal={openResetPasswordModal}
-        />
-        
-        {/* Forgot Password Modal */}
-        <ForgotPasswordModal
-          isOpen={isForgotPasswordModalOpen}
-          closeModal={closeForgotPasswordModal}
-          openLoginModal={openLoginModal}
-          openOTPModal={openOTPModal}
-        />
-        
-        {/* Reset Password Modal */}
-        <ResetPasswordModal
-          isOpen={isResetPasswordModalOpen}
-          closeModal={closeResetPasswordModal}
-          openLoginModal={openLoginModal}
-          email={otpEmail}
+        {/* Auth Button with Modals */}
+        <AuthButton 
+          role="student" 
+          basePath={`/student/${user?.id || ''}`}
+          useAnimation={true}
+          show2FA={true}
         />
       </div>
     </header>

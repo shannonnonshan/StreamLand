@@ -80,10 +80,10 @@ export class MailService {
 
     try {
       await this.transporter.sendMail(mailOptions);
-      console.log(`✅ OTP email sent successfully to ${email}`);
+      console.log(`OTP email sent successfully to ${email}`);
       return { success: true };
     } catch (error) {
-      console.error('❌ Failed to send OTP email:', error);
+      console.error('Failed to send OTP email:', error);
       // Don't throw error, just log it (registration should still succeed)
       return {
         success: false,
@@ -154,10 +154,10 @@ export class MailService {
 
     try {
       await this.transporter.sendMail(mailOptions);
-      console.log(`✅ Password reset OTP email sent successfully to ${email}`);
+      console.log(`Password reset OTP email sent successfully to ${email}`);
       return { success: true };
     } catch (error) {
-      console.error('❌ Failed to send password reset OTP email:', error);
+      console.error('Failed to send password reset OTP email:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',

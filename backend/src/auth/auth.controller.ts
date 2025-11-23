@@ -69,7 +69,7 @@ export class AuthController {
   @Post('resend-otp')
   @HttpCode(HttpStatus.OK)
   async resendOtp(@Body() requestOtpDto: RequestOtpDto) {
-    // Resend OTP sử dụng cùng logic với request-otp
+    // Resend OTP using same logic as request-otp
     return this.authService.requestOtp(requestOtpDto);
   }
 

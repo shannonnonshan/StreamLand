@@ -59,9 +59,6 @@ export default function LivestreamViewerPage() {
   const params = useParams();
   const { teacherID, livestreamID } = params;
   
-  // Client-side mount state
-  const [isMounted, setIsMounted] = useState(false);
-  
   // Livestream info from backend
   const [livestreamInfo, setLivestreamInfo] = useState<LivestreamInfo | null>(null);
   
@@ -74,11 +71,9 @@ export default function LivestreamViewerPage() {
     teacherID: teacherID as string,
     livestreamID: livestreamID as string,
     onError: (error) => {
-      console.error('Livestream error:', error);
       setStreamError(error.message || 'Unable to connect to livestream');
     },
     onStreamEnded: () => {
-      console.log('Stream ended');
       setIsStreamEnded(true);
       setStreamError('This livestream has ended');
     },
@@ -153,7 +148,7 @@ export default function LivestreamViewerPage() {
 
   // Set mounted state
   useEffect(() => {
-    setIsMounted(true);
+    setIsMuted(true);
   }, []);
 
   // Listen for livestream info from backend
@@ -162,7 +157,6 @@ export default function LivestreamViewerPage() {
       const socket = module.default;
       
       socket.on('livestream-info', (info: LivestreamInfo) => {
-        console.log('Received livestream info:', info);
         setLivestreamInfo(info);
       });
 
@@ -175,14 +169,11 @@ export default function LivestreamViewerPage() {
         timestamp: string;
         avatar?: string;
       }) => {
-        console.log('💬 [Student] Received chat:', message);
         setChatMessages(prev => [...prev, message]);
       });
 
       // Listen for shared documents from teacher
       socket.on('share-document', (data: { document: SharedDocument }) => {
-        console.log('✅ [Student] Received share-document event:', data);
-        console.log('Document details:', data.document);
         setSharedDocument(data.document);
         setShowSharedDocument(true);
         
@@ -199,14 +190,12 @@ export default function LivestreamViewerPage() {
 
       // Listen for document close event
       socket.on('close-document', () => {
-        console.log('Teacher closed document');
         setShowSharedDocument(false);
         setSharedDocument(null);
       });
 
       // Listen for documents sync when joining
       socket.on('sync-documents', (data: { documents: SharedDocument[] }) => {
-        console.log('Synced documents:', data.documents);
         // If there were documents shared, we could show them in a list
         // For now, just log them
       });
@@ -305,24 +294,22 @@ export default function LivestreamViewerPage() {
   // Download document
   const handleDownloadDocument = (doc: typeof teacherDocuments[0]) => {
     // In real app, this would trigger actual download
-    console.log('Downloading:', doc.filename);
-    // Simulate download
-    alert(`Đang tải xuống: ${doc.filename}`);
+    alert(`Downloading: ${doc.filename}`);
   };
 
   // Get file icon based on type
   const getFileIcon = (type: string) => {
     switch (type) {
       case 'pdf':
-        return '📄';
+        return <DocumentIcon className="h-8 w-8 text-red-600" />;
       case 'doc':
-        return '📝';
+        return <DocumentIcon className="h-8 w-8 text-blue-600" />;
       case 'ppt':
-        return '📊';
+        return <VideoCameraIcon className="h-8 w-8 text-orange-600" />;
       case 'xls':
-        return '📈';
+        return <FolderIcon className="h-8 w-8 text-green-600" />;
       default:
-        return '📎';
+        return <DocumentIcon className="h-8 w-8 text-gray-600" />;
     }
   };
 
@@ -394,9 +381,9 @@ export default function LivestreamViewerPage() {
                       playsInline
                       muted
                       className="absolute inset-0 w-full h-full object-contain bg-gray-900"
-                      onLoadedMetadata={() => console.log('[Video] Metadata loaded')}
-                      onPlay={() => console.log('[Video] Playing')}
-                      onPause={() => console.log('[Video] Paused')}
+                      onLoadedMetadata={() => {}}
+                      onPlay={() => {}}
+                      onPause={() => {}}
                       onError={(e) => console.error('[Video] Error:', e)}
                     />
                   </div>
@@ -491,15 +478,28 @@ export default function LivestreamViewerPage() {
                         </>
                       ) : streamError ? (
                         <>
-                          <div className="text-6xl mb-4">⚠️</div>
-                          <p className="text-white/70 text-lg font-semibold mb-2">Connection Error</p>
-                          <p className="text-white/50 text-sm mb-4">{streamError}</p>
-                          <button
-                            onClick={() => window.location.reload()}
-                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition text-sm"
-                          >
-                            Try Again
-                          </button>
+                          {streamError.includes('not streaming') ? (
+                            <>
+                              <div className="text-6xl mb-4">⏳</div>
+                              <p className="text-white/70 text-lg font-semibold mb-2">Waiting for Stream</p>
+                              <p className="text-white/50 text-sm mb-4">{streamError}</p>
+                              <div className="animate-pulse text-white/40 text-sm mt-4">
+                                The stream will start automatically when the teacher goes live
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="text-6xl mb-4">⚠️</div>
+                              <p className="text-white/70 text-lg font-semibold mb-2">Connection Error</p>
+                              <p className="text-white/50 text-sm mb-4">{streamError}</p>
+                              <button
+                                onClick={() => window.location.reload()}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition text-sm"
+                              >
+                                Try Again
+                              </button>
+                            </>
+                          )}
                         </>
                       ) : (
                         <>
@@ -554,8 +554,8 @@ export default function LivestreamViewerPage() {
                       {chatMessages.map((msg) => (
                         <div key={msg.id} className="flex gap-2 animate-slide-up">
                           <div className={`h-7 w-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-lg ${msg.userRole === 'teacher'
-                            ? 'bg-gradient-to-br from-red-500 to-orange-600'
-                            : 'bg-gradient-to-br from-blue-500 to-purple-600'
+                            ? 'bg-[#EC255A]'
+                            : 'bg-[#161853]'
                             }`}>
                             {msg.username.charAt(0)}
                           </div>
@@ -798,9 +798,9 @@ export default function LivestreamViewerPage() {
                 {/* Teacher Info */}
                 <div className="pt-4 border-t border-gray-200 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="h-12 w-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 overflow-hidden flex items-center justify-center text-white text-lg font-bold">
-                      {livestreamInfo?.teacher?.name ? livestreamInfo.teacher.name.charAt(0) : 'T'}
-                    </div>
+                  <div className="h-12 w-12 rounded-full bg-[#161853] overflow-hidden flex items-center justify-center text-white text-lg font-bold">
+                    {livestreamInfo?.teacher?.name ? livestreamInfo.teacher.name.charAt(0) : 'T'}
+                  </div>
                     <div>
                       <h3 className={`font-bold text-base text-[#${PrimaryColor}]`}>
                         {livestreamInfo?.teacher?.name || 'Teacher'}
@@ -827,16 +827,16 @@ export default function LivestreamViewerPage() {
         
             {/* Documents Sidebar - Teacher's Shared Materials */}
             {showDocuments && (
-              <div className="w-96 flex flex-col bg-gradient-to-b from-purple-50 to-white rounded-xl shadow-2xl overflow-hidden border border-purple-100">
+              <div className="w-96 flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-200">
                 {/* Documents Header */}
-                <div className="p-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white flex items-center justify-between shadow-lg">
+                <div className="p-4 bg-[#161853] text-white flex items-center justify-between shadow-lg">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
                       <FolderIcon className="h-5 w-5" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-bold text-base">Learning Materials</h3>
-                      <p className="text-xs text-purple-100">
+                      <p className="text-xs text-white/80">
                         {teacherDocuments.length} document{teacherDocuments.length !== 1 ? 's' : ''} shared
                       </p>
                     </div>
@@ -866,11 +866,11 @@ export default function LivestreamViewerPage() {
                         return (
                           <div
                             key={doc.id}
-                            className="bg-white rounded-xl border-2 border-purple-100 hover:border-purple-300 hover:shadow-lg transition-all p-4"
+                            className="bg-white rounded-xl border-2 border-gray-200 hover:border-[#161853] hover:shadow-lg transition-all p-4"
                           >
                             {/* Document Header */}
                             <div className="flex items-start gap-3 mb-3">
-                              <div className="text-3xl flex-shrink-0">
+                              <div className="flex-shrink-0">
                                 {getFileIcon(doc.type)}
                               </div>
                               <div className="flex-1 min-w-0">
@@ -901,8 +901,8 @@ export default function LivestreamViewerPage() {
                               <button
                                 onClick={() => handleSaveDocument(doc.id)}
                                 className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all ${isSaved
-                                  ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-md'
-                                  : 'bg-gradient-to-r from-purple-100 to-indigo-100 text-purple-700 hover:from-purple-200 hover:to-indigo-200'
+                                  ? 'bg-green-500 text-white shadow-md'
+                                  : 'bg-gray-100 text-[#161853] hover:bg-gray-200'
                                   }`}
                               >
                                 {isSaved ? (
@@ -920,7 +920,7 @@ export default function LivestreamViewerPage() {
                           
                               <button
                                 onClick={() => handleDownloadDocument(doc)}
-                                className="px-4 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-medium text-sm hover:from-blue-600 hover:to-cyan-600 transition-all shadow-md hover:shadow-lg"
+                                className="px-4 py-2 rounded-lg bg-[#EC255A] text-white font-medium text-sm hover:bg-[#d41f4d] transition-all shadow-md hover:shadow-lg"
                                 title="Download"
                               >
                                 <ArrowDownTrayIcon className="h-4 w-4" />
@@ -944,10 +944,10 @@ export default function LivestreamViewerPage() {
                 </div>
             
                 {/* Footer Info */}
-                <div className="p-4 border-t-2 border-purple-100 bg-gradient-to-r from-purple-50 to-indigo-50">
+                <div className="p-4 border-t-2 border-gray-200 bg-gray-50">
                   <div className="flex items-start gap-2 text-xs text-gray-600">
-                    <div className="p-1.5 bg-purple-100 rounded-lg flex-shrink-0">
-                      <svg className="h-4 w-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div className="p-1.5 bg-[#161853]/10 rounded-lg flex-shrink-0">
+                      <svg className="h-4 w-4 text-[#161853]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     </div>

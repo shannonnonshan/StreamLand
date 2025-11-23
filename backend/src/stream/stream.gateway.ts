@@ -8,6 +8,8 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { RedisService } from '../redis/redis.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 // Payload types
 interface LivestreamInfo {
@@ -77,12 +79,17 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // key = `${teacherID}:${livestreamID}`
   private channels: Record<string, Channel> = {};
 
+  constructor(
+    private readonly redisService: RedisService,
+    private readonly prismaService: PrismaService,
+  ) {}
+
   private getKey(teacherID: string, livestreamID: string) {
     return `${teacherID}:${livestreamID}`;
   }
 
-  handleConnection() {
-    // Client connected
+  handleConnection(socket: Socket) {
+    console.log('Client connected:', socket.id);
   }
 
   handleDisconnect(socket: Socket) {
@@ -90,20 +97,40 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const channel = this.channels[key];
 
       if (channel.broadcaster === socket.id) {
-        // Broadcaster đóng stream, notify watchers
+        // Broadcaster closed stream, notify watchers
+        const teacherID = key.split(':')[0];
+        const livestreamID = key.split(':')[1];
+        
         this.server.to([...channel.watchers]).emit('stream-ended', {
-          teacherID: key.split(':')[0],
-          livestreamID: key.split(':')[1],
+          teacherID,
+          livestreamID,
         });
+        
+        // Cleanup Redis viewers
+        this.redisService.cleanupLivestream(livestreamID).catch(err => 
+          console.error('Redis cleanup error:', err)
+        );
+        
+        // Track stream end analytics
+        this.trackStreamEnd(teacherID, livestreamID, channel.watchers.size).catch(err =>
+          console.error('Analytics error:', err)
+        );
+        
         delete this.channels[key];
         console.log('Broadcaster closed channel:', key);
       } else if (channel.watchers.has(socket.id)) {
-        // Watcher rời, notify broadcaster
+        // Watcher left, notify broadcaster
         channel.watchers.delete(socket.id);
         this.server.to(channel.broadcaster).emit('bye', socket.id);
         this.server
           .to(channel.broadcaster)
           .emit('viewerCount', channel.watchers.size);
+        
+        // Remove viewer from Redis
+        const livestreamID = key.split(':')[1];
+        this.redisService.removeViewer(livestreamID, socket.id).catch(err =>
+          console.error('Redis remove viewer error:', err)
+        );
       }
     }
   }
@@ -150,10 +177,20 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.server.to(socket.id).emit('livestream-info', channel.info);
       }
 
-      // emit số watcher hiện tại tới broadcaster
+      // Emit current viewer count to broadcaster
       this.server
         .to(channel.broadcaster)
         .emit('viewerCount', channel.watchers.size);
+
+      // Track viewer in Redis
+      this.redisService.addViewer(data.livestreamID, socket.id).catch(err =>
+        console.error('Redis add viewer error:', err)
+      );
+
+      // Track analytics
+      this.trackViewerJoin(data.teacherID, data.livestreamID).catch(err =>
+        console.error('Analytics error:', err)
+      );
 
       console.log('Watcher joined channel:', socket.id, 'for', key);
       console.log('Current viewers:', channel.watchers.size);
@@ -215,9 +252,9 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server.to([...channel.watchers]).emit('share-document', {
         document: data.document,
       });
-      console.log('📄 Document shared to', channel.watchers.size, 'viewers:', data.document.name);
+      console.log('Document shared to', channel.watchers.size, 'viewers:', data.document.name);
     } else {
-      console.log('❌ Cannot share document - channel not found or not broadcaster');
+      console.log('Cannot share document - channel not found or not broadcaster');
     }
   }
 
@@ -232,7 +269,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (channel && channel.broadcaster === socket.id) {
       // Notify all watchers to close document
       this.server.to([...channel.watchers]).emit('close-document');
-      console.log('🗙 Document closed for', channel.watchers.size, 'viewers');
+      console.log('Document closed for', channel.watchers.size, 'viewers');
     }
   }
 
@@ -249,12 +286,12 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server.to([...channel.watchers]).emit('sync-documents', {
         documents: data.documents,
       });
-      console.log('🔄 Documents synced to', channel.watchers.size, 'viewers');
+      console.log('Documents synced to', channel.watchers.size, 'viewers');
     }
   }
 
   @SubscribeMessage('send-chat-message')
-  handleChatMessage(
+  async handleChatMessage(
     @MessageBody() data: ChatMessagePayload,
     @ConnectedSocket() socket: Socket,
   ) {
@@ -262,11 +299,116 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const channel = this.channels[key];
     
     if (channel) {
+      // Rate limiting check
+      const canSend = await this.redisService.checkChatRateLimit(
+        data.livestreamID,
+        socket.id,
+      );
+      
+      if (!canSend) {
+        this.server.to(socket.id).emit('rate-limit-exceeded', {
+          message: 'Sending messages too fast. Please wait a moment.',
+        });
+        return;
+      }
+
       // Broadcast message to everyone in the channel (broadcaster + all watchers)
       const allParticipants = [channel.broadcaster, ...Array.from(channel.watchers)];
       this.server.to(allParticipants).emit('chat-message', data.message);
       
-      console.log('💬 Chat message from', data.message.username, '(', data.message.userRole, '):', data.message.message);
+      // Save chat to MongoDB
+      this.saveChatMessage(data).catch(err =>
+        console.error('Failed to save chat message:', err)
+      );
+      
+      console.log('Chat message from', data.message.username, '(', data.message.userRole, '):', data.message.message);
+    }
+  }
+
+  // Save chat message to MongoDB
+  private async saveChatMessage(data: ChatMessagePayload): Promise<void> {
+    try {
+      await this.prismaService.mongo.comment.create({
+        data: {
+          livestreamId: data.livestreamID,
+          userId: data.teacherID, // TODO: Get actual user ID from auth
+          userName: data.message.username,
+          userAvatar: data.message.avatar,
+          content: data.message.message,
+          likes: 0,
+          replies: 0,
+        },
+      });
+
+      // Increment comment count in analytics
+      await this.prismaService.mongo.liveStreamAnalytics.updateMany({
+        where: { livestreamId: data.livestreamID },
+        data: {
+          totalComments: { increment: 1 },
+        },
+      });
+    } catch (error) {
+      console.error('Error saving chat to MongoDB:', error);
+      throw error;
+    }
+  }
+
+  // Track viewer join analytics
+  private async trackViewerJoin(teacherID: string, livestreamID: string): Promise<void> {
+    try {
+      // Get current viewer count from Redis
+      const currentViewers = await this.redisService.getViewerCount(livestreamID);
+      
+      // Update or create analytics record
+      const existing = await this.prismaService.mongo.liveStreamAnalytics.findUnique({
+        where: { livestreamId: livestreamID },
+      });
+
+      if (existing) {
+        await this.prismaService.mongo.liveStreamAnalytics.update({
+          where: { id: existing.id },
+          data: {
+            peakViewers: Math.max(existing.peakViewers, currentViewers),
+            totalViews: existing.totalViews + 1,
+          },
+        });
+      } else {
+        await this.prismaService.mongo.liveStreamAnalytics.create({
+          data: {
+            livestreamId: livestreamID,
+            totalViews: 1,
+            uniqueViewers: 1,
+            peakViewers: currentViewers,
+            avgWatchTime: 0,
+            totalComments: 0,
+            totalLikes: 0,
+            totalShares: 0,
+            totalQuestions: 0,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Error tracking viewer join:', error);
+      throw error;
+    }
+  }
+
+  // Track stream end analytics
+  private async trackStreamEnd(teacherID: string, livestreamID: string, finalViewerCount: number): Promise<void> {
+    try {
+      const analytics = await this.prismaService.mongo.liveStreamAnalytics.findUnique({
+        where: { livestreamId: livestreamID },
+      });
+
+      if (analytics) {
+        // Just log the end - schema doesn't have endedAt field
+        console.log(`Stream ended: ${livestreamID}, Peak viewers: ${analytics.peakViewers}, Total views: ${analytics.totalViews}`);
+      }
+
+      console.log(`Stream ended: ${livestreamID}, Final viewers: ${finalViewerCount}`);
+    } catch (error) {
+      console.error('Error tracking stream end:', error);
+      throw error;
     }
   }
 }

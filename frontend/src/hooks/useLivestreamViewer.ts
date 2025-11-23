@@ -27,18 +27,11 @@ export function useLivestreamViewer({
     pcRef.current = pc;
 
     pc.ontrack = (event) => {
-      console.log('[Viewer] Stream received. Tracks:', event.streams[0].getTracks().length);
-      console.log('[Viewer] Video tracks:', event.streams[0].getVideoTracks());
-      console.log('[Viewer] Audio tracks:', event.streams[0].getAudioTracks());
-      
       if (remoteVideoRef.current) {
-        console.log('[Viewer] Setting srcObject to video element');
         remoteVideoRef.current.srcObject = event.streams[0];
         
         // Force play the video
-        remoteVideoRef.current.play().then(() => {
-          console.log('[Viewer] Video playing successfully');
-        }).catch((error) => {
+        remoteVideoRef.current.play().catch((error) => {
           console.error('[Viewer] Video play error:', error);
         });
         
@@ -50,13 +43,12 @@ export function useLivestreamViewer({
           loadingTimeoutRef.current = null;
         }
       } else {
-        console.error('[Viewer] remoteVideoRef.current is null!');
+        console.error('[Viewer] Video element not found');
       }
     };
 
     pc.onicecandidate = (event) => {
       if (event.candidate && broadcasterIdRef.current) {
-        console.log('[Viewer] Sending ICE candidate');
         socket.emit('candidate', {
           to: broadcasterIdRef.current,
           candidate: event.candidate,
@@ -67,7 +59,6 @@ export function useLivestreamViewer({
     };
 
     pc.onconnectionstatechange = () => {
-      console.log('[Viewer] Connection state:', pc.connectionState);
       if (pc.connectionState === 'connected') {
         setIsConnected(true);
         setIsLoading(false);
@@ -81,16 +72,7 @@ export function useLivestreamViewer({
       }
     };
 
-    pc.onicegatheringstatechange = () => {
-      console.log('[Viewer] ICE gathering:', pc.iceGatheringState);
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      console.log('[Viewer] ICE connection:', pc.iceConnectionState);
-    };
-
     const handleBroadcaster = () => {
-      console.log('[Viewer] Broadcaster detected, joining...');
       socket.emit('watcher', { teacherID, livestreamID });
     };
 
@@ -102,15 +84,11 @@ export function useLivestreamViewer({
       sdp: RTCSessionDescriptionInit;
     }) => {
       try {
-        console.log('[Viewer] Received offer from:', from);
-        console.log('[Viewer] Offer SDP:', sdp);
         broadcasterIdRef.current = from;
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-
-        console.log('[Viewer] Sending answer back');
         socket.emit('answer', {
           to: from,
           sdp: pc.localDescription,
@@ -125,7 +103,6 @@ export function useLivestreamViewer({
     };
 
     const handleCandidate = ({ candidate }: { candidate: RTCIceCandidateInit }) => {
-      console.log('[Viewer] Received ICE candidate');
       pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
         console.error('[Viewer] ICE error:', error);
         onError?.(error as Error);
@@ -133,7 +110,6 @@ export function useLivestreamViewer({
     };
 
     const handleStreamEnded = () => {
-      console.log('[Viewer] Stream ended');
       pcRef.current?.close();
       pcRef.current = null;
       broadcasterIdRef.current = null;
@@ -146,10 +122,10 @@ export function useLivestreamViewer({
     };
 
     const handleStreamNotFound = () => {
-      console.log('[Viewer] Stream not found - broadcaster not available');
+      console.info('[Viewer] Stream not found - broadcaster not currently live');
       setIsLoading(false);
       setIsConnected(false);
-      onError?.(new Error('Stream not available'));
+      onError?.(new Error('Teacher is not streaming yet. Please wait...'));
     };
 
     socket.on('broadcaster', handleBroadcaster);
@@ -158,23 +134,16 @@ export function useLivestreamViewer({
     socket.on('stream-ended', handleStreamEnded);
     socket.on('stream-not-found', handleStreamNotFound);
 
-    console.log('[Viewer] Initializing connection to:', teacherID, livestreamID);
-    console.log('[Viewer] Socket connected:', socket.connected);
-    console.log('[Viewer] Socket ID:', socket.id);
-    
     // Join immediately when entering
     socket.emit('watcher', { teacherID, livestreamID });
-    console.log('[Viewer] Emitted watcher event');
 
     // Set timeout for loading state
     loadingTimeoutRef.current = setTimeout(() => {
-      console.log('[Viewer] Connection timeout - no stream received');
       setIsLoading(false);
       loadingTimeoutRef.current = null;
     }, 10000); // 10 seconds timeout
 
     return () => {
-      console.log('[Viewer] Cleaning up connection');
       if (loadingTimeoutRef.current) {
         clearTimeout(loadingTimeoutRef.current);
         loadingTimeoutRef.current = null;

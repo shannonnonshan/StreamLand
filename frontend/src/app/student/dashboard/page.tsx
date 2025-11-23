@@ -37,7 +37,7 @@ function LivestreamCard({ stream, index }: { stream: { id: number; title: string
   const handleClick = () => {
     // Navigate to livestream viewer page
     // teacherID sẽ là teacher-{id}, livestreamID sẽ là stream.id
-    router.push(`/student/livestream/teacher-${stream.id}/livestream-${stream.id}`);
+    router.push(`/student/livestream/${stream.id}`);
   };
 
   return (
@@ -112,7 +112,7 @@ function TrendingCard({ item }: { item: { id: number; title: string; teacher: st
 
     const handleClick = () => {
         // Navigate to video viewer page (using id as both teacher and livestream)
-        router.push(`/student/livestream/teacher-${item.id}/livestream-${item.id}`);
+        router.push(`/student/livestream/${item.id}`);
     };
     
     return (

@@ -102,10 +102,13 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
         
         // Redirect based on role
         setTimeout(() => {
+          const userId = result.user?.id;
           if (result.user?.role === 'TEACHER') {
-            router.push('/teacher/1'); // Replace 1 with actual teacher ID
+            router.push(`/teacher/${userId}`);
+          } else if (result.user?.role === 'ADMIN') {
+            router.push(`/admin/${userId}`);
           } else {
-            router.push('/student/dashboard');
+            router.push(`/student/${userId}`);
           }
           closeModal();
         }, 1500);
@@ -297,7 +300,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                     <div className="flex justify-end mt-2">
                       <button 
                         type="button"
-                        onClick={() => { closeModal(); openForgotPasswordModal(); }}
+                        onClick={openForgotPasswordModal}
                         className="text-xs text-[#161853] hover:text-[#EC255A] cursor-pointer"
                       >
                         Forgot password?
@@ -332,7 +335,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                     Dont have an account?{' '}
                     <button
                       type="button"
-                      onClick={() => { closeModal(); openRegisterModal(); }}
+                      onClick={openRegisterModal}
                       className={`font-semibold text-[#${PrimaryColor}] hover:text-opacity-80 transition duration-150 cursor-pointer`}
                     >
                       Sign Up

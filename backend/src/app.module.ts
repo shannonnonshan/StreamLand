@@ -7,6 +7,7 @@ import { StreamModule } from './stream/stream.module';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
+import { LivestreamModule } from './livestream/livestream.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { RedisModule } from './redis/redis.module';
     StreamModule,
     AuthModule,
     RedisModule,
+    LivestreamModule,
   ],
   controllers: [AppController],
   providers: [AppService],

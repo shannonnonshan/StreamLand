@@ -37,6 +37,9 @@ import {
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { GithubAuthGuard } from './guards/github-auth.guard';
+import { RolesGuard } from './guards/roles.guard';
+import { Roles } from './decorators/roles.decorator';
+import { Role } from '@prisma/client';
 
 @Controller('auth')
 export class AuthController {
@@ -190,7 +193,8 @@ export class AuthController {
   }
 
   @Patch('profile/student')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.STUDENT)
   async updateStudentProfile(
     @Request() req: { user: { sub: string } },
     @Body() updateDto: UpdateStudentProfileDto,
@@ -199,7 +203,8 @@ export class AuthController {
   }
 
   @Patch('profile/teacher')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.TEACHER)
   async updateTeacherProfile(
     @Request() req: { user: { sub: string } },
     @Body() updateDto: UpdateTeacherProfileDto,

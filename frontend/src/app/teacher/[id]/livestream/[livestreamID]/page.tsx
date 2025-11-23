@@ -24,13 +24,6 @@ import {
   Minimize2,
 } from "lucide-react";
 
-interface LivestreamInfo {
-  title: string;
-  description: string;
-  category: string;
-  thumbnail?: File;
-}
-
 interface DocumentFile {
   id: number;
   name: string;
@@ -52,15 +45,9 @@ export default function BroadcasterPage() {
 
   const [isLive, setIsLive] = useState(false);
   const [watcherCount, setWatcherCount] = useState(0);
-  const [showModal, setShowModal] = useState(false);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [livestreamInfo, setLivestreamInfo] = useState<LivestreamInfo>({
-    title: "",
-    description: "",
-    category: "Education",
-  });
 
   const [showFiles, setShowFiles] = useState(true);
   const [showComments, setShowComments] = useState(true);
@@ -152,7 +139,8 @@ export default function BroadcasterPage() {
       socket.off("viewerCount");
       socket.off("chat-message");
 
-      socket.disconnect();
+      // Don't disconnect socket - it's a shared instance
+      // socket.disconnect();
       Object.values(peersRef.current).forEach((pc) => pc.close());
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -172,18 +160,33 @@ export default function BroadcasterPage() {
         localVideoRef.current.srcObject = stream;
       }
 
+      console.log('[Teacher] Starting broadcast with livestreamID:', livestreamID);
+      console.log('[Teacher] Socket connected:', socket.connected);
+      console.log('[Teacher] Socket ID:', socket.id);
+      
+      // Ensure socket is connected before emitting
+      if (!socket.connected) {
+        console.warn('[Teacher] Socket not connected, connecting...');
+        socket.connect();
+        // Wait for connection
+        await new Promise((resolve) => {
+          if (socket.connected) {
+            resolve(true);
+          } else {
+            socket.once('connect', resolve);
+          }
+        });
+        console.log('[Teacher] Socket connected after waiting');
+      }
+      
       socket.emit("broadcaster", { 
-        teacherID, 
-        livestreamID,
-        info: livestreamInfo 
+        livestreamID
       });
       
       setIsLive(true);
-      setShowModal(false);
       
       // Share uploaded documents with new viewers
       socket.emit("sync-documents", {
-        teacherID,
         livestreamID,
         documents: documents
       });
@@ -193,18 +196,11 @@ export default function BroadcasterPage() {
   }
 
   function handleStartClick() {
-    setShowModal(true);
-  }
-
-  function handleModalSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (livestreamInfo.title.trim()) {
-      startLive();
-    }
+    startLive();
   }
 
   function stopLive() {
-    socket.emit("stream-ended", { teacherID, livestreamID });
+    socket.emit("stream-ended", { livestreamID });
 
     Object.values(peersRef.current).forEach((pc) => pc.close());
     peersRef.current = {};
@@ -244,7 +240,6 @@ export default function BroadcasterPage() {
         socket.emit("candidate", {
           to: watcherId,
           candidate: event.candidate,
-          teacherID,
           livestreamID,
         });
       }
@@ -656,89 +651,6 @@ export default function BroadcasterPage() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Start Livestream Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-lg mx-4">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold text-gray-900">Start Livestream</h2>
-              <button
-                onClick={() => setShowModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-full transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleModalSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Livestream Title *
-                </label>
-                <input
-                  type="text"
-                  value={livestreamInfo.title}
-                  onChange={(e) => setLivestreamInfo({ ...livestreamInfo, title: e.target.value })}
-                  placeholder="e.g., IELTS Speaking Practice - Part 2"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Description
-                </label>
-                <textarea
-                  value={livestreamInfo.description}
-                  onChange={(e) => setLivestreamInfo({ ...livestreamInfo, description: e.target.value })}
-                  placeholder="What will you teach in this session?"
-                  rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Category
-                </label>
-                <select
-                  value={livestreamInfo.category}
-                  onChange={(e) => setLivestreamInfo({ ...livestreamInfo, category: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="Education">Education</option>
-                  <option value="English">English</option>
-                  <option value="Math">Math</option>
-                  <option value="Science">Science</option>
-                  <option value="Programming">Programming</option>
-                  <option value="Music">Music</option>
-                  <option value="Art">Art</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-semibold transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!livestreamInfo.title.trim()}
-                  className="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Start Live
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

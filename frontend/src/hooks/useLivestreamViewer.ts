@@ -3,14 +3,12 @@ import { ICE_SERVERS } from '@/utils/ice';
 import socket from '@/socket';
 
 interface UseLivestreamViewerOptions {
-  teacherID: string;
   livestreamID: string;
   onError?: (error: Error) => void;
   onStreamEnded?: () => void;
 }
 
 export function useLivestreamViewer({
-  teacherID,
   livestreamID,
   onError,
   onStreamEnded,
@@ -52,7 +50,6 @@ export function useLivestreamViewer({
         socket.emit('candidate', {
           to: broadcasterIdRef.current,
           candidate: event.candidate,
-          teacherID,
           livestreamID,
         });
       }
@@ -73,7 +70,8 @@ export function useLivestreamViewer({
     };
 
     const handleBroadcaster = () => {
-      socket.emit('watcher', { teacherID, livestreamID });
+      console.log('[Viewer] Broadcaster detected, sending watcher event');
+      socket.emit('watcher', { livestreamID });
     };
 
     const handleOffer = async ({
@@ -92,7 +90,6 @@ export function useLivestreamViewer({
         socket.emit('answer', {
           to: from,
           sdp: pc.localDescription,
-          teacherID,
           livestreamID,
         });
       } catch (error) {
@@ -128,6 +125,7 @@ export function useLivestreamViewer({
       onError?.(new Error('Teacher is not streaming yet. Please wait...'));
     };
 
+    console.log('[Viewer] Setting up socket listeners for livestreamID:', livestreamID);
     socket.on('broadcaster', handleBroadcaster);
     socket.on('offer', handleOffer);
     socket.on('candidate', handleCandidate);
@@ -135,7 +133,8 @@ export function useLivestreamViewer({
     socket.on('stream-not-found', handleStreamNotFound);
 
     // Join immediately when entering
-    socket.emit('watcher', { teacherID, livestreamID });
+    console.log('[Viewer] Emitting watcher event for livestreamID:', livestreamID);
+    socket.emit('watcher', { livestreamID });
 
     // Set timeout for loading state
     loadingTimeoutRef.current = setTimeout(() => {
@@ -157,7 +156,7 @@ export function useLivestreamViewer({
       pc.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teacherID, livestreamID]);
+  }, [livestreamID]);
 
   return {
     isConnected,

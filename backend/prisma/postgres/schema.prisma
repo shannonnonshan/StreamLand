@@ -30,9 +30,12 @@ model User {
   bio      String?
   location String?
 
-  // Teacher-specific fields
-  teacherProfile TeacherProfile?
-  studentProfile StudentProfile?
+  // Relations
+  teacherProfile  TeacherProfile?
+  studentProfile  StudentProfile?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("users")
 }

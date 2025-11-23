@@ -96,7 +96,7 @@ function VideoCard({ video }: {
 
   const handleClick = () => {
     if (video.isLive) {
-      router.push(`/student/livestream/teacher-${video.teacherId}/livestream-${video.id}`);
+      router.push(`/student/livestream/${video.id}`);
     } else {
       router.push(`/student/video/teacher-${video.teacherId}/video-${video.id}`);
     }

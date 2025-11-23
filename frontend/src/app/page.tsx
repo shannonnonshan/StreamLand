@@ -58,84 +58,84 @@ export default function Home() {
   const features = [
     {
       icon: VideoCameraIcon,
-      title: 'Livestream Tương Tác',
-      description: 'Học trực tiếp với giáo viên qua video chất lượng cao, tương tác real-time'
+      title: 'Interactive Livestream',
+      description: 'Learn directly with teachers through high-quality video with real-time interaction'
     },
     {
       icon: AcademicCapIcon,
-      title: 'Giảng Viên Chất Lượng',
-      description: 'Đội ngũ giáo viên giàu kinh nghiệm, nhiệt tình và tâm huyết'
+      title: 'Quality Instructors',
+      description: 'Team of experienced, enthusiastic and dedicated teachers'
     },
     {
       icon: ChartBarIcon,
-      title: 'Theo Dõi Tiến Độ',
-      description: 'Báo cáo chi tiết về quá trình học tập và kết quả đạt được'
+      title: 'Progress Tracking',
+      description: 'Detailed reports on learning progress and achievements'
     },
     {
       icon: UserGroupIcon,
-      title: 'Cộng Đồng Học Tập',
-      description: 'Kết nối với hàng ngàn học viên và giáo viên trên toàn quốc'
+      title: 'Learning Community',
+      description: 'Connect with thousands of students and teachers nationwide'
     }
   ];
 
   const stats = [
-    { number: '10,000+', label: 'Học Viên' },
-    { number: '500+', label: 'Giáo Viên' },
-    { number: '1,000+', label: 'Khóa Học' },
-    { number: '95%', label: 'Hài Lòng' }
+    { number: '10,000+', label: 'Students' },
+    { number: '500+', label: 'Teachers' },
+    { number: '1,000+', label: 'Courses' },
+    { number: '95%', label: 'Satisfaction' }
   ];
 
   const liveStreams = [
     {
       id: 1,
-      title: 'Toán Học Cơ Bản - Phương trình bậc 2',
-      teacher: 'Thầy Nguyễn Văn A',
+      title: 'Basic Mathematics - Quadratic Equations',
+      teacher: 'Mr. Nguyen Van A',
       viewers: 234,
       thumbnail: 'https://images.unsplash.com/photo-1509228468518-180dd4864904?w=800&h=450&fit=crop',
-      subject: 'Toán',
+      subject: 'Math',
       isLive: true
     },
     {
       id: 2,
-      title: 'Hóa Học Hữu Cơ - Ancol và Phenol',
-      teacher: 'Cô Trần Thị B',
+      title: 'Organic Chemistry - Alcohols and Phenols',
+      teacher: 'Ms. Tran Thi B',
       viewers: 189,
       thumbnail: 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=800&h=450&fit=crop',
-      subject: 'Hóa',
+      subject: 'Chemistry',
       isLive: true
     },
     {
       id: 3,
-      title: 'Vật Lý - Dao động điều hòa',
-      teacher: 'Thầy Lê Văn C',
+      title: 'Physics - Harmonic Oscillation',
+      teacher: 'Mr. Le Van C',
       viewers: 156,
       thumbnail: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=800&h=450&fit=crop',
-      subject: 'Lý',
+      subject: 'Physics',
       isLive: false
     }
   ];
 
   const testimonials = [
     {
-      name: 'Nguyễn Thị Mai',
-      role: 'Học sinh lớp 12',
+      name: 'Nguyen Thi Mai',
+      role: '12th Grade Student',
       avatar: 'https://i.pravatar.cc/150?img=1',
       rating: 5,
-      comment: 'StreamLand đã giúp em cải thiện điểm số rất nhiều. Các thầy cô dạy rất tận tình và dễ hiểu!'
+      comment: 'StreamLand helped me improve my grades significantly. The teachers are very dedicated and easy to understand!'
     },
     {
-      name: 'Trần Văn Nam',
-      role: 'Phụ huynh',
+      name: 'Tran Van Nam',
+      role: 'Parent',
       avatar: 'https://i.pravatar.cc/150?img=2',
       rating: 5,
-      comment: 'Con tôi rất thích học trên StreamLand. Nền tảng này thật sự hiệu quả và tiện lợi.'
+      comment: 'My child loves learning on StreamLand. This platform is truly effective and convenient.'
     },
     {
-      name: 'Lê Thu Hương',
-      role: 'Học sinh lớp 11',
+      name: 'Le Thu Huong',
+      role: '11th Grade Student',
       avatar: 'https://i.pravatar.cc/150?img=3',
       rating: 5,
-      comment: 'Tương tác trực tiếp với giáo viên giúp em hiểu bài nhanh hơn nhiều. Rất đáng để thử!'
+      comment: 'Direct interaction with teachers helps me understand lessons much faster. Definitely worth trying!'
     }
   ];
 
@@ -185,10 +185,10 @@ export default function Home() {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="text-5xl md:text-6xl font-extrabold text-gray-900 mb-6"
           >
-            Nền Tảng Học Tập
+            Leading Learning Platform
             <br />
             <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Livestream Số 1 Việt Nam
+              #1 Livestream Education
             </span>
           </motion.h2>
 
@@ -198,8 +198,8 @@ export default function Home() {
             transition={{ duration: 0.6, delay: 0.4 }}
             className="text-xl text-gray-600 mb-12 max-w-3xl mx-auto"
           >
-            Kết nối học viên và giáo viên qua livestream tương tác. 
-            Học mọi lúc, mọi nơi với chất lượng cao nhất.
+            Connecting students and teachers through interactive livestream. 
+            Learn anytime, anywhere with the highest quality.
           </motion.p>
 
           {/* CTA Buttons */}
@@ -214,7 +214,7 @@ export default function Home() {
               className="group relative px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full font-semibold text-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 flex items-center gap-2"
             >
               <AcademicCapIcon className="h-6 w-6" />
-              Bắt Đầu Học Ngay
+              Start Learning Now
               <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-20 rounded-full transition-opacity"></div>
             </button>
             
@@ -223,7 +223,7 @@ export default function Home() {
               className="px-8 py-4 bg-white text-gray-800 rounded-full font-semibold text-lg shadow-lg hover:shadow-xl border-2 border-gray-200 hover:border-purple-300 transform hover:scale-105 transition-all duration-300 flex items-center gap-2"
             >
               <PlayCircleIcon className="h-6 w-6" />
-              Đăng Nhập
+              Sign In
             </button>
           </motion.div>
 
@@ -267,13 +267,13 @@ export default function Home() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
               </div>
-              <span className="text-sm font-semibold text-red-600">ĐANG LIVESTREAM</span>
+              <span className="text-sm font-semibold text-red-600">LIVE NOW</span>
             </div>
             <h2 className="text-4xl font-extrabold text-gray-900 mb-4">
-              Trải Nghiệm Lớp Học Trực Tuyến
+              Experience Online Classroom
             </h2>
             <p className="text-xl text-gray-600">
-              Tham gia ngay các buổi học livestream đang diễn ra
+              Join live learning sessions happening now
             </p>
           </motion.div>
 
@@ -328,13 +328,13 @@ export default function Home() {
                       <div className="flex items-start gap-2">
                         <div className="w-6 h-6 bg-blue-500 rounded-full flex-shrink-0"></div>
                         <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg">
-                          <p className="text-white text-sm">Bài giảng rất hay ạ! 🔥</p>
+                          <p className="text-white text-sm">Great lesson! 🔥</p>
                         </div>
                       </div>
                       <div className="flex items-start gap-2">
                         <div className="w-6 h-6 bg-purple-500 rounded-full flex-shrink-0"></div>
                         <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg">
-                          <p className="text-white text-sm">Em hiểu rồi, cảm ơn thầy! ❤️</p>
+                          <p className="text-white text-sm">I understand now, thank you! ❤️</p>
                         </div>
                       </div>
                     </div>
@@ -381,7 +381,7 @@ export default function Home() {
               viewport={{ once: true }}
               className="space-y-4"
             >
-              <h3 className="text-2xl font-bold text-gray-900 mb-6">Các Buổi Học Đang Diễn Ra</h3>
+              <h3 className="text-2xl font-bold text-gray-900 mb-6">Ongoing Live Sessions</h3>
               
               {liveStreams.map((stream, index) => (
                 <motion.div
@@ -436,7 +436,7 @@ export default function Home() {
                 onClick={() => window.location.href = '/student'}
                 className="w-full mt-4 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-300"
               >
-                Xem Tất Cả Livestream
+                View All Livestreams
               </button>
             </motion.div>
           </div>
@@ -454,10 +454,10 @@ export default function Home() {
             className="text-center mb-16"
           >
             <h2 className="text-4xl font-extrabold text-gray-900 mb-4">
-              Tại Sao Chọn StreamLand?
+              Why Choose StreamLand?
             </h2>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              Trải nghiệm học tập hiện đại với công nghệ tiên tiến
+              Modern learning experience with advanced technology
             </p>
           </motion.div>
 
@@ -500,18 +500,18 @@ export default function Home() {
             className="text-center mb-16"
           >
             <h2 className="text-4xl font-extrabold text-gray-900 mb-4">
-              Cách Thức Hoạt Động
+              How It Works
             </h2>
             <p className="text-xl text-gray-600">
-              Chỉ 3 bước đơn giản để bắt đầu
+              Just 3 simple steps to get started
             </p>
           </motion.div>
 
           <div className="grid md:grid-cols-3 gap-12">
             {[
-              { step: '01', title: 'Đăng Ký Tài Khoản', desc: 'Tạo tài khoản miễn phí chỉ trong vài giây' },
-              { step: '02', title: 'Chọn Khóa Học', desc: 'Tìm kiếm và chọn khóa học phù hợp với bạn' },
-              { step: '03', title: 'Bắt Đầu Học', desc: 'Tham gia livestream và học cùng giáo viên' }
+              { step: '01', title: 'Create Account', desc: 'Sign up for free in just seconds' },
+              { step: '02', title: 'Choose Course', desc: 'Find and select the course that suits you' },
+              { step: '03', title: 'Start Learning', desc: 'Join livestreams and learn with teachers' }
             ].map((item, index) => (
               <motion.div
                 key={index}
@@ -553,10 +553,10 @@ export default function Home() {
             className="text-center mb-16"
           >
             <h2 className="text-4xl font-extrabold text-gray-900 mb-4">
-              Học Viên Nói Gì Về Chúng Tôi
+              What Students Say About Us
             </h2>
             <p className="text-xl text-gray-600">
-              Hàng ngàn học viên đã tin tưởng và thành công cùng StreamLand
+              Thousands of students have trusted and succeeded with StreamLand
             </p>
           </motion.div>
 
@@ -630,8 +630,8 @@ export default function Home() {
                 ))}
               </div>
               <div className="text-left">
-                <p className="font-bold text-lg">10,000+ Học viên hài lòng</p>
-                <p className="text-sm text-blue-100">Tham gia cộng đồng ngay hôm nay</p>
+                <p className="font-bold text-lg">10,000+ Satisfied Students</p>
+                <p className="text-sm text-blue-100">Join the community today</p>
               </div>
             </div>
           </motion.div>
@@ -648,16 +648,16 @@ export default function Home() {
             viewport={{ once: true }}
           >
             <h2 className="text-4xl font-extrabold text-white mb-6">
-              Sẵn Sàng Bắt Đầu Hành Trình Học Tập?
+              Ready to Start Your Learning Journey?
             </h2>
             <p className="text-xl text-blue-100 mb-8">
-              Tham gia cùng hàng ngàn học viên đang học tập mỗi ngày
+              Join thousands of students learning every day
             </p>
             <button
               onClick={() => window.location.href = '/student'}
               className="px-10 py-4 bg-white text-purple-600 rounded-full font-bold text-lg shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all duration-300"
             >
-              Đăng Ký Miễn Phí Ngay
+              Sign Up Free Now
             </button>
           </motion.div>
         </div>
@@ -671,13 +671,13 @@ export default function Home() {
             <span className="text-2xl font-bold">StreamLand</span>
           </div>
           <p className="text-gray-400 mb-4">
-            Nền tảng học tập livestream hàng đầu Việt Nam
+            Leading livestream learning platform
           </p>
           <div className="flex justify-center gap-6 text-sm text-gray-400">
-            <a href="#" className="hover:text-white transition-colors">Về chúng tôi</a>
-            <a href="#" className="hover:text-white transition-colors">Điều khoản</a>
-            <a href="#" className="hover:text-white transition-colors">Chính sách</a>
-            <a href="#" className="hover:text-white transition-colors">Liên hệ</a>
+            <a href="#" className="hover:text-white transition-colors">About Us</a>
+            <a href="#" className="hover:text-white transition-colors">Terms</a>
+            <a href="#" className="hover:text-white transition-colors">Privacy</a>
+            <a href="#" className="hover:text-white transition-colors">Contact</a>
           </div>
           <p className="text-gray-500 text-sm mt-6">
             © 2025 StreamLand. All rights reserved.

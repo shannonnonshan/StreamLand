@@ -32,6 +32,7 @@ model User {
 
   // Teacher-specific fields
   teacherProfile TeacherProfile?
+  studentProfile StudentProfile?
 
   @@map("users")
 }

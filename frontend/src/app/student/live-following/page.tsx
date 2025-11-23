@@ -4,18 +4,24 @@ import { PlayCircleIcon, SignalIcon, HeartIcon, ChevronLeftIcon, ChevronRightIco
 import { motion } from 'framer-motion';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useFollow } from '@/hooks/useFollow';
+import Image from 'next/image';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
 
-const followedChannels = [
-  { id: 1, name: 'Mr. David Nguyen', avatar: '/avatars/teacher-1.png', followers: '12.5k', isFollowing: true },
-  { id: 2, name: 'Ms. Lan Anh', avatar: '/avatars/teacher-2.png', followers: '8.3k', isFollowing: true },
-  { id: 3, name: 'Ms. Thao', avatar: '/avatars/teacher-3.png', followers: '15.2k', isFollowing: true },
-  { id: 4, name: 'Mr. Minh Tuan', avatar: '/avatars/teacher-4.png', followers: '9.7k', isFollowing: true },
-  { id: 5, name: 'Ms. Phuong Linh', avatar: '/avatars/teacher-5.png', followers: '11.1k', isFollowing: true },
-];
+interface Teacher {
+  id: string;
+  teacher: {
+    id: string;
+    fullName: string;
+    avatar?: string;
+    email: string;
+  };
+  followedSince: string;
+}
 
+// Mock data - will be replaced with real API data
 const followedLivestreams = [
   { id: 1, title: 'IELTS Speaking Prep', teacher: 'Mr. David Nguyen', teacherId: 1, views: '2.5k', viewCount: 2500, image: '/images/cat.png', isLive: true, duration: null, uploadedAt: null },
   { id: 2, title: 'Calculus I - Chapter 3', teacher: 'Ms. Lan Anh', teacherId: 2, views: '1.2k', viewCount: 1200, image: '', isLive: true, duration: null, uploadedAt: null },
@@ -32,26 +38,35 @@ const followedVideos = [
   { id: 10, title: 'Chemistry Lab Tutorial', teacher: 'Ms. Thao', teacherId: 3, views: '3.5k', viewCount: 3500, image: '', isLive: false, duration: '41:10', uploadedAt: '4 days ago' },
 ];
 
-function ChannelCard({ channel }: { channel: { id: number; name: string; avatar: string; followers: string; isFollowing: boolean } }) {
+function ChannelCard({ channel }: { channel: Teacher }) {
   const [isHovered, setIsHovered] = useState(false);
-  const following = channel.isFollowing;
+  const router = useRouter();
+  const following = true; // Always true since these are followed teachers
+
+  const handleClick = () => {
+    router.push(`/teacher/public/${channel.teacher.id}`);
+  };
 
   return (
     <div 
-      className={`relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform ${isHovered ? 'scale-[1.02]' : ''} border border-gray-200`}
+      className={`relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform ${isHovered ? 'scale-[1.02]' : ''} border border-gray-200 cursor-pointer`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onClick={handleClick}
     >
       <div className="p-5 flex flex-col items-center">
         <div className="relative mb-4">
           <div className={`h-20 w-20 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 ${following ? `border-[#${SecondaryColor}]` : 'border-gray-300'} transition-all duration-300`}>
-            {channel.avatar ? (
-              <div 
-                className="w-full h-full bg-cover bg-center"
-                style={{ backgroundImage: `url(${channel.avatar})` }}
+            {channel.teacher.avatar ? (
+              <Image 
+                src={channel.teacher.avatar}
+                alt={channel.teacher.fullName}
+                width={80}
+                height={80}
+                className="w-full h-full object-cover"
               />
             ) : (
-              <span className="text-2xl text-gray-500">{channel.name.charAt(0)}</span>
+              <span className="text-2xl text-gray-500">{channel.teacher.fullName.charAt(0)}</span>
             )}
           </div>
           {following && (
@@ -62,11 +77,11 @@ function ChannelCard({ channel }: { channel: { id: number; name: string; avatar:
         </div>
 
         <h3 className={`text-sm font-semibold text-[#${PrimaryColor}] text-center mb-2 line-clamp-2`}>
-          {channel.name}
+          {channel.teacher.fullName}
         </h3>
 
         <p className="text-xs text-gray-500 mb-3">
-          {channel.followers} followers
+          Following since {new Date(channel.followedSince).toLocaleDateString()}
         </p>
 
         <div className={`px-3 py-1.5 rounded-full text-xs font-medium ${following ? `bg-[#${SecondaryColor}]/10 text-[#${SecondaryColor}]` : `bg-gray-100 text-gray-600`} transition-all duration-300`}>
@@ -164,12 +179,24 @@ function VideoCard({ video }: {
 export default function LiveFollowingPage() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'live' | 'videos'>('all');
+  const [followedChannels, setFollowedChannels] = useState<Teacher[]>([]);
+  const { getFollowedTeachers } = useFollow();
   
   const livestreamContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setIsLoaded(true);
-  }, []);
+    
+    // Fetch followed teachers
+    const fetchFollowedTeachers = async () => {
+      const result = await getFollowedTeachers();
+      if (result.success && result.data) {
+        setFollowedChannels(result.data);
+      }
+    };
+    
+    fetchFollowedTeachers();
+  }, [getFollowedTeachers]);
   
   const fadeInUp = {
     hidden: { opacity: 0, y: 20 },

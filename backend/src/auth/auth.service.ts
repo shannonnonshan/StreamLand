@@ -440,6 +440,51 @@ export class AuthService {
     return tokens;
   }
 
+  async refreshTokenByToken(refreshToken: string) {
+    // Find active session by refresh token only
+    const session = await this.prisma.postgres.session.findFirst({
+      where: {
+        token: refreshToken,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+    });
+
+    if (!session) {
+      console.error('❌ Session not found for refresh token');
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    console.log('✅ Session found, userId:', session.userId);
+
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { id: session.userId },
+    });
+
+    if (!user) {
+      console.error('❌ User not found for session userId:', session.userId);
+      throw new UnauthorizedException('User not found');
+    }
+
+    console.log('✅ User found, generating new tokens');
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+
+    // Update session with new refresh token
+    await this.prisma.postgres.session.update({
+      where: { id: session.id },
+      data: {
+        token: tokens.refreshToken,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    console.log('✅ Token refreshed successfully for user:', user.email);
+
+    return tokens;
+  }
+
   async logout(userId: string) {
     // Delete all sessions for user
     await this.prisma.postgres.session.deleteMany({

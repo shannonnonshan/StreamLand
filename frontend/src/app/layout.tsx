@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { raleway } from "@/utils/front";
+import { AuthProvider } from "@/contexts/AuthContext";
 
 
 export const metadata: Metadata = {
@@ -21,7 +22,9 @@ export default function RootLayout({
       <body
         className={`${raleway.variable} antialiased`}
       >
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

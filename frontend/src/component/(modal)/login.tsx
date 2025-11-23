@@ -13,11 +13,12 @@ type LoginModalProps = {
   closeModal: () => void;
   openRegisterModal: () => void;
   openForgotPasswordModal: () => void;
+  openOTPModal?: (email: string, purpose: '2fa') => void;
 };
 
 type NotificationType = 'success' | 'error' | null;
 
-export default function LoginModal({ isOpen, closeModal, openRegisterModal, openForgotPasswordModal }: LoginModalProps) {
+export default function LoginModal({ isOpen, closeModal, openRegisterModal, openForgotPasswordModal, openOTPModal }: LoginModalProps) {
   const router = useRouter();
   const { login, loginWithGoogle, loginWithGithub, loading } = useAuth();
   
@@ -94,7 +95,16 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
     try {
       const result = await login({ email, password });
       
-      if (result.success) {
+      if (result.success && result.requires2FA) {
+        // 2FA required - open OTP modal immediately (email sending in background)
+        closeModal();
+        if (openOTPModal) {
+          openOTPModal(email, '2fa');
+        }
+        return;
+      }
+      
+      if (result.success && result.user) {
         setNotification({
           type: 'success',
           message: 'Login successful!'
@@ -108,7 +118,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
           } else if (result.user?.role === 'ADMIN') {
             router.push(`/admin/${userId}`);
           } else {
-            router.push(`/student/${userId}`);
+            router.push(`/student/dashboard/${userId}`);
           }
           closeModal();
         }, 1500);
@@ -118,7 +128,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
           message: result.error || 'Login failed. Please check your email and password.'
         });
       }
-    } catch (err) {
+    } catch {
       setNotification({
         type: 'error',
         message: 'Login failed. Please check your email and password.'

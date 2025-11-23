@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { StreamModule } from './stream/stream.module';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { StudentModule } from './student/student.module';
 import { RedisModule } from './redis/redis.module';
 import { LivestreamModule } from './livestream/livestream.module';
 
@@ -19,6 +20,7 @@ import { LivestreamModule } from './livestream/livestream.module';
     PrismaModule,
     StreamModule,
     AuthModule,
+    StudentModule,
     RedisModule,
     LivestreamModule,
   ],

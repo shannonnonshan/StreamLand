@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthContext } from '@/contexts/AuthContext';
 
@@ -44,6 +44,64 @@ export function useAuth() {
   const { user, isAuthenticated, setUser, setIsAuthenticated } = useAuthContext();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-refresh token every 14 minutes (before 15min expiry)
+  useEffect(() => {
+    const refreshAccessToken = async () => {
+      const refreshToken = localStorage.getItem('refreshToken');
+      const accessToken = localStorage.getItem('accessToken');
+      
+      // Only refresh if both tokens exist and user is authenticated
+      if (!refreshToken || !accessToken || !isAuthenticated) {
+        console.log('⏭️ Skipping auto-refresh: not authenticated or tokens missing');
+        return;
+      }
+
+      console.log('🔄 Attempting to refresh token...');
+      try {
+        const response = await fetch(`${API_URL}/auth/refresh`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ refreshToken }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          localStorage.setItem('accessToken', result.accessToken);
+          localStorage.setItem('refreshToken', result.refreshToken);
+          console.log('✅ Token refreshed successfully');
+        } else {
+          const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+          console.error('❌ Failed to refresh token:', response.status, errorData);
+          // If refresh fails, logout
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('user');
+          setUser(null);
+          setIsAuthenticated(false);
+          router.push('/');
+        }
+      } catch (error) {
+        console.error('Error refreshing token:', error);
+      }
+    };
+
+    // Only set up auto-refresh if user is authenticated
+    if (!isAuthenticated) {
+      return;
+    }
+
+    // Refresh token every 14 minutes (840000ms)
+    const interval = setInterval(refreshAccessToken, 14 * 60 * 1000);
+
+    // Don't refresh on mount - only on interval
+    // This prevents issues with stale tokens on page reload
+
+    return () => clearInterval(interval);
+  }, [router, setUser, setIsAuthenticated, isAuthenticated]);
+
 
   // Register
   const register = useCallback(async (data: RegisterData) => {

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   MagnifyingGlassIcon,
   UserMinusIcon,
@@ -14,12 +15,10 @@ import {
   CheckIcon,
   UserPlusIcon,
 } from '@heroicons/react/24/outline';
-import Sidebar from '@/component/student/Sidebar';
-import Headerbar from '@/component/student/Headerbar';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 interface Friend {
   id: string;
@@ -27,11 +26,32 @@ interface Friend {
   email: string;
   avatar: string | null;
   bio: string | null;
+  friendshipId?: string;
   studentProfile?: {
     id: string;
     school: string | null;
     grade: string | null;
     interests: string[];
+  };
+}
+
+interface FriendshipResponse {
+  friendshipId: string;
+  friend: Friend;
+  since: string;
+}
+
+interface FriendRequestResponse {
+  id: string;
+  status: string;
+  createdAt: string;
+  requester?: {
+    id: string;
+    user: Friend;
+  };
+  receiver?: {
+    id: string;
+    user: Friend;
   };
 }
 
@@ -50,14 +70,16 @@ interface SearchResult extends Friend {
 export default function FriendsPage() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'friends' | 'requests' | 'suggestions' | 'search'>('friends');
+  const [activeTab, setActiveTab] = useState<'friends' | 'requests' | 'suggestions' | 'blocked'>('friends');
   const [friends, setFriends] = useState<Friend[]>([]);
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [suggestions, setSuggestions] = useState<SearchResult[]>([]);
+  const [blockedUsers, setBlockedUsers] = useState<Friend[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
 
   const handleSearch = async () => {
     if (!searchQuery.trim() || searchQuery.trim().length < 2) {
@@ -86,16 +108,25 @@ export default function FriendsPage() {
     }
   };
 
-  const handleSearchResultClick = (studentId: string) => {
-    setShowSearchDropdown(false);
-    setSearchQuery('');
-    router.push(`/student/profile/${studentId}`);
-  };
-
   useEffect(() => {
     fetchFriends();
     fetchFriendRequests();
     fetchSuggestions();
+    fetchBlockedUsers();
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        searchContainerRef.current && 
+        !searchContainerRef.current.contains(event.target as Node)
+      ) {
+        setShowSearchDropdown(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   useEffect(() => {
@@ -121,8 +152,18 @@ export default function FriendsPage() {
         },
       });
       if (response.ok) {
-        const data = await response.json();
-        setFriends(data);
+        const data: FriendshipResponse[] = await response.json();
+        // Map the response to match Friend interface
+        const mappedFriends = data.map((item) => ({
+          id: item.friend.id,
+          fullName: item.friend.fullName,
+          email: item.friend.email,
+          avatar: item.friend.avatar,
+          bio: item.friend.bio,
+          friendshipId: item.friendshipId,
+          studentProfile: item.friend.studentProfile,
+        }));
+        setFriends(mappedFriends);
       }
     } catch (error) {
       console.error('Error fetching friends:', error);
@@ -140,8 +181,30 @@ export default function FriendsPage() {
         },
       });
       if (response.ok) {
-        const data = await response.json();
-        setFriendRequests(data);
+        const data: FriendRequestResponse[] = await response.json();
+        // Map the response to match FriendRequest interface
+        const mappedRequests = data.map((item) => ({
+          id: item.id,
+          status: item.status,
+          createdAt: item.createdAt,
+          requester: item.requester?.user ? {
+            id: item.requester.user.id,
+            fullName: item.requester.user.fullName,
+            email: item.requester.user.email,
+            avatar: item.requester.user.avatar,
+            bio: item.requester.user.bio,
+            studentProfile: item.requester.user.studentProfile,
+          } : undefined,
+          receiver: item.receiver?.user ? {
+            id: item.receiver.user.id,
+            fullName: item.receiver.user.fullName,
+            email: item.receiver.user.email,
+            avatar: item.receiver.user.avatar,
+            bio: item.receiver.user.bio,
+            studentProfile: item.receiver.user.studentProfile,
+          } : undefined,
+        }));
+        setFriendRequests(mappedRequests);
       }
     } catch (error) {
       console.error('Error fetching friend requests:', error);
@@ -165,9 +228,26 @@ export default function FriendsPage() {
     }
   };
 
+  const fetchBlockedUsers = async () => {
+    try {
+      const accessToken = localStorage.getItem('accessToken');
+      const response = await fetch(`${API_URL}/student/friends/blocked`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setBlockedUsers(data);
+      }
+    } catch (error) {
+      console.error('Error fetching blocked users:', error);
+    }
+  };
+
   const filteredFriends = friends.filter(friend => {
-    const matchesSearch = friend.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         friend.email.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = friend.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         friend.email?.toLowerCase().includes(searchQuery.toLowerCase());
     
     return matchesSearch;
   });
@@ -253,6 +333,43 @@ export default function FriendsPage() {
     }
   };
 
+  const handleBlockUser = async (requestId: string) => {
+    try {
+      const accessToken = localStorage.getItem('accessToken');
+      const response = await fetch(`${API_URL}/student/friends/request/${requestId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: 'BLOCKED' }),
+      });
+      if (response.ok) {
+        fetchFriendRequests();
+        fetchBlockedUsers();
+      }
+    } catch (error) {
+      console.error('Error blocking user:', error);
+    }
+  };
+
+  const handleUnblockUser = async (friendshipId: string) => {
+    try {
+      const accessToken = localStorage.getItem('accessToken');
+      const response = await fetch(`${API_URL}/student/friends/${friendshipId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+      if (response.ok) {
+        fetchBlockedUsers();
+      }
+    } catch (error) {
+      console.error('Error unblocking user:', error);
+    }
+  };
+
   const handleMessage = (userId: string) => {
     router.push(`/student/message?userId=${userId}`);
   };
@@ -262,41 +379,112 @@ export default function FriendsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <Sidebar />
-      <Headerbar />
-      
-      <div className="ml-20 pt-16">
-        <div className="max-w-7xl mx-auto p-6">
-          {/* Header */}
-          <div className="mb-6">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2 flex items-center gap-3">
-              <UserGroupIcon className="h-8 w-8 text-blue-600" />
-              Friends
-            </h1>
-            <p className="text-gray-600">Connect with your study buddies and classmates</p>
-          </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2 flex items-center gap-3">
+            <UserGroupIcon className="h-8 w-8 text-blue-600" />
+            Friends
+          </h1>
+          <p className="text-gray-600">Connect with your study buddies and classmates</p>
+        </div>
 
-          {/* Search Bar */}
-          <div className="bg-white rounded-xl shadow-sm p-4 mb-6 border border-gray-200">
-            <div className="flex items-center gap-4">
-              {/* Search */}
-              <div className="flex-1 relative">
-                <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search students by name or email (min 2 characters)..."
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                {searching && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                  </div>
-                )}
-              </div>
+        {/* Search Bar with Dropdown */}
+        <div ref={searchContainerRef} className="bg-white rounded-xl shadow-sm p-4 mb-6 border border-gray-200 relative">
+          <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+            <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  if (e.target.value.trim().length >= 2) {
+                    setShowSearchDropdown(true);
+                  }
+                }}
+                onFocus={() => {
+                  if (searchQuery.trim().length >= 2 && searchResults.length > 0) {
+                    setShowSearchDropdown(true);
+                  }
+                }}
+                placeholder="Search students by name or email..."
+                className="flex-1 bg-transparent border-none focus:outline-none text-sm"
+              />
+              {searchQuery && (
+                <button 
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSearchResults([]);
+                    setShowSearchDropdown(false);
+                  }} 
+                  className="p-1 hover:bg-gray-200 rounded-full"
+                >
+                  <XMarkIcon className="h-4 w-4 text-gray-500" />
+                </button>
+              )}
+              {searching && (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              )}
             </div>
+
+            {/* Search Dropdown */}
+            <AnimatePresence>
+              {showSearchDropdown && searchResults.length > 0 && (
+                <motion.div 
+                  className="absolute left-0 right-0 top-full mt-2 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden z-[100]"
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <div className="max-h-96 overflow-y-auto">
+                    {searchResults.map((student) => (
+                      <div
+                        key={student.id}
+                        onClick={() => {
+                          setShowSearchDropdown(false);
+                          setSearchQuery('');
+                          router.push(`/student/${student.id}/profile`);
+                        }}
+                        className="flex items-center gap-4 p-4 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors"
+                      >
+                        {student.avatar ? (
+                          <Image 
+                            src={student.avatar} 
+                            alt={student.fullName} 
+                            width={48}
+                            height={48}
+                            className="h-12 w-12 rounded-full object-cover shadow-sm" 
+                          />
+                        ) : (
+                          <div className="h-12 w-12 rounded-full bg-gradient-to-br from-purple-400 to-pink-500 flex items-center justify-center text-white font-bold shadow-sm">
+                            {student.fullName?.charAt(0) || '?'}
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold text-gray-900 truncate">{student.fullName}</h4>
+                          <p className="text-sm text-gray-500 truncate">{student.email}</p>
+                          {student.studentProfile?.school && (
+                            <p className="text-xs text-gray-400 truncate mt-0.5">🏫 {student.studentProfile.school}</p>
+                          )}
+                        </div>
+                        {student.friendshipStatus && (
+                          <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600">
+                            {student.friendshipStatus === 'PENDING' ? 'Pending' : student.friendshipStatus}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {searchResults.length > 5 && (
+                    <div className="p-2 text-center border-t border-gray-100 bg-gray-50">
+                      <p className="text-xs text-gray-500">{searchResults.length} results found</p>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Tabs */}
@@ -335,19 +523,17 @@ export default function FriendsPage() {
                 <UserPlusIcon className="h-5 w-5" />
                 Suggestions ({suggestions.length})
               </button>
-              {searchResults.length > 0 && (
-                <button
-                  onClick={() => setActiveTab('search')}
-                  className={`flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm transition-all flex items-center justify-center gap-2 ${
-                    activeTab === 'search'
-                      ? `bg-[#${PrimaryColor}] text-white shadow-sm`
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  <MagnifyingGlassIcon className="h-5 w-5" />
-                  Search Results ({searchResults.length})
-                </button>
-              )}
+              <button
+                onClick={() => setActiveTab('blocked')}
+                className={`flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm transition-all flex items-center justify-center gap-2 ${
+                  activeTab === 'blocked'
+                    ? `bg-[#${PrimaryColor}] text-white shadow-sm`
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <XMarkIcon className="h-5 w-5" />
+                Blocked ({blockedUsers.length})
+              </button>
             </div>
           </div>
 
@@ -379,11 +565,11 @@ export default function FriendsPage() {
                         >
                           {friend.avatar ? (
                             <Image src={friend.avatar} alt={friend.fullName} width={64} height={64} className="h-16 w-16 rounded-xl object-cover shadow-md" />
-                          ) : (
-                            <div className="h-16 w-16 rounded-xl bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold shadow-md">
-                              {friend.fullName.charAt(0)}
-                            </div>
-                          )}
+                            ) : (
+                              <div className="h-16 w-16 rounded-xl bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold shadow-md">
+                              {friend.fullName?.charAt(0) || '?'}
+                              </div>
+                            )}
                         </div>
 
                         <div className="flex-1 min-w-0">
@@ -430,7 +616,7 @@ export default function FriendsPage() {
                           Message
                         </button>
                         <button
-                          onClick={() => handleUnfriend(friend.id)}
+                          onClick={() => handleUnfriend(friend.friendshipId || friend.id)}
                           className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-red-50 text-gray-700 hover:text-red-600 font-semibold text-xs transition-all"
                         >
                           <UserMinusIcon className="h-4 w-4" />
@@ -469,7 +655,7 @@ export default function FriendsPage() {
                               <Image src={requester.avatar} alt={requester.fullName} width={64} height={64} className="h-16 w-16 rounded-xl object-cover shadow-md" />
                             ) : (
                               <div className="h-16 w-16 rounded-xl bg-gradient-to-br from-purple-400 to-pink-500 flex items-center justify-center text-white text-xl font-bold shadow-md">
-                                {requester.fullName.charAt(0)}
+                              {requester.fullName?.charAt(0) || '?'}
                               </div>
                             )}
                           </div>
@@ -512,9 +698,16 @@ export default function FriendsPage() {
                           </button>
                           <button
                             onClick={() => handleRejectRequest(request.id)}
-                            className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-red-50 text-gray-700 hover:text-red-600 font-semibold text-xs transition-all flex items-center justify-center"
+                            className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-xs transition-all flex items-center justify-center"
                           >
                             <XMarkIcon className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleBlockUser(request.id)}
+                            className="px-3 py-2 rounded-lg bg-red-100 hover:bg-red-200 text-red-700 font-semibold text-xs transition-all flex items-center justify-center"
+                            title="Block user"
+                          >
+                            Block
                           </button>
                         </div>
                       </div>
@@ -605,7 +798,58 @@ export default function FriendsPage() {
               )}
             </div>
           )}
-        </div>
+
+          {/* Blocked Tab */}
+          {activeTab === 'blocked' && (
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+              {blockedUsers.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <XMarkIcon className="h-10 w-10 text-gray-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-600 mb-2">No blocked users</h3>
+                  <p className="text-gray-500">You haven&apos;t blocked anyone yet</p>
+                </div>
+              ) : (
+                blockedUsers.map((user) => (
+                  <div
+                    key={user.id}
+                    className="flex items-center gap-4 p-4 hover:bg-gray-50 rounded-xl transition-all border-b border-gray-100 last:border-b-0"
+                  >
+                    <div className="flex-1 flex items-center gap-4">
+                      {user.avatar ? (
+                        <Image 
+                          src={user.avatar} 
+                          alt={user.fullName} 
+                          width={64}
+                          height={64}
+                          className="h-16 w-16 rounded-full object-cover shadow-md" 
+                        />
+                      ) : (
+                        <div className="h-16 w-16 rounded-full bg-gradient-to-br from-gray-400 to-gray-600 flex items-center justify-center text-white text-xl font-bold shadow-md">
+                          {user.fullName?.charAt(0) || '?'}
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-gray-900 truncate">{user.fullName}</h3>
+                        <p className="text-sm text-gray-500 truncate">{user.email}</p>
+                        {user.studentProfile?.school && (
+                          <p className="text-xs text-gray-400 mt-0.5 truncate">🏫 {user.studentProfile.school}</p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleUnblockUser(user.friendshipId!)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-semibold text-sm transition-all shadow-md hover:shadow-lg"
+                    >
+                      <CheckIcon className="h-4 w-4" />
+                      Unblock
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
       </div>
     </div>
   );

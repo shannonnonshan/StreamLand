@@ -45,15 +45,15 @@ async function main() {
     },
   });
 
-  console.log('✅ PostgreSQL seeding completed!');
+  console.log('PostgreSQL seeding completed!');
   console.log({ teacher, student });
 }
 
 main()
   .catch((e) => {
-    console.error('❌ PostgreSQL seeding failed:', e);
+    console.error('PostgreSQL seeding failed:', e);
     process.exit(1);
   })
-  .finally(async () => {
-    await prisma.$disconnect();
+  .finally(() => {
+    void prisma.$disconnect();
   });

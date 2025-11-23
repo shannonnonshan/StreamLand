@@ -34,14 +34,14 @@ async function main() {
     },
   });
 
-  console.log('✅ MongoDB seeding completed!');
+  console.log('MongoDB seeding completed!');
 }
 
 main()
   .catch((e) => {
-    console.error('❌ MongoDB seeding failed:', e);
+    console.error('MongoDB seeding failed:', e);
     process.exit(1);
   })
-  .finally(async () => {
-    await mongo.$disconnect();
+  .finally(() => {
+    void mongo.$disconnect();
   });

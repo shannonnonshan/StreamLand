@@ -8,12 +8,12 @@ export class CleanupService {
 
   constructor(private prisma: PrismaService) {}
 
-  // Chạy mỗi 2 phút để xóa pending registrations hết hạn
+  // Run every 2 minutes to delete expired pending registrations
   @Cron('*/2 * * * *')
   async cleanupExpiredPendingRegistrations() {
     try {
       const now = new Date();
-      // Xóa các pending registration có OTP đã hết hạn
+      // Delete pending registrations with expired OTP
       const result = await this.prisma.postgres.pendingRegistration.deleteMany({
         where: {
           otpExpiry: {
@@ -33,7 +33,7 @@ export class CleanupService {
     }
   }
 
-  // Xóa các pending registration quá cũ (hơn 1 giờ, phòng trường hợp otpExpiry bị lỗi)
+  // Delete old pending registrations (older than 1 hour, in case otpExpiry has an error)
   @Cron(CronExpression.EVERY_HOUR)
   async cleanupOldPendingRegistrations() {
     try {

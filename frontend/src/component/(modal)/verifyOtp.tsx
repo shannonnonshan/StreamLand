@@ -5,8 +5,8 @@ import { ShieldCheckIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 
-const PrimaryColor = '161853'; // Xanh Đậm (màu chủ đạo mới)
-const SecondaryColor = 'EC255A'; // Đỏ/Hồng
+const PrimaryColor = '161853'; // Dark Blue (primary color)
+const SecondaryColor = 'EC255A'; // Red/Pink
 const OTP_LENGTH = 6;
 
 interface OTPModalProps {
@@ -30,19 +30,19 @@ export default function OTPModal({
   const [isVerifying, setIsVerifying] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]); // Mảng các ref cho 6 ô input
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]); // Array of refs for 6 input boxes
 
-  // Focus ô tiếp theo khi nhập
+  // Focus next box when typing
   const handleChange = (element: HTMLInputElement, index: number) => {
-    // Chỉ cho phép nhập số
+    // Only allow numbers
     if (isNaN(Number(element.value))) return false;
 
-    // Cập nhật giá trị OTP
+    // Update OTP value
     const newOtp = [...otp];
-    newOtp[index] = element.value.slice(-1); // Chỉ lấy ký tự cuối cùng
+    newOtp[index] = element.value.slice(-1); // Only take last character
     setOtp(newOtp);
 
-    // Tự động chuyển focus sang ô tiếp theo
+    // Automatically move focus to next box
       if (element.value !== '' && index < OTP_LENGTH - 1 && inputRefs.current[index + 1]) {
         inputRefs.current[index + 1]?.focus();
       }

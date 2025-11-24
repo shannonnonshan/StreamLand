@@ -240,8 +240,11 @@ export default function BroadcasterPage() {
         throw new Error('Failed to end livestream');
       }
 
-      // Stop WebRTC connections
-      socket.emit("stream-ended", { livestreamID });
+      // Stop WebRTC connections and notify about recording preference
+      socket.emit("stream-ended", { 
+        livestreamID,
+        saveRecording: saveRecording 
+      });
 
       Object.values(peersRef.current).forEach((pc) => pc.close());
       peersRef.current = {};

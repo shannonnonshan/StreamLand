@@ -7,22 +7,32 @@ import { Readable } from 'stream';
 @Injectable()
 export class R2StorageService {
   private readonly logger = new Logger(R2StorageService.name);
-  private s3Client: S3Client;
+  private videoS3Client: S3Client;
+  private documentS3Client: S3Client;
   private videoBucketName: string;
   private documentBucketName: string;
-  private accountId: string;
 
   constructor(private configService: ConfigService) {
-    this.accountId = this.configService.get<string>('R2_ACCOUNT_ID');
-    this.videoBucketName = this.configService.get<string>('R2_BUCKET_NAME');
-    this.documentBucketName = this.configService.get<string>('R2_DOCUMENT_BUCKET_NAME');
+    this.videoBucketName = this.configService.get<string>('R2_BUCKET_NAME')!;
+    this.documentBucketName = this.configService.get<string>('R2_DOCUMENT_BUCKET_NAME')!
 
-    this.s3Client = new S3Client({
+    // S3 Client for video bucket
+    this.videoS3Client = new S3Client({
       region: 'auto',
-      endpoint: `https://${this.accountId}.r2.cloudflarestorage.com`,
+      endpoint: 'https://b14364ed47172b12203d851d355a7a71.r2.cloudflarestorage.com',
       credentials: {
-        accessKeyId: this.configService.get<string>('R2_ACCESS_KEY_ID'),
-        secretAccessKey: this.configService.get<string>('R2_SECRET_ACCESS_KEY'),
+        accessKeyId: this.configService.get<string>('R2_VIDEO_ACCESS_KEY_ID')!,
+        secretAccessKey: this.configService.get<string>('R2_VIDEO_SECRET_ACCESS_KEY')!,
+      },
+    });
+
+    // S3 Client for document bucket
+    this.documentS3Client = new S3Client({
+      region: 'auto',
+      endpoint: 'https://4193b6b3b69cd503069712d14e7ab703.r2.cloudflarestorage.com',
+      credentials: {
+        accessKeyId: this.configService.get<string>('R2_DOCUMENT_ACCESS_KEY_ID')!,
+        secretAccessKey: this.configService.get<string>('R2_DOCUMENT_SECRET_ACCESS_KEY')!,
       },
     });
 
@@ -49,7 +59,7 @@ export class R2StorageService {
         ContentType: 'video/webm',
       });
 
-      await this.s3Client.send(command);
+      await this.videoS3Client.send(command);
       this.logger.log(`Uploaded chunk ${chunkIndex} for livestream ${livestreamId}`);
       return key;
     } catch (error) {
@@ -70,7 +80,7 @@ export class R2StorageService {
 
     try {
       const upload = new Upload({
-        client: this.s3Client,
+        client: this.videoS3Client,
         params: {
           Bucket: this.videoBucketName,
           Key: key,
@@ -84,7 +94,7 @@ export class R2StorageService {
       this.logger.log(`Uploaded complete video for livestream ${livestreamId}`);
       
       // Return public URL
-      return `https://pub-${this.accountId}.r2.dev/${key}`;
+      return `https://b14364ed47172b12203d851d355a7a71.r2.cloudflarestorage.com/${this.videoBucketName}/${key}`;
     } catch (error) {
       this.logger.error(`Failed to upload video for ${livestreamId}:`, error);
       throw error;
@@ -95,7 +105,7 @@ export class R2StorageService {
    * Get public URL for a video
    */
   getPublicUrl(key: string): string {
-    return `https://pub-${this.accountId}.r2.dev/${key}`;
+    return `https://b14364ed47172b12203d851d355a7a71.r2.cloudflarestorage.com/${this.videoBucketName}/${key}`;
   }
 
   /**
@@ -126,11 +136,11 @@ export class R2StorageService {
         ContentType: contentType,
       });
 
-      await this.s3Client.send(command);
+      await this.documentS3Client.send(command);
       this.logger.log(`Uploaded document ${fileName} for teacher ${teacherId}`);
       
       // Return public URL
-      return `https://pub-${this.accountId}.r2.dev/${key}`;
+      return `https://4193b6b3b69cd503069712d14e7ab703.r2.cloudflarestorage.com/${this.documentBucketName}/${key}`;
     } catch (error) {
       this.logger.error(`Failed to upload document ${fileName}:`, error);
       throw error;

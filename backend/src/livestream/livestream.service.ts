@@ -2,7 +2,6 @@ import { Injectable, ConflictException, NotFoundException, BadRequestException, 
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLivestreamDto } from './dto/create-livestream.dto';
 import { LiveStreamStatus } from '@prisma/client';
-import { CloudflareService } from '../cloudflare/cloudflare.service';
 
 @Injectable()
 export class LivestreamService {
@@ -10,7 +9,6 @@ export class LivestreamService {
   
   constructor(
     private prisma: PrismaService,
-    private cloudflareService: CloudflareService,
   ) {}
 
   async createLivestream(createLivestreamDto: CreateLivestreamDto) {
@@ -155,10 +153,11 @@ export class LivestreamService {
       isRecorded: saveRecording,
     };
 
-    // If saving recording, prepare for Cloudflare Stream upload
-    // The recordingUrl will be updated later after video is uploaded
+    // If saving recording, the video chunks are already being uploaded to R2 by stream.gateway
+    // The recordingUrl will be set automatically by the gateway's saveVideoToR2 method
     if (saveRecording) {
-      updateData.recordingUrl = null; // Will be set after upload
+      // Recording URL will be updated by the WebSocket gateway after processing chunks
+      this.logger.log(`Recording will be saved to R2 for livestream ${id}`);
     }
 
     const updatedLivestream = await this.prisma.postgres.liveStream.update({
@@ -170,137 +169,6 @@ export class LivestreamService {
     return updatedLivestream;
   }
 
-  /**
-   * Upload recorded video to Cloudflare Stream
-   * @param livestreamId - ID of the livestream
-   * @param videoBuffer - Video file buffer
-   * @param fileName - Name of the video file
-   */
-  async uploadRecording(
-    livestreamId: string,
-    videoBuffer: Buffer,
-    fileName: string,
-  ): Promise<string> {
-    const livestream = await this.prisma.postgres.liveStream.findUnique({
-      where: { id: livestreamId },
-      include: { teacher: true },
-    });
-
-    if (!livestream) {
-      throw new NotFoundException('Livestream not found');
-    }
-
-    try {
-      // Upload to Cloudflare Stream
-      const video = await this.cloudflareService.uploadVideoFromBuffer(
-        videoBuffer,
-        {
-          name: fileName,
-          meta: {
-            livestreamId: livestreamId,
-            teacherId: livestream.teacherId,
-            title: livestream.title,
-            uploadedAt: new Date().toISOString(),
-          },
-          requireSignedURLs: false, // Set to true if you want private videos
-          allowedOrigins: ['*'], // Configure based on your needs
-        },
-      );
-
-      // Update livestream with recording URL
-      await this.prisma.postgres.liveStream.update({
-        where: { id: livestreamId },
-        data: {
-          recordingUrl: video.playback.hls,
-          cloudflareVideoId: video.uid,
-          isRecorded: true,
-        },
-      });
-
-      this.logger.log(
-        `Video uploaded to Cloudflare for livestream ${livestreamId}: ${video.uid}`,
-      );
-
-      return video.playback.hls;
-    } catch (error) {
-      this.logger.error(
-        `Failed to upload recording for livestream ${livestreamId}`,
-        error,
-      );
-      throw new BadRequestException('Failed to upload video to Cloudflare');
-    }
-  }
-
-  /**
-   * Get direct upload URL for recording
-   * This allows frontend to upload video directly to Cloudflare
-   */
-  async getDirectUploadUrl(
-    livestreamId: string,
-  ): Promise<{ uploadURL: string; uid: string }> {
-    const livestream = await this.prisma.postgres.liveStream.findUnique({
-      where: { id: livestreamId },
-    });
-
-    if (!livestream) {
-      throw new NotFoundException('Livestream not found');
-    }
-
-    try {
-      const result = await this.cloudflareService.getDirectUploadUrl(21600); // 6 hours max
-      
-      // Store the video UID for later reference
-      await this.prisma.postgres.liveStream.update({
-        where: { id: livestreamId },
-        data: {
-          cloudflareVideoId: result.uid,
-        },
-      });
-
-      return result;
-    } catch (error) {
-      this.logger.error(
-        `Failed to get direct upload URL for livestream ${livestreamId}`,
-        error,
-      );
-      throw new BadRequestException('Failed to get upload URL from Cloudflare');
-    }
-  }
-
-  /**
-   * Update recording URL after direct upload completes
-   */
-  async updateRecordingUrl(livestreamId: string): Promise<void> {
-    const livestream = await this.prisma.postgres.liveStream.findUnique({
-      where: { id: livestreamId },
-    });
-
-    if (!livestream || !livestream.cloudflareVideoId) {
-      throw new NotFoundException('Livestream or video ID not found');
-    }
-
-    try {
-      const video = await this.cloudflareService.getVideo(
-        livestream.cloudflareVideoId,
-      );
-
-      await this.prisma.postgres.liveStream.update({
-        where: { id: livestreamId },
-        data: {
-          recordingUrl: video.playback.hls,
-          isRecorded: true,
-        },
-      });
-
-      this.logger.log(
-        `Recording URL updated for livestream ${livestreamId}`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to update recording URL for livestream ${livestreamId}`,
-        error,
-      );
-      throw new BadRequestException('Failed to update recording URL');
-    }
-  }
+  // Recording is now handled by stream.gateway.ts and R2 storage
+  // These methods are deprecated and replaced by R2 upload flow
 }

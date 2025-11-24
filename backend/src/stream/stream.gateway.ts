@@ -95,6 +95,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return livestreamID;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   handleConnection(socket: Socket) {
     // Client connected
   }
@@ -243,19 +244,37 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('stream-ended')
-  async handleStreamEnded(@MessageBody() data: BroadcasterPayload) {
+  async handleStreamEnded(@MessageBody() data: BroadcasterPayload & { saveRecording?: boolean }) {
     const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
     if (channel) {
       this.server.to([...channel.watchers]).emit('stream-ended', data);
       
-      // Save video chunks to R2 if available
-      if (channel.videoChunks && channel.videoChunks.length > 0) {
+      // Check if recording should be saved
+      const shouldSaveRecording = data.saveRecording !== false; // Default to true for backward compatibility
+      
+      // Save video chunks to R2 if available and saveRecording is true
+      if (shouldSaveRecording && channel.videoChunks && channel.videoChunks.length > 0) {
         try {
-          await this.saveVideoToR2(data.livestreamID, channel.videoChunks);
+          console.log(`Saving recording for livestream ${data.livestreamID}...`);
+          const videoUrl = await this.saveVideoToR2(data.livestreamID, channel.videoChunks);
+          console.log(`Recording saved successfully: ${videoUrl}`);
+          
+          // Update livestream with recording URL
+          await this.prismaService.postgres.liveStream.update({
+            where: { id: data.livestreamID },
+            data: { 
+              recordingUrl: videoUrl,
+              isRecorded: true,
+            },
+          });
         } catch (error) {
           console.error('Failed to save video to R2:', error);
         }
+      } else if (!shouldSaveRecording) {
+        console.log(`Recording not saved for livestream ${data.livestreamID} (user choice)`);
+      } else {
+        console.log(`No video chunks available for livestream ${data.livestreamID}`);
       }
       
       delete this.channels[key];
@@ -280,7 +299,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Decode base64 chunk and store
       const chunkBuffer = Buffer.from(data.chunk, 'base64');
       channel.videoChunks.push(chunkBuffer);
-      channel.chunkCount++;
+      channel.chunkCount = (channel.chunkCount || 0) + 1;
       
       console.log(`Received video chunk ${data.chunkIndex} for livestream ${data.livestreamID}`);
       
@@ -409,6 +428,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       // Get current viewer count from Redis
       const currentViewers = await this.redisService.getViewerCount(livestreamID);
+      const viewerCount = typeof currentViewers === 'number' ? currentViewers : 0;
       
       // Update or create analytics record
       const existing = await this.prismaService.mongo.liveStreamAnalytics.findUnique({
@@ -416,11 +436,15 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
 
       if (existing) {
+        const currentPeak = Number(existing.peakViewers) || 0;
+        const currentTotal = Number(existing.totalViews) || 0;
+        const newPeakViewers = Math.max(currentPeak, viewerCount);
+        
         await this.prismaService.mongo.liveStreamAnalytics.update({
           where: { id: existing.id },
           data: {
-            peakViewers: Math.max(existing.peakViewers, currentViewers),
-            totalViews: existing.totalViews + 1,
+            peakViewers: newPeakViewers,
+            totalViews: currentTotal + 1,
           },
         });
       } else {
@@ -464,7 +488,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   // Save video chunks to R2
-  private async saveVideoToR2(livestreamID: string, chunks: Buffer[]): Promise<void> {
+  private async saveVideoToR2(livestreamID: string, chunks: Buffer[]): Promise<string> {
     try {
       console.log(`Saving ${chunks.length} video chunks to R2 for livestream ${livestreamID}`);
       
@@ -472,7 +496,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const completeVideo = Buffer.concat(chunks);
       
       // Convert buffer to stream
-      const { Readable } = require('stream');
+      const { Readable } = await import('stream');
       const videoStream = Readable.from(completeVideo);
       
       // Upload to R2
@@ -486,12 +510,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
       
       console.log(`Video saved successfully to R2: ${videoUrl}`);
-      
-      // Optional: Save video URL to database
-      // await this.prismaService.postgres.livestream.update({
-      //   where: { id: livestreamID },
-      //   data: { recordingUrl: videoUrl }
-      // });
+      return videoUrl;
       
     } catch (error) {
       console.error('Error saving video to R2:', error);

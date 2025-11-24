@@ -4,6 +4,7 @@ import {
   Get, 
   Body, 
   Param, 
+  Patch,
   UseGuards,
   Request,
   HttpCode,

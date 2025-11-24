@@ -9,6 +9,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { StudentModule } from './student/student.module';
 import { RedisModule } from './redis/redis.module';
 import { LivestreamModule } from './livestream/livestream.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { LivestreamModule } from './livestream/livestream.module';
     StudentModule,
     RedisModule,
     LivestreamModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],

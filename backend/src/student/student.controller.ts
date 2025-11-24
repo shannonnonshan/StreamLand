@@ -13,6 +13,7 @@ import {
 import { StudentService } from './student.service';
 import { SendFriendRequestDto, UpdateFriendRequestDto, FollowTeacherDto, UnfollowTeacherDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Public } from '../auth/decorators/public.decorator';
 import { FriendStatus } from '@prisma/client';
 
 @Controller('student')
@@ -133,7 +134,8 @@ export class StudentController {
     return this.studentService.getFollowedLivestreams(req.user.sub);
   }
 
-  // Get all teachers (for search functionality)
+  // Get all teachers (for search functionality - public endpoint)
+  @Public()
   @Get('teachers/all')
   async getAllTeachers() {
     return this.studentService.getAllTeachers();

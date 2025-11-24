@@ -13,9 +13,12 @@ import {
   BellOff,
   Share2,
   Play,
-  ArrowLeft
+  ArrowLeft,
+  Lock
 } from "lucide-react";
 import { useFollow } from "@/hooks/useFollow";
+import { useAuth } from "@/hooks/useAuth";
+import toast, { Toaster } from 'react-hot-toast';
 
 // Mock recordings data
 import { mockRecordings } from "@/utils/data/teacher/mockRecordings";
@@ -25,9 +28,7 @@ export default function PublicTeacherProfilePage() {
   const router = useRouter();
   const teacherId = params?.id as string;
   const { followTeacher, unfollowTeacher, isFollowingTeacher, loading } = useFollow();
-
-  // Check if user is logged in - sẽ lấy từ context/session
-  const [isLoggedIn] = useState(true); // Mock - TODO: get from auth context
+  const { isAuthenticated } = useAuth();
 
   // Mock data - sẽ lấy từ backend
   const [teacher, setTeacher] = useState({
@@ -57,19 +58,52 @@ export default function PublicTeacherProfilePage() {
   useEffect(() => {
     // Check if user is following this teacher
     const checkFollowStatus = async () => {
-      if (isLoggedIn) {
+      if (isAuthenticated) {
         const result = await isFollowingTeacher(teacherId);
         setIsSubscribed(result.isFollowing);
       }
     };
     
     checkFollowStatus();
-  }, [teacherId, isLoggedIn, isFollowingTeacher]);
+  }, [teacherId, isAuthenticated, isFollowingTeacher]);
 
   const handleSubscribe = async () => {
-    if (!isLoggedIn) {
-      // Redirect to login/register page
-      router.push('/login?redirect=' + encodeURIComponent(window.location.pathname));
+    if (!isAuthenticated) {
+      // Show toast alert for guest users
+      toast((t) => (
+        <div className="flex items-center gap-3">
+          <div className="flex-shrink-0">
+            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <p className="font-semibold text-white">Sign in required</p>
+            <p className="text-sm text-blue-100 mt-0.5">Please sign in to follow this teacher</p>
+          </div>
+          <button
+            onClick={() => toast.dismiss(t.id)}
+            className="flex-shrink-0 text-white/80 hover:text-white transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      ), {
+        duration: 4000,
+        position: 'top-center',
+        style: {
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: '#fff',
+          padding: '16px 20px',
+          borderRadius: '12px',
+          boxShadow: '0 10px 40px rgba(102, 126, 234, 0.4)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          backdropFilter: 'blur(10px)',
+          minWidth: '320px',
+        },
+      });
       return;
     }
 
@@ -105,6 +139,8 @@ export default function PublicTeacherProfilePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      <Toaster />
+      
       {/* Cover Banner */}
       <div className="h-48 bg-gradient-to-r from-[#292C6D] to-[#1f2350]"></div>
 
@@ -167,12 +203,19 @@ export default function PublicTeacherProfilePage() {
                     onClick={handleSubscribe}
                     disabled={loading}
                     className={`flex items-center gap-2 px-6 py-2 rounded-lg transition-colors ${
-                      isSubscribed
+                      !isAuthenticated
+                        ? "bg-gray-400 text-white hover:bg-gray-500"
+                        : isSubscribed
                         ? "bg-gray-200 text-gray-700 hover:bg-gray-300"
                         : "bg-[#292C6D] text-white hover:bg-[#1f2350]"
                     } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    {isSubscribed ? (
+                    {!isAuthenticated ? (
+                      <>
+                        <Lock size={18} />
+                        Follow
+                      </>
+                    ) : isSubscribed ? (
                       <>
                         <BellOff size={18} />
                         Following

@@ -893,4 +893,30 @@ export class StudentService {
 
     return { isFollowing: !!existingFollow };
   }
+
+  // Get all teachers for search functionality
+  async getAllTeachers() {
+    const teachers = await this.prisma.postgres.user.findMany({
+      where: {
+        teacherProfile: {
+          isNot: null,
+        },
+      },
+      include: {
+        teacherProfile: true,
+      },
+      orderBy: {
+        fullName: 'asc',
+      },
+    });
+
+    return teachers.map((teacher) => ({
+      id: teacher.id,
+      name: teacher.fullName,
+      bio: teacher.bio || null,
+      profilePicture: teacher.avatar || null,
+      subjects: teacher.teacherProfile?.subjects || [],
+      experience: teacher.teacherProfile?.experience || null,
+    }));
+  }
 }

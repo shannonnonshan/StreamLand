@@ -43,7 +43,7 @@ export default function Header() {
   useEffect(() => {
     const fetchTeachers = async () => {
       try {
-        const response = await fetch('http://localhost:3001/teacher/all', {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/student/teachers/all`, {
           headers: {
             'Content-Type': 'application/json',
           },
@@ -51,11 +51,14 @@ export default function Header() {
         
         if (response.ok) {
           const data = await response.json();
+          console.log('✅ Teachers fetched:', data);
           setTeachers(data);
           setFilteredTeachers(data);
+        } else {
+          console.error('❌ Failed to fetch teachers:', response.status);
         }
       } catch (error) {
-        console.error('Error fetching teachers:', error);
+        console.error('❌ Error fetching teachers:', error);
       }
     };
 
@@ -298,7 +301,7 @@ export default function Header() {
                       <button 
                         onClick={() => {
                           setSearchQuery('');
-                          setFilteredResults(searchResults);
+                          setFilteredTeachers(teachers);
                         }} 
                         className="mr-3 p-1 hover:bg-gray-200 rounded-full"
                       >
@@ -316,7 +319,7 @@ export default function Header() {
                           key={teacher.id} 
                           className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100"
                           onClick={() => {
-                            router.push(`/teacher/${teacher.id}`);
+                            router.push(`/teacher/public/${teacher.id}`);
                             setIsSearchOpen(false);
                             setSearchQuery('');
                           }}

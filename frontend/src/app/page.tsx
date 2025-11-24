@@ -18,6 +18,7 @@ import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import LoginModal from '@/component/(modal)/login';
 import RegisterModal from '@/component/(modal)/register';
 import OTPModal from '@/component/(modal)/verifyOtp';
+import { getStudentRoute } from '@/utils/student';
 
 export default function Home() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -210,7 +211,7 @@ export default function Home() {
             className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-16"
           >
             <button
-              onClick={() => window.location.href = '/student'}
+              onClick={() => window.location.href = getStudentRoute('dashboard')}
               className="group relative px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-full font-semibold text-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 flex items-center gap-2"
             >
               <AcademicCapIcon className="h-6 w-6" />
@@ -433,7 +434,7 @@ export default function Home() {
 
               {/* View All Button */}
               <button 
-                onClick={() => window.location.href = '/student'}
+                onClick={() => window.location.href = getStudentRoute('dashboard')}
                 className="w-full mt-4 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-300"
               >
                 View All Livestreams
@@ -654,7 +655,7 @@ export default function Home() {
               Join thousands of students learning every day
             </p>
             <button
-              onClick={() => window.location.href = '/student'}
+              onClick={() => window.location.href = getStudentRoute('dashboard')}
               className="px-10 py-4 bg-white text-purple-600 rounded-full font-bold text-lg shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all duration-300"
             >
               Sign Up Free Now

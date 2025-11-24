@@ -126,4 +126,16 @@ export class StudentController {
   ) {
     return this.studentService.isFollowingTeacher(req.user.sub, teacherId);
   }
+
+  // Get livestreams from followed teachers
+  @Get('followed-livestreams')
+  async getFollowedLivestreams(@Request() req: { user: { sub: string } }) {
+    return this.studentService.getFollowedLivestreams(req.user.sub);
+  }
+
+  // Get all teachers (for search functionality)
+  @Get('teachers/all')
+  async getAllTeachers() {
+    return this.studentService.getAllTeachers();
+  }
 }

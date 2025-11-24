@@ -13,12 +13,12 @@ import { useAuth } from '@/hooks/useAuth';
 
 const PrimaryColor = '161853';
 
-const searchResults = [
-  { id: 1, title: 'IELTS Speaking Prep', teacher: 'Mr. David Nguyen', type: 'livestream' },
-  { id: 2, title: 'Calculus I - Chapter 3', teacher: 'Ms. Lan Anh', type: 'video' },
-  { id: 3, title: 'Organic Chemistry', teacher: 'Ms. Thao', type: 'course' },
-  { id: 4, title: 'English Grammar', teacher: 'Mr. John', type: 'livestream' },
-];
+interface Teacher {
+  id: string;
+  name: string;
+  bio?: string;
+  profilePicture?: string;
+}
 
 export default function Header() {
   const router = useRouter();
@@ -31,12 +31,86 @@ export default function Header() {
   const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filteredResults, setFilteredResults] = useState(searchResults);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [filteredTeachers, setFilteredTeachers] = useState<Teacher[]>([]);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Fetch all teachers on mount
+  useEffect(() => {
+    const fetchTeachers = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/teacher/all', {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setTeachers(data);
+          setFilteredTeachers(data);
+        }
+      } catch (error) {
+        console.error('Error fetching teachers:', error);
+      }
+    };
+
+    fetchTeachers();
+  }, []);
+
+  // Check token validity on mount and clear if invalid
+  useEffect(() => {
+    const checkTokenValidity = async () => {
+      const accessToken = localStorage.getItem('accessToken');
+      const storedUser = localStorage.getItem('user');
+      
+      // If no token but has user data, clear everything
+      if (!accessToken && storedUser) {
+        console.log('🧹 No token found, clearing stale user data');
+        localStorage.removeItem('user');
+        localStorage.removeItem('userId');
+        localStorage.removeItem('role');
+        localStorage.removeItem('refreshToken');
+        return;
+      }
+      
+      // If we have a token, verify it's still valid
+      if (accessToken && storedUser) {
+        try {
+          // Decode JWT to check expiration
+          const payload = JSON.parse(atob(accessToken.split('.')[1]));
+          const expirationTime = payload.exp * 1000; // Convert to milliseconds
+          const currentTime = Date.now();
+          
+          // If token is expired, clear everything
+          if (currentTime >= expirationTime) {
+            console.log('🧹 Token expired, clearing localStorage');
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('user');
+            localStorage.removeItem('userId');
+            localStorage.removeItem('role');
+            logout();
+          }
+        } catch (error) {
+          console.error('Error checking token validity:', error);
+          // If token is malformed, clear everything
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('user');
+          localStorage.removeItem('userId');
+          localStorage.removeItem('role');
+          logout();
+        }
+      }
+    };
+    
+    checkTokenValidity();
+  }, [logout]);
 
   // Load 2FA status from user data
   useEffect(() => {
@@ -73,16 +147,23 @@ export default function Header() {
     setSearchQuery(query);
     
     if (query.trim() === '') {
-      setFilteredResults(searchResults);
+      setFilteredTeachers(teachers);
       return;
     }
     
-    const filtered = searchResults.filter(item => 
-      item.title.toLowerCase().includes(query.toLowerCase()) || 
-      item.teacher.toLowerCase().includes(query.toLowerCase())
-    );
+    // Split query into words and filter
+    const queryWords = query.toLowerCase().trim().split(/\s+/);
     
-    setFilteredResults(filtered);
+    const filtered = teachers.filter(teacher => {
+      const teacherName = teacher.name.toLowerCase();
+      const teacherBio = (teacher.bio || '').toLowerCase();
+      const searchableText = `${teacherName} ${teacherBio}`;
+      
+      // Match if ALL query words are found in teacher data
+      return queryWords.every(word => searchableText.includes(word));
+    });
+    
+    setFilteredTeachers(filtered);
   };
   
   const openLoginModal = () => {
@@ -228,25 +309,39 @@ export default function Header() {
                 </div>
 
                 <div className="max-h-80 overflow-y-auto">
-                  {filteredResults.length > 0 ? (
+                  {filteredTeachers.length > 0 ? (
                     <div>
-                      {filteredResults.map((result) => (
-                        <div key={result.id} className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100">
-                          <div className="flex items-center">
-                            <div className="h-8 w-8 bg-gray-200 rounded-md mr-3 flex items-center justify-center">
-                              {result.type === 'livestream' && (
-                                <div className="h-3 w-3 bg-red-500 rounded-full"></div>
+                      {filteredTeachers.map((teacher) => (
+                        <div 
+                          key={teacher.id} 
+                          className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100"
+                          onClick={() => {
+                            router.push(`/teacher/${teacher.id}`);
+                            setIsSearchOpen(false);
+                            setSearchQuery('');
+                          }}
+                        >
+                          <div className="flex items-center gap-3">
+                            {teacher.profilePicture ? (
+                              <Image
+                                src={teacher.profilePicture}
+                                alt={teacher.name}
+                                width={40}
+                                height={40}
+                                className="rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="h-10 w-10 bg-gradient-to-br from-purple-400 to-blue-500 rounded-full flex items-center justify-center">
+                                <span className="text-white font-semibold text-sm">
+                                  {teacher.name.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-[#161853]">{teacher.name}</p>
+                              {teacher.bio && (
+                                <p className="text-xs text-gray-500 line-clamp-1">{teacher.bio}</p>
                               )}
-                              {result.type === 'video' && (
-                                <div className="h-0 w-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[10px] border-b-gray-500"></div>
-                              )}
-                              {result.type === 'course' && (
-                                <div className="h-4 w-4 bg-blue-500 rounded-sm"></div>
-                              )}
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium text-[#161853]">{result.title}</p>
-                              <p className="text-xs text-gray-500">{result.teacher}</p>
                             </div>
                           </div>
                         </div>
@@ -254,16 +349,16 @@ export default function Header() {
                     </div>
                   ) : (
                     <div className="p-4 text-center text-gray-500">
-                      No matching results found.
+                      {searchQuery ? 'No teachers found.' : 'Start typing to search teachers...'}
                     </div>
                   )}
                 </div>
                 
-                {filteredResults.length > 0 && (
+                {filteredTeachers.length > 0 && (
                   <div className="p-2 text-center border-t border-gray-100">
-                    <button className="text-xs text-[#161853] hover:underline">
-                      View all results
-                    </button>
+                    <p className="text-xs text-gray-500">
+                      {filteredTeachers.length} teacher{filteredTeachers.length !== 1 ? 's' : ''} found
+                    </p>
                   </div>
                 )}
               </motion.div>

@@ -118,7 +118,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
           } else if (result.user?.role === 'ADMIN') {
             router.push(`/admin/${userId}`);
           } else {
-            router.push(`/student/dashboard/${userId}`);
+            router.push(`/student/${userId}/dashboard`);
           }
           closeModal();
         }, 1500);

@@ -790,6 +790,76 @@ export class StudentService {
     }));
   }
 
+  // Get livestreams from followed teachers
+  async getFollowedLivestreams(userId: string) {
+    // Get user's student profile
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true },
+    });
+
+    if (!user || !user.studentProfile) {
+      throw new NotFoundException('Student profile not found');
+    }
+
+    // Get all followed teachers
+    const followedTeachers = await this.prisma.postgres.followedTeacher.findMany({
+      where: { studentId: user.studentProfile.id },
+      select: { teacherId: true },
+    });
+
+    // Get teacher IDs
+    const teacherIds = followedTeachers.map(ft => ft.teacherId);
+
+    if (teacherIds.length === 0) {
+      return [];
+    }
+
+    // Get active livestreams from these teachers
+    const livestreams = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        teacherId: { in: teacherIds },
+        status: 'LIVE',
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    // Get teacher details
+    const teachers = await this.prisma.postgres.teacherProfile.findMany({
+      where: { id: { in: teacherIds } },
+      include: {
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true,
+          },
+        },
+      },
+    });
+
+    const teacherMap = new Map(teachers.map(t => [t.id, t]));
+
+    // Format response
+    return livestreams.map(livestream => {
+      const teacher = teacherMap.get(livestream.teacherId);
+      return {
+        id: livestream.id,
+        title: livestream.title,
+        teacher: {
+          id: teacher?.user.id || '',
+          fullName: teacher?.user.fullName || 'Unknown',
+          avatar: teacher?.user.avatar || null,
+        },
+        viewCount: livestream.totalViews,
+        thumbnailUrl: livestream.thumbnail || null,
+        isLive: true,
+      };
+    });
+  }
+
   // Check if student is following a teacher
   async isFollowingTeacher(userId: string, teacherId: string) {
     // Get user's student profile

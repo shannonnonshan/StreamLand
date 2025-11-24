@@ -9,7 +9,7 @@ const socket = io(URL || 'http://localhost:4000', {
 });
 
 socket.on('connect', () => {
-  console.log('[Socket] Connected:', socket.id);
+  // Socket connected
 });
 
 socket.on('disconnect', (reason: string) => {

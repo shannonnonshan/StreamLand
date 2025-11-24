@@ -20,7 +20,6 @@ export function useLivestreamBroadcaster({
   useEffect(() => {
     const handleWatcher = async ({ id }: { id: string }) => {
       try {
-        console.log('[Broadcaster] New viewer joined:', id);
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         peerConnectionsRef.current.set(id, pc);
 
@@ -37,7 +36,6 @@ export function useLivestreamBroadcaster({
 
         pc.onicecandidate = (event) => {
           if (event.candidate) {
-            console.log('[Broadcaster] Sending ICE candidate to viewer');
             socket.emit('candidate', {
               to: id,
               candidate: event.candidate,
@@ -47,11 +45,11 @@ export function useLivestreamBroadcaster({
         };
 
         pc.onconnectionstatechange = () => {
-          console.log('[Broadcaster] Connection state for', id, ':', pc.connectionState);
+          // Connection state changed
         };
 
         pc.oniceconnectionstatechange = () => {
-          console.log('[Broadcaster] ICE connection state for', id, ':', pc.iceConnectionState);
+          // ICE connection state changed
         };
 
         const offer = await pc.createOffer();

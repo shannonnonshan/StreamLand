@@ -41,13 +41,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // Check authentication and role
   useEffect(() => {
     if (!loading) {
+      const routeId = (params?.id as string);
+      
       if (!isAuthenticated) {
         // Not logged in - show login modal
         setShowLoginModal(true);
         setAuthCheckDone(true);
       } else if (user?.role !== 'ADMIN') {
         // Wrong role - redirect to correct dashboard
-        localStorage.removeItem('token');
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
         localStorage.removeItem('user');
         
         if (user?.role === 'TEACHER') {
@@ -59,17 +62,19 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           setShowLoginModal(true);
           setAuthCheckDone(true);
         }
+      } else if (routeId && user?.id && routeId !== user.id) {
+        // ID in URL doesn't match authenticated user - redirect to correct URL
+        router.replace(`/admin/${user.id}${pathname.replace(`/admin/${routeId}`, '')}`);
+        setAuthCheckDone(true);
       } else {
-        // Correct role - allow access
+        // Correct role and ID - allow access
         setShowLoginModal(false);
         setAuthCheckDone(true);
       }
     }
-  }, [loading, isAuthenticated, user, router]);
+  }, [loading, isAuthenticated, user, router, params?.id, pathname]);
 
-  const accountId =
-    typeof window !== "undefined" ? localStorage.getItem("accountId") : null;
-  const id = (params?.id as string) || accountId || "1"; // fallback id = 1
+  const id = user?.id || (params?.id as string) || "1"; // Use authenticated user's ID
 
   // Mock notifications data
   const notifications = [

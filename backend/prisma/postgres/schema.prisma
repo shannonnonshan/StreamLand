@@ -135,34 +135,36 @@ model FollowedTeacher {
 }
 
 model LiveStream {
-  id             String           @id @default(uuid())
-  teacherId      String
-  title          String
-  description    String?
-  thumbnail      String?
-  status         LiveStreamStatus @default(SCHEDULED)
-  streamKey      String?          @unique
-  rtmpUrl        String?
-  playbackUrl    String?
-  recordingUrl   String?
-  scheduledAt    DateTime?
-  startedAt      DateTime?
-  endedAt        DateTime?
-  currentViewers Int              @default(0)
-  totalViews     Int              @default(0)
-  peakViewers    Int              @default(0)
-  duration       Int              @default(0)
-  isRecorded     Boolean          @default(true)
-  isPublic       Boolean          @default(true)
-  allowComments  Boolean          @default(true)
-  allowQuestions Boolean          @default(true)
-  maxViewers     Int?
-  chatMode       ChatMode         @default(EVERYONE)
-  analyticsId    String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  documents      Document[]
-  tags           Tag[]
+  id                String           @id @default(uuid())
+  teacherId         String
+  title             String
+  description       String?
+  category          String?
+  thumbnail         String?
+  status            LiveStreamStatus @default(SCHEDULED)
+  streamKey         String?          @unique
+  rtmpUrl           String?
+  playbackUrl       String?
+  recordingUrl      String?          // Cloudflare Stream HLS playback URL
+  cloudflareVideoId String?          // Cloudflare video UID for API operations
+  scheduledAt       DateTime?
+  startedAt         DateTime?
+  endedAt           DateTime?
+  currentViewers    Int              @default(0)
+  totalViews        Int              @default(0)
+  peakViewers       Int              @default(0)
+  duration          Int              @default(0)
+  isRecorded        Boolean          @default(true)
+  isPublic          Boolean          @default(true)
+  allowComments     Boolean          @default(true)
+  allowQuestions    Boolean          @default(true)
+  maxViewers        Int?
+  chatMode          ChatMode         @default(EVERYONE)
+  analyticsId       String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  documents         Document[]
+  tags              Tag[]
 
   @@index([teacherId, status])
   @@index([scheduledAt])

@@ -25,32 +25,20 @@ export class LivestreamController {
     @Body() createLivestreamDto: CreateLivestreamDto,
     @Request() req: any,
   ) {
-    console.log('=== Livestream Create Request ===');
-    console.log('Auth user:', req.user);
-    console.log('Request teacherId:', createLivestreamDto.teacherId);
-    console.log('User sub:', req.user?.sub);
-    console.log('User role:', req.user?.role);
-    console.log('================================');
-
     // Check if req.user exists (JWT auth passed)
     if (!req.user) {
-      console.error('No user in request - JWT auth failed');
       throw new UnauthorizedException('Authentication failed - no user in request');
     }
 
     // Verify that the authenticated user is the teacher creating the livestream
     if (req.user.sub !== createLivestreamDto.teacherId) {
-      console.error('User ID mismatch:', { userSub: req.user.sub, teacherId: createLivestreamDto.teacherId });
       throw new UnauthorizedException(`You can only create livestreams for yourself. Your ID: ${req.user.sub}, Request ID: ${createLivestreamDto.teacherId}`);
     }
 
     // Verify that the user has TEACHER role
     if (req.user.role !== 'TEACHER') {
-      console.error('Role mismatch:', { userRole: req.user.role, required: 'TEACHER' });
       throw new UnauthorizedException(`Only teachers can create livestreams. Your role: ${req.user.role}`);
     }
-
-    console.log('All checks passed, creating livestream...');
     return await this.livestreamService.createLivestream(createLivestreamDto);
   }
 
@@ -76,5 +64,26 @@ export class LivestreamController {
   @Get('active/all')
   async getActiveLivestreams() {
     return await this.livestreamService.getActiveLivestreams();
+  }
+
+  @Patch(':id/end')
+  @UseGuards(JwtAuthGuard)
+  async endLivestream(
+    @Param('id') id: string,
+    @Body() body: { saveRecording: boolean },
+    @Request() req: any,
+  ) {
+    // Get livestream to verify ownership
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    
+    if (!livestream) {
+      throw new UnauthorizedException('Livestream not found');
+    }
+
+    if (livestream.teacherId !== req.user.sub && req.user.role !== 'ADMIN') {
+      throw new UnauthorizedException('You can only end your own livestreams');
+    }
+
+    return await this.livestreamService.endLivestream(id, body.saveRecording);
   }
 }

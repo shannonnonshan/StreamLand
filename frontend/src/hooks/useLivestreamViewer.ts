@@ -30,7 +30,7 @@ export function useLivestreamViewer({
         
         // Force play the video
         remoteVideoRef.current.play().catch((error) => {
-          console.error('[Viewer] Video play error:', error);
+          console.error('Video play error:', error);
         });
         
         setIsConnected(true);
@@ -40,8 +40,6 @@ export function useLivestreamViewer({
           clearTimeout(loadingTimeoutRef.current);
           loadingTimeoutRef.current = null;
         }
-      } else {
-        console.error('[Viewer] Video element not found');
       }
     };
 
@@ -70,7 +68,6 @@ export function useLivestreamViewer({
     };
 
     const handleBroadcaster = () => {
-      console.log('[Viewer] Broadcaster detected, sending watcher event');
       socket.emit('watcher', { livestreamID });
     };
 
@@ -93,7 +90,7 @@ export function useLivestreamViewer({
           livestreamID,
         });
       } catch (error) {
-        console.error('[Viewer] Offer error:', error);
+        console.error('Offer error:', error);
         onError?.(error as Error);
         setIsLoading(false);
       }
@@ -101,7 +98,7 @@ export function useLivestreamViewer({
 
     const handleCandidate = ({ candidate }: { candidate: RTCIceCandidateInit }) => {
       pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
-        console.error('[Viewer] ICE error:', error);
+        console.error('ICE error:', error);
         onError?.(error as Error);
       });
     };
@@ -119,13 +116,11 @@ export function useLivestreamViewer({
     };
 
     const handleStreamNotFound = () => {
-      console.info('[Viewer] Stream not found - broadcaster not currently live');
       setIsLoading(false);
       setIsConnected(false);
       onError?.(new Error('Teacher is not streaming yet. Please wait...'));
     };
 
-    console.log('[Viewer] Setting up socket listeners for livestreamID:', livestreamID);
     socket.on('broadcaster', handleBroadcaster);
     socket.on('offer', handleOffer);
     socket.on('candidate', handleCandidate);
@@ -133,7 +128,6 @@ export function useLivestreamViewer({
     socket.on('stream-not-found', handleStreamNotFound);
 
     // Join immediately when entering
-    console.log('[Viewer] Emitting watcher event for livestreamID:', livestreamID);
     socket.emit('watcher', { livestreamID });
 
     // Set timeout for loading state

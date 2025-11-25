@@ -1,11 +1,15 @@
-import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLivestreamDto } from './dto/create-livestream.dto';
 import { LiveStreamStatus } from '@prisma/client';
 
 @Injectable()
 export class LivestreamService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(LivestreamService.name);
+  
+  constructor(
+    private prisma: PrismaService,
+  ) {}
 
   async createLivestream(createLivestreamDto: CreateLivestreamDto) {
     const { id, teacherId, title, description, isPublic, allowComments } = createLivestreamDto;
@@ -123,4 +127,48 @@ export class LivestreamService {
       orderBy: { currentViewers: 'desc' },
     });
   }
+
+  async endLivestream(id: string, saveRecording: boolean) {
+    this.logger.log(`Ending livestream ${id}, saveRecording: ${saveRecording}`);
+    
+    const livestream = await this.prisma.postgres.liveStream.findUnique({
+      where: { id },
+    });
+
+    if (!livestream) {
+      throw new Error('Livestream not found');
+    }
+
+    // Calculate duration
+    const startedAt = livestream.startedAt || livestream.createdAt;
+    const endedAt = new Date();
+    const durationMs = endedAt.getTime() - startedAt.getTime();
+    const duration = Math.floor(durationMs / 1000); // duration in seconds
+
+    // Update livestream status
+    const updateData: any = {
+      status: LiveStreamStatus.ENDED,
+      endedAt,
+      duration,
+      isRecorded: saveRecording,
+    };
+
+    // If saving recording, the video chunks are already being uploaded to R2 by stream.gateway
+    // The recordingUrl will be set automatically by the gateway's saveVideoToR2 method
+    if (saveRecording) {
+      // Recording URL will be updated by the WebSocket gateway after processing chunks
+      this.logger.log(`Recording will be saved to R2 for livestream ${id}`);
+    }
+
+    const updatedLivestream = await this.prisma.postgres.liveStream.update({
+      where: { id },
+      data: updateData,
+    });
+
+    this.logger.log(`Livestream ${id} ended successfully. Duration: ${duration}s, Recorded: ${saveRecording}`);
+    return updatedLivestream;
+  }
+
+  // Recording is now handled by stream.gateway.ts and R2 storage
+  // These methods are deprecated and replaced by R2 upload flow
 }

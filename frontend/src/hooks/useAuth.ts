@@ -53,11 +53,9 @@ export function useAuth() {
       
       // Only refresh if both tokens exist and user is authenticated
       if (!refreshToken || !accessToken || !isAuthenticated) {
-        console.log('⏭️ Skipping auto-refresh: not authenticated or tokens missing');
         return;
       }
 
-      console.log('🔄 Attempting to refresh token...');
       try {
         const response = await fetch(`${API_URL}/auth/refresh`, {
           method: 'POST',
@@ -71,10 +69,8 @@ export function useAuth() {
           const result = await response.json();
           localStorage.setItem('accessToken', result.accessToken);
           localStorage.setItem('refreshToken', result.refreshToken);
-          console.log('✅ Token refreshed successfully');
         } else {
           const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-          console.error('❌ Failed to refresh token:', response.status, errorData);
           // If refresh fails, logout
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');

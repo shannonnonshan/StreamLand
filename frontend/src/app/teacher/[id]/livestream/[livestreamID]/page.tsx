@@ -33,6 +33,14 @@ interface DocumentFile {
   size?: number;
 }
 
+interface LivestreamInfo {
+  title: string;
+  description: string;
+  category: string;
+  isPublic: boolean;
+  allowComments: boolean;
+}
+
 export default function BroadcasterPage() {
   const params = useParams<{ id?: string; livestreamID?: string }>();
 
@@ -48,6 +56,7 @@ export default function BroadcasterPage() {
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [livestreamInfo, setLivestreamInfo] = useState<LivestreamInfo | null>(null);
 
   const [showFiles, setShowFiles] = useState(true);
   const [showComments, setShowComments] = useState(true);
@@ -56,6 +65,9 @@ export default function BroadcasterPage() {
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
   const [pendingDocument, setPendingDocument] = useState<DocumentFile | null>(null);
   const [showShareConfirm, setShowShareConfirm] = useState(false);
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
+  const [saveRecording, setSaveRecording] = useState(false);
+  const [isEndingStream, setIsEndingStream] = useState(false);
   const [chatMessages, setChatMessages] = useState<Array<{
     id: string;
     username: string;
@@ -70,7 +82,41 @@ export default function BroadcasterPage() {
 
   useEffect(() => {
     fetchTeacherDocuments();
-  }, [teacherID]);
+    
+    const fetchLivestreamInfo = async () => {
+      try {
+        const response = await fetch(`http://localhost:4000/livestream/${livestreamID}`);
+        if (response.ok) {
+          const data = await response.json();
+          
+          // Check if livestream has ended
+          if (data.status === 'ENDED') {
+            // If recording was saved, redirect to recording page
+            if (data.isRecorded && data.recordingUrl) {
+              window.location.href = `/teacher/${teacherID}/recordings/${livestreamID}`;
+            } else {
+              // No recording, redirect to home
+              window.location.href = `/teacher/${teacherID}`;
+            }
+            return;
+          }
+          
+          setLivestreamInfo({
+            title: data.title,
+            description: data.description,
+            category: data.category,
+            isPublic: data.isPublic,
+            allowComments: data.allowComments,
+          });
+        }
+      } catch (error) {
+        // Error fetching livestream info
+
+      }
+    };
+    
+    fetchLivestreamInfo();
+  }, [teacherID, livestreamID]);
 
   const fetchTeacherDocuments = async () => {
     try {
@@ -79,34 +125,8 @@ export default function BroadcasterPage() {
       // const data = await response.json();
       // setDocuments(data);
       
-      // Mock data for now
-      const mockDocuments: DocumentFile[] = [
-        {
-          id: 1,
-          name: 'Lesson 1 - Introduction.pdf',
-          type: 'pdf',
-          url: '/documents/sample.pdf',
-          uploadedAt: '2024-10-25',
-          size: 2048000
-        },
-        {
-          id: 2,
-          name: 'Grammar Rules.pdf',
-          type: 'pdf',
-          url: '/documents/grammar.pdf',
-          uploadedAt: '2024-10-20',
-          size: 1024000
-        },
-        {
-          id: 3,
-          name: 'Diagram Example.png',
-          type: 'image',
-          url: '/images/cat.png',
-          uploadedAt: '2024-10-18',
-          size: 512000
-        }
-      ];
-      setDocuments(mockDocuments);
+      // No documents initially - user needs to upload
+      setDocuments([]);
     } catch (error) {
       console.error('Error fetching documents:', error);
     }
@@ -160,13 +180,8 @@ export default function BroadcasterPage() {
         localVideoRef.current.srcObject = stream;
       }
 
-      console.log('[Teacher] Starting broadcast with livestreamID:', livestreamID);
-      console.log('[Teacher] Socket connected:', socket.connected);
-      console.log('[Teacher] Socket ID:', socket.id);
-      
       // Ensure socket is connected before emitting
       if (!socket.connected) {
-        console.warn('[Teacher] Socket not connected, connecting...');
         socket.connect();
         // Wait for connection
         await new Promise((resolve) => {
@@ -176,7 +191,6 @@ export default function BroadcasterPage() {
             socket.once('connect', resolve);
           }
         });
-        console.log('[Teacher] Socket connected after waiting');
       }
       
       socket.emit("broadcaster", { 
@@ -191,7 +205,8 @@ export default function BroadcasterPage() {
         documents: documents
       });
     } catch (err) {
-      console.error("getUserMedia error:", err);
+      console.error('Failed to start livestream:', err);
+      alert('Could not access camera/microphone. Please check permissions.');
     }
   }
 
@@ -199,19 +214,58 @@ export default function BroadcasterPage() {
     startLive();
   }
 
-  function stopLive() {
-    socket.emit("stream-ended", { livestreamID });
+  function handleStopClick() {
+    setShowEndConfirm(true);
+  }
 
-    Object.values(peersRef.current).forEach((pc) => pc.close());
-    peersRef.current = {};
+  async function confirmEndStream() {
+    setIsEndingStream(true);
+    
+    try {
+      // Update livestream status in database
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      
+      const response = await fetch(`http://localhost:4000/livestream/${livestreamID}/end`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          saveRecording: saveRecording,
+        }),
+      });
 
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((t) => t.stop());
-      localStreamRef.current = null;
+      if (!response.ok) {
+        throw new Error('Failed to end livestream');
+      }
+
+      // Stop WebRTC connections and notify about recording preference
+      socket.emit("stream-ended", { 
+        livestreamID,
+        saveRecording: saveRecording 
+      });
+
+      Object.values(peersRef.current).forEach((pc) => pc.close());
+      peersRef.current = {};
+
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
+      }
+
+      setIsLive(false);
+      setWatcherCount(0);
+      setShowEndConfirm(false);
+      
+      // Redirect to home page
+      window.location.href = `/teacher/${teacherID}`;
+    } catch (error) {
+      console.error('Failed to end livestream:', error);
+      alert('Failed to end livestream. Please try again.');
+    } finally {
+      setIsEndingStream(false);
     }
-
-    setIsLive(false);
-    setWatcherCount(0);
   }
 
   async function handleWatcher(data: { id: string } | string) {
@@ -222,7 +276,6 @@ export default function BroadcasterPage() {
     }
 
     if (!localStreamRef.current) {
-      console.error('No local stream available');
       return;
     }
 
@@ -247,7 +300,7 @@ export default function BroadcasterPage() {
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        console.error('Connection failed');
+        // Connection failed
       }
     };
 
@@ -272,8 +325,8 @@ export default function BroadcasterPage() {
   function handleCandidate({ from, candidate }: { from: string; candidate: RTCIceCandidateInit }) {
     const pc = peersRef.current[from];
     if (pc) {
-      pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
-        console.error('ICE candidate error:', error);
+      pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {
+        // ICE candidate error
       });
     }
   }
@@ -343,8 +396,8 @@ export default function BroadcasterPage() {
       } else {
         await stopScreenShare();
       }
-    } catch (err) {
-      console.error('Screen share error:', err);
+    } catch (error) {
+      console.error('Screen share error:', error);
     }
   }
 
@@ -378,8 +431,8 @@ export default function BroadcasterPage() {
 
       setIsScreenSharing(false);
       setIsCameraOn(true);
-    } catch (err) {
-      console.error('Stop screen share error:', err);
+    } catch (error) {
+      console.error('Stop screen share error:', error);
     }
   }
 
@@ -542,6 +595,29 @@ export default function BroadcasterPage() {
         />
       </div>
 
+      {/* Livestream Info Display */}
+      {livestreamInfo && (
+        <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md text-white p-4 rounded-lg shadow-lg max-w-md z-10">
+          <h2 className="text-xl font-bold mb-2">{livestreamInfo.title}</h2>
+          <div className="flex items-center gap-2 mb-2 text-sm">
+            <span className="px-2 py-1 bg-blue-600 rounded-full text-xs font-semibold">
+              {livestreamInfo.category}
+            </span>
+            {livestreamInfo.isPublic ? (
+              <span className="px-2 py-1 bg-green-600 rounded-full text-xs font-semibold">Public</span>
+            ) : (
+              <span className="px-2 py-1 bg-gray-600 rounded-full text-xs font-semibold">Private</span>
+            )}
+            {livestreamInfo.allowComments && (
+              <span className="px-2 py-1 bg-purple-600 rounded-full text-xs font-semibold">💬 Comments On</span>
+            )}
+          </div>
+          {livestreamInfo.description && (
+            <p className="text-sm text-white/80 line-clamp-2">{livestreamInfo.description}</p>
+          )}
+        </div>
+      )}
+
       {showDocumentViewer && selectedDocument && (
         <div className="absolute top-0 right-0 w-1/2 h-full bg-white flex flex-col">
           <div className="flex items-center justify-between p-4 border-b bg-gray-50">
@@ -648,6 +724,87 @@ export default function BroadcasterPage() {
                   className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
                 >
                   Share with Students
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* End Livestream Confirmation Modal */}
+      {showEndConfirm && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-red-100 rounded-full">
+                  <Square className="w-6 h-6 text-red-600" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900">End Livestream?</h2>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              <p className="text-gray-700 mb-6">
+                Are you sure you want to end this livestream? All viewers will be disconnected.
+              </p>
+
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={saveRecording}
+                    onChange={(e) => setSaveRecording(e.target.checked)}
+                    className="mt-1 w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                  />
+                  <div>
+                    <p className="font-semibold text-gray-900">Save Recording</p>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Save this livestream to Cloudflare Stream. You can review and share it later with your students.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <div className="flex gap-2">
+                  <div className="text-blue-600 mt-0.5">ℹ️</div>
+                  <div className="text-sm text-blue-800">
+                    <p className="font-semibold mb-1">What happens next:</p>
+                    <ul className="list-disc list-inside space-y-1 text-blue-700">
+                      <li>All students will be disconnected</li>
+                      <li>Livestream status will be updated to &quot;Ended&quot;</li>
+                      {saveRecording ? (
+                        <li>Recording will be processed and saved (may take a few minutes)</li>
+                      ) : (
+                        <li>Stream will not be saved</li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowEndConfirm(false)}
+                  disabled={isEndingStream}
+                  className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmEndStream}
+                  disabled={isEndingStream}
+                  className="flex-1 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isEndingStream ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Ending...
+                    </>
+                  ) : (
+                    'End Livestream'
+                  )}
                 </button>
               </div>
             </div>
@@ -827,7 +984,7 @@ export default function BroadcasterPage() {
           </button>
         ) : (
           <button
-            onClick={stopLive}
+            onClick={handleStopClick}
             className="p-3 bg-red-600 rounded-full shadow text-white hover:bg-red-700 transition"
             title="Stop Livestream"
           >

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, use, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { 
   MagnifyingGlassIcon, 
@@ -47,6 +48,8 @@ export default function MessagePage({
   const { id } = use(params);
   const { user } = useAuth();
   const userId = user?.id || id;
+  const searchParams = useSearchParams();
+  const targetUserId = searchParams.get('userId'); // Get userId from URL query
 
   // Add styles for animation
   useEffect(() => {
@@ -189,6 +192,16 @@ export default function MessagePage({
       };
     });
   }, [contacts, conversations, onlineUsers]);
+
+  // Auto-select contact from URL parameter
+  useEffect(() => {
+    if (targetUserId && mergedContacts.length > 0 && !selectedContact) {
+      const targetContact = mergedContacts.find(c => c.id === targetUserId);
+      if (targetContact) {
+        setSelectedContact(targetContact);
+      }
+    }
+  }, [targetUserId, mergedContacts, selectedContact]);
 
   // Fetch conversation messages
   useEffect(() => {

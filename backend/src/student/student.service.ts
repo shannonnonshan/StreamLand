@@ -391,7 +391,7 @@ export class StudentService {
 
     const studentProfileId = user.studentProfile.id;
 
-    // Get list of current friends and pending requests
+    // Get list of ALL friendships (to show status)
     const friendships = await this.prisma.postgres.friendList.findMany({
       where: {
         OR: [
@@ -406,13 +406,15 @@ export class StudentService {
       },
     });
 
-    // Extract friend IDs and pending request IDs
-    const excludedProfileIds = new Set<string>();
+    // Only exclude BLOCKED users
+    const blockedProfileIds = new Set<string>();
     friendships.forEach(f => {
-      if (f.requestId === studentProfileId) {
-        excludedProfileIds.add(f.receiverId);
-      } else {
-        excludedProfileIds.add(f.requestId);
+      if (f.status === FriendStatus.BLOCKED) {
+        if (f.requestId === studentProfileId) {
+          blockedProfileIds.add(f.receiverId);
+        } else {
+          blockedProfileIds.add(f.requestId);
+        }
       }
     });
 
@@ -436,12 +438,12 @@ export class StudentService {
       take: 20,
     });
 
-    // Filter out existing friends and add friendship status
+    // Filter out blocked users and add friendship status
     const results = students
-      .filter(s => s.studentProfile && !excludedProfileIds.has(s.studentProfile.id))
+      .filter(s => s.studentProfile && !blockedProfileIds.has(s.studentProfile.id))
       .map(s => {
-        // Check if there's a pending request
-        const pendingRequest = friendships.find(f => 
+        // Check friendship status
+        const friendship = friendships.find(f => 
           (f.requestId === studentProfileId && f.receiverId === s.studentProfile?.id) ||
           (f.receiverId === studentProfileId && f.requestId === s.studentProfile?.id)
         );
@@ -453,7 +455,7 @@ export class StudentService {
           avatar: s.avatar,
           bio: s.bio,
           studentProfile: s.studentProfile,
-          friendshipStatus: pendingRequest ? pendingRequest.status : null,
+          friendshipStatus: friendship ? friendship.status : null,
         };
       });
 

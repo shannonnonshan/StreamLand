@@ -304,7 +304,7 @@ export default function LiveFollowingPage() {
                   : 'text-gray-500 border-transparent hover:text-gray-700'
               }`}
             >
-              All ({livestreams.length + videos.length})
+              All ({followedChannels.length})
             </button>
             <button
               onClick={() => setActiveTab('live')}

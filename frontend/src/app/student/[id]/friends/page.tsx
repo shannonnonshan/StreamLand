@@ -370,8 +370,12 @@ export default function FriendsPage() {
     }
   };
 
-  const handleMessage = (userId: string) => {
-    router.push(`/student/message?userId=${userId}`);
+  const handleMessage = (targetUserId: string) => {
+    // Get current student ID from URL
+    const currentPath = window.location.pathname;
+    const match = currentPath.match(/\/student\/([^\/]+)\//);
+    const studentId = match ? match[1] : 'guest';
+    router.push(`/student/${studentId}/message?userId=${targetUserId}`);
   };
 
   const handleViewProfile = (userId: string) => {
@@ -775,21 +779,37 @@ export default function FriendsPage() {
                       {/* Actions */}
                       <div className="flex gap-2">
                         {!student.friendshipStatus ? (
-                          <button
-                            onClick={() => handleSendFriendRequest(student.studentProfile!.id)}
-                            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#${PrimaryColor}] hover:bg-[#1a1d6b] text-white font-semibold text-xs transition-all shadow-sm hover:shadow-md`}
-                          >
-                            <UserPlusIcon className="h-4 w-4" />
-                            Add Friend
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleSendFriendRequest(student.id)}
+                              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#${PrimaryColor}] hover:bg-[#1a1d6b] text-white font-semibold text-xs transition-all shadow-sm hover:shadow-md`}
+                            >
+                              <UserPlusIcon className="h-4 w-4" />
+                              Add Friend
+                            </button>
+                            <button
+                              onClick={() => handleMessage(student.id)}
+                              className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#${SecondaryColor}] hover:bg-[#d41f4d] text-white font-semibold text-xs transition-all shadow-sm hover:shadow-md`}
+                            >
+                              <ChatBubbleLeftRightIcon className="h-4 w-4" />
+                            </button>
+                          </>
                         ) : (
-                          <button
-                            disabled
-                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gray-200 text-gray-500 font-semibold text-xs cursor-not-allowed"
-                          >
-                            <ClockIcon className="h-4 w-4" />
-                            Request Sent
-                          </button>
+                          <>
+                            <button
+                              disabled
+                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gray-200 text-gray-500 font-semibold text-xs cursor-not-allowed"
+                            >
+                              <ClockIcon className="h-4 w-4" />
+                              Request Sent
+                            </button>
+                            <button
+                              onClick={() => handleMessage(student.id)}
+                              className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#${SecondaryColor}] hover:bg-[#d41f4d] text-white font-semibold text-xs transition-all shadow-sm hover:shadow-md`}
+                            >
+                              <ChatBubbleLeftRightIcon className="h-4 w-4" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>

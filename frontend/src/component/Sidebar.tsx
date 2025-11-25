@@ -34,6 +34,8 @@ interface SidebarProps {
   belowHeader?: boolean;
   /** Optional: Top offset in pixels when belowHeader is true (default: 64px) */
   headerHeight?: number;
+  /** Optional: Callback before navigation - return false to prevent navigation */
+  onNavigate?: (href: string) => boolean;
 }
 
 export default function Sidebar({
@@ -43,10 +45,21 @@ export default function Sidebar({
   bottomNavItem,
   basePath,
   belowHeader = false,
+  onNavigate,
 }: SidebarProps) {
   const pathname = usePathname();
 
   const baseRoute = basePath || `/${role}/${userId}`;
+
+  // Handle navigation with optional callback
+  const handleNavigation = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (onNavigate) {
+      const shouldNavigate = onNavigate(href);
+      if (!shouldNavigate) {
+        e.preventDefault();
+      }
+    }
+  };
 
   // Calculate inline styles for positioning when belowHeader is true
   const inlineStyles = belowHeader
@@ -116,7 +129,11 @@ export default function Sidebar({
             return (
               <li key={label} className="relative group">
                 {type === "link" ? (
-                  <a href={fullHref!} className={commonClass}>
+                  <a 
+                    href={fullHref!} 
+                    className={commonClass}
+                    onClick={(e) => handleNavigation(e, fullHref!)}
+                  >
                     <HoverTooltip label={label}>
                       <Icon className="w-6 h-6 font-medium" />
                     </HoverTooltip>

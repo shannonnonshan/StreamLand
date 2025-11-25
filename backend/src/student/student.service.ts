@@ -2,10 +2,14 @@ import { Injectable, NotFoundException, BadRequestException, ForbiddenException 
 import { PrismaService } from '../prisma/prisma.service';
 import { FriendStatus } from '@prisma/client';
 import { SendFriendRequestDto, UpdateFriendRequestDto, FollowTeacherDto, UnfollowTeacherDto } from './dto';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class StudentService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notificationService: NotificationService,
+  ) {}
 
   // Send friend request
   async sendFriendRequest(requesterId: string, dto: SendFriendRequestDto) {
@@ -99,6 +103,15 @@ export class StudentService {
       },
     });
 
+    // Send notification to receiver
+    await this.notificationService.createFriendRequestNotification(
+      receiver.id,
+      requester.id,
+      requester.fullName,
+      requester.avatar || '',
+      friendRequest.id,
+    );
+
     return { message: 'Friend request sent successfully', friendRequest };
   }
 
@@ -166,6 +179,16 @@ export class StudentService {
         },
       },
     });
+
+    // Send notification to requester when request is accepted
+    if (status === FriendStatus.ACCEPTED) {
+      await this.notificationService.createFriendRequestAcceptedNotification(
+        updatedRequest.requester.user.id,
+        updatedRequest.receiver.user.id,
+        updatedRequest.receiver.user.fullName,
+        updatedRequest.receiver.user.avatar || ''
+      );
+    }
 
     return { message: 'Friend request updated successfully', friendRequest: updatedRequest };
   }
@@ -691,6 +714,14 @@ export class StudentService {
         teacherId: teacher.teacherProfile.id,
       },
     });
+
+    // Send notification to teacher
+    await this.notificationService.createFollowNotification(
+      teacher.id,
+      user.id,
+      user.fullName,
+      user.avatar || '',
+    );
 
     return { message: 'Successfully followed teacher' };
   }

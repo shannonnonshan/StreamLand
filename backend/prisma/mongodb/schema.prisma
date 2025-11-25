@@ -72,6 +72,8 @@ model Notification {
 }
 
 enum NotificationType {
+  FRIEND_REQUEST
+  FRIEND_REQUEST_ACCEPTED
   NEW_FOLLOWER
   NEW_MESSAGE
   LIVESTREAM_START
@@ -108,12 +110,12 @@ model LiveStreamSession {
   leftAt       DateTime?
   duration     Int? // in seconds
   interactions Int       @default(0)
-  
+
   // Additional tracking
-  deviceType   String? // mobile, desktop, tablet
-  browser      String?
-  location     String? // country/city
-  referrer     String?
+  deviceType String? // mobile, desktop, tablet
+  browser    String?
+  location   String? // country/city
+  referrer   String?
 
   @@index([livestreamId, viewerId])
   @@index([livestreamId, joinedAt])
@@ -122,28 +124,28 @@ model LiveStreamSession {
 
 // Live Stream Analytics (aggregated)
 model LiveStreamAnalytics {
-  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
-  livestreamId String   @unique
-  
+  id           String @id @default(auto()) @map("_id") @mongodb.ObjectId
+  livestreamId String @unique
+
   // Viewer stats
-  totalViews      Int      @default(0)
-  uniqueViewers   Int      @default(0)
-  peakViewers     Int      @default(0)
-  avgWatchTime    Float    @default(0) // in minutes
-  
+  totalViews    Int   @default(0)
+  uniqueViewers Int   @default(0)
+  peakViewers   Int   @default(0)
+  avgWatchTime  Float @default(0) // in minutes
+
   // Engagement stats
-  totalComments   Int      @default(0)
-  totalLikes      Int      @default(0)
-  totalShares     Int      @default(0)
-  totalQuestions  Int      @default(0)
-  
+  totalComments  Int @default(0)
+  totalLikes     Int @default(0)
+  totalShares    Int @default(0)
+  totalQuestions Int @default(0)
+
   // Demographics
-  viewersByDevice Json? // {mobile: 50, desktop: 30, tablet: 20}
+  viewersByDevice  Json? // {mobile: 50, desktop: 30, tablet: 20}
   viewersByCountry Json? // {VN: 80, US: 10, ...}
-  
+
   // Time series data
-  viewerTimeline  Json? // [{timestamp, count}, ...]
-  
+  viewerTimeline Json? // [{timestamp, count}, ...]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -152,25 +154,25 @@ model LiveStreamAnalytics {
 
 // Q&A During Livestream
 model Question {
-  id           String        @id @default(auto()) @map("_id") @mongodb.ObjectId
-  livestreamId String
-  studentId    String
-  studentName  String
+  id            String         @id @default(auto()) @map("_id") @mongodb.ObjectId
+  livestreamId  String
+  studentId     String
+  studentName   String
   studentAvatar String?
-  question     String
-  status       QuestionStatus @default(PENDING)
-  
+  question      String
+  status        QuestionStatus @default(PENDING)
+
   // Answer
-  answeredBy   String?
-  answer       String?
-  answeredAt   DateTime?
-  
+  answeredBy String?
+  answer     String?
+  answeredAt DateTime?
+
   // Engagement
-  upvotes      Int       @default(0)
-  upvotedBy    String[] // Array of user IDs
+  upvotes       Int      @default(0)
+  upvotedBy     String[] // Array of user IDs
   isHighlighted Boolean  @default(false)
-  isPinned     Boolean   @default(false)
-  
+  isPinned      Boolean  @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -187,25 +189,25 @@ enum QuestionStatus {
 
 // Polls during livestream
 model Poll {
-  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  id           String @id @default(auto()) @map("_id") @mongodb.ObjectId
   livestreamId String
   teacherId    String
   question     String
   options      Json // [{id, text, votes: 0}]
-  
+
   // Settings
-  multipleChoice Boolean  @default(false)
-  anonymous      Boolean  @default(false)
+  multipleChoice Boolean @default(false)
+  anonymous      Boolean @default(false)
   duration       Int? // in seconds, null = no time limit
-  
+
   // Status
-  isActive       Boolean  @default(true)
-  endedAt        DateTime?
-  
+  isActive Boolean   @default(true)
+  endedAt  DateTime?
+
   // Results
-  totalVotes     Int      @default(0)
-  voters         String[] // Array of user IDs who voted
-  
+  totalVotes Int      @default(0)
+  voters     String[] // Array of user IDs who voted
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -227,14 +229,14 @@ model Reaction {
 
 // Watch history
 model WatchHistory {
-  id           String    @id @default(auto()) @map("_id") @mongodb.ObjectId
+  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
   userId       String
   livestreamId String
-  watchedAt    DateTime  @default(now())
+  watchedAt    DateTime @default(now())
   duration     Int // in seconds
-  completed    Boolean   @default(false)
-  progress     Float     @default(0) // 0-100%
-  
+  completed    Boolean  @default(false)
+  progress     Float    @default(0) // 0-100%
+
   // Resume point
   lastPosition Int @default(0) // in seconds
 
@@ -245,17 +247,17 @@ model WatchHistory {
 
 // Notebook/Notes taken during livestream
 model Notebook {
-  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  id           String  @id @default(auto()) @map("_id") @mongodb.ObjectId
   userId       String
   livestreamId String
   title        String?
   content      String
   timestamp    Int? // at what point in video (seconds)
-  
+
   // Organization
-  tags         String[]
-  isPrivate    Boolean  @default(true)
-  
+  tags      String[]
+  isPrivate Boolean  @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -266,27 +268,27 @@ model Notebook {
 
 // Comments on recorded livestreams
 model Comment {
-  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  id           String  @id @default(auto()) @map("_id") @mongodb.ObjectId
   livestreamId String
   userId       String
   userName     String
   userAvatar   String?
   content      String
   timestamp    Int? // at what point in video (seconds)
-  
+
   // Thread support
-  parentId     String? // for replies
-  replies      Int      @default(0)
-  
+  parentId String? // for replies
+  replies  Int     @default(0)
+
   // Engagement
-  likes        Int      @default(0)
-  likedBy      String[] // Array of user IDs
-  
+  likes   Int      @default(0)
+  likedBy String[] // Array of user IDs
+
   // Moderation
-  isEdited     Boolean  @default(false)
-  isDeleted    Boolean  @default(false)
-  isPinned     Boolean  @default(false)
-  
+  isEdited  Boolean @default(false)
+  isDeleted Boolean @default(false)
+  isPinned  Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

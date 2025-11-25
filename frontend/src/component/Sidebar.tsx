@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { LucideIcon } from "lucide-react";
 import HoverTooltip from "@/component/HoverTooltip";
 
@@ -34,6 +35,8 @@ interface SidebarProps {
   belowHeader?: boolean;
   /** Optional: Top offset in pixels when belowHeader is true (default: 64px) */
   headerHeight?: number;
+  /** Optional: Callback to check if navigation is allowed */
+  onNavigate?: (href: string) => boolean;
 }
 
 export default function Sidebar({
@@ -43,10 +46,19 @@ export default function Sidebar({
   bottomNavItem,
   basePath,
   belowHeader = false,
+  onNavigate,
 }: SidebarProps) {
   const pathname = usePathname();
 
   const baseRoute = basePath || `/${role}/${userId}`;
+
+  const handleNavigation = (e: React.MouseEvent, href: string) => {
+    if (onNavigate && !onNavigate(href)) {
+      e.preventDefault();
+      return false;
+    }
+    return true;
+  };
 
   // Calculate inline styles for positioning when belowHeader is true
   const inlineStyles = belowHeader
@@ -116,11 +128,16 @@ export default function Sidebar({
             return (
               <li key={label} className="relative group">
                 {type === "link" ? (
-                  <a href={fullHref!} className={commonClass}>
+                  <Link 
+                    href={fullHref!} 
+                    className={commonClass}
+                    onClick={(e) => handleNavigation(e, fullHref!)}
+                    prefetch={true}
+                  >
                     <HoverTooltip label={label}>
                       <Icon className="w-6 h-6 font-medium" />
                     </HoverTooltip>
-                  </a>
+                  </Link>
                 ) : (
                   <button onClick={onClick} className={commonClass}>
                     <HoverTooltip label={label}>

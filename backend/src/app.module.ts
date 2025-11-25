@@ -10,6 +10,7 @@ import { StudentModule } from './student/student.module';
 import { RedisModule } from './redis/redis.module';
 import { LivestreamModule } from './livestream/livestream.module';
 import { ChatModule } from './chat/chat.module';
+import { NotificationModule } from './notification/notification.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ChatModule } from './chat/chat.module';
     RedisModule,
     LivestreamModule,
     ChatModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

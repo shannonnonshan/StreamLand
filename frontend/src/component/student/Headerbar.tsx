@@ -1,5 +1,5 @@
 'use client';
-import { MagnifyingGlassIcon, BellIcon, XMarkIcon, ChevronDownIcon, UserCircleIcon, ShieldCheckIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, XMarkIcon, ChevronDownIcon, UserCircleIcon, ShieldCheckIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -8,6 +8,7 @@ import RegisterModal from '@/component/(modal)/register';
 import OTPModal from '@/component/(modal)/verifyOtp';
 import ForgotPasswordModal from '@/component/(modal)/forgotPassword';
 import ResetPasswordModal from '@/component/(modal)/resetPassword';
+import NotificationBell from '@/component/NotificationBell';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -369,11 +370,10 @@ export default function Header() {
           </AnimatePresence>
         </div>
 
-        {/* Notification Icon */}
-        <button className="relative p-2 text-gray-500 hover:text-[#${PrimaryColor}] rounded-full hover:bg-gray-50 transition duration-150">
-          <BellIcon className="h-6 w-6" />
-          <span className={`absolute top-1 right-1 h-2 w-2 rounded-full bg-[#${PrimaryColor}]`} />
-        </button>
+        {/* Notification Bell */}
+        {isAuthenticated && user && (
+          <NotificationBell userId={user.id} />
+        )}
 
         {/* Divider */}
         <div className="w-px h-6 bg-gray-200 mx-2" />

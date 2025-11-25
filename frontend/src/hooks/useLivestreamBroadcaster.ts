@@ -3,13 +3,11 @@ import { ICE_SERVERS } from '@/utils/ice';
 import socket from '@/socket';
 
 interface UseLivestreamBroadcasterOptions {
-  teacherID: string;
   livestreamID: string;
   onError?: (error: Error) => void;
 }
 
 export function useLivestreamBroadcaster({
-  teacherID,
   livestreamID,
   onError,
 }: UseLivestreamBroadcasterOptions) {
@@ -43,7 +41,6 @@ export function useLivestreamBroadcaster({
             socket.emit('candidate', {
               to: id,
               candidate: event.candidate,
-              teacherID,
               livestreamID,
             });
           }
@@ -64,7 +61,6 @@ export function useLivestreamBroadcaster({
         socket.emit('offer', {
           to: id,
           sdp: pc.localDescription,
-          teacherID,
           livestreamID,
         });
 
@@ -128,7 +124,7 @@ export function useLivestreamBroadcaster({
       socket.off('candidate', handleCandidate);
       socket.off('disconnectPeer', handleDisconnectPeer);
     };
-  }, [teacherID, livestreamID, onError]);
+  }, [livestreamID, onError]);
 
   const startBroadcast = async () => {
     try {
@@ -151,7 +147,7 @@ export function useLivestreamBroadcaster({
         localVideoRef.current.srcObject = stream;
       }
 
-      socket.emit('broadcaster', { teacherID, livestreamID });
+      socket.emit('broadcaster', { livestreamID });
       setIsStreaming(true);
     } catch (error) {
       console.error('Error starting broadcast:', error);
@@ -174,7 +170,7 @@ export function useLivestreamBroadcaster({
       localVideoRef.current.srcObject = null;
     }
 
-    socket.emit('stream-ended', { teacherID, livestreamID });
+    socket.emit('stream-ended', { livestreamID });
     setIsStreaming(false);
     setViewerCount(0);
   };

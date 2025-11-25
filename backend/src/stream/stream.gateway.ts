@@ -19,13 +19,11 @@ interface LivestreamInfo {
 }
 
 interface BroadcasterPayload {
-  teacherID: string;
   livestreamID: string;
   info?: LivestreamInfo;
 }
 
 interface WatcherPayload {
-  teacherID: string;
   livestreamID: string;
 }
 
@@ -76,7 +74,7 @@ interface Channel {
 export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
 
-  // key = `${teacherID}:${livestreamID}`
+  // key = livestreamID (unique identifier for each livestream)
   private channels: Record<string, Channel> = {};
 
   constructor(
@@ -84,8 +82,8 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly prismaService: PrismaService,
   ) {}
 
-  private getKey(teacherID: string, livestreamID: string) {
-    return `${teacherID}:${livestreamID}`;
+  private getKey(livestreamID: string) {
+    return livestreamID;
   }
 
   handleConnection(socket: Socket) {
@@ -140,13 +138,16 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: BroadcasterPayload,
     @ConnectedSocket() socket: Socket,
   ) {
-    const key = this.getKey(data.teacherID, data.livestreamID);
+    console.log('[Gateway] Broadcaster event received:', { livestreamID: data.livestreamID, socketId: socket.id });
+    const key = this.getKey(data.livestreamID);
+    console.log('[Gateway] Channel key:', key);
     if (!this.channels[key]) {
       this.channels[key] = { 
         broadcaster: socket.id, 
         watchers: new Set(),
         info: data.info 
       };
+      console.log('[Gateway] Created new channel:', key);
     } else {
       this.channels[key].broadcaster = socket.id;
       if (data.info) {
@@ -164,7 +165,10 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: WatcherPayload,
     @ConnectedSocket() socket: Socket,
   ) {
-    const key = this.getKey(data.teacherID, data.livestreamID);
+    console.log('[Gateway] Watcher event received:', { livestreamID: data.livestreamID, socketId: socket.id });
+    const key = this.getKey(data.livestreamID);
+    console.log('[Gateway] Looking for channel:', key);
+    console.log('[Gateway] Available channels:', Object.keys(this.channels));
     const channel = this.channels[key];
 
     if (channel) {
@@ -188,17 +192,17 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
 
       // Track analytics
-      this.trackViewerJoin(data.teacherID, data.livestreamID).catch(err =>
+      this.trackViewerJoin(data.livestreamID).catch(err =>
         console.error('Analytics error:', err)
       );
 
       console.log('Watcher joined channel:', socket.id, 'for', key);
       console.log('Current viewers:', channel.watchers.size);
     } else {
-      console.log('No broadcaster found for channel:', key);
+      console.log('[Gateway] No broadcaster found for channel:', key);
+      console.log('[Gateway] Current channels:', Object.keys(this.channels));
       // Notify the watcher that the stream is not available
       this.server.to(socket.id).emit('stream-not-found', {
-        teacherID: data.teacherID,
         livestreamID: data.livestreamID,
       });
     }
@@ -231,7 +235,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('stream-ended')
   handleStreamEnded(@MessageBody() data: BroadcasterPayload) {
-    const key = this.getKey(data.teacherID, data.livestreamID);
+    const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
     if (channel) {
       this.server.to([...channel.watchers]).emit('stream-ended', data);
@@ -244,7 +248,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: ShareDocumentPayload,
     @ConnectedSocket() socket: Socket,
   ) {
-    const key = this.getKey(data.teacherID, data.livestreamID);
+    const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
     
     if (channel && channel.broadcaster === socket.id) {
@@ -263,7 +267,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: BroadcasterPayload,
     @ConnectedSocket() socket: Socket,
   ) {
-    const key = this.getKey(data.teacherID, data.livestreamID);
+    const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
     
     if (channel && channel.broadcaster === socket.id) {
@@ -275,10 +279,10 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('sync-documents')
   handleSyncDocuments(
-    @MessageBody() data: { teacherID: string; livestreamID: string; documents: unknown[] },
+    @MessageBody() data: { livestreamID: string; documents: unknown[] },
     @ConnectedSocket() socket: Socket,
   ) {
-    const key = this.getKey(data.teacherID, data.livestreamID);
+    const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
     
     if (channel && channel.broadcaster === socket.id) {
@@ -295,7 +299,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: ChatMessagePayload,
     @ConnectedSocket() socket: Socket,
   ) {
-    const key = this.getKey(data.teacherID, data.livestreamID);
+    const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
     
     if (channel) {
@@ -331,7 +335,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       await this.prismaService.mongo.comment.create({
         data: {
           livestreamId: data.livestreamID,
-          userId: data.teacherID, // TODO: Get actual user ID from auth
+          userId: 'anonymous', // TODO: Get actual user ID from auth via socket connection
           userName: data.message.username,
           userAvatar: data.message.avatar,
           content: data.message.message,
@@ -354,7 +358,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   // Track viewer join analytics
-  private async trackViewerJoin(teacherID: string, livestreamID: string): Promise<void> {
+  private async trackViewerJoin(livestreamID: string): Promise<void> {
     try {
       // Get current viewer count from Redis
       const currentViewers = await this.redisService.getViewerCount(livestreamID);

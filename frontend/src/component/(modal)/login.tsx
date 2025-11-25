@@ -13,11 +13,12 @@ type LoginModalProps = {
   closeModal: () => void;
   openRegisterModal: () => void;
   openForgotPasswordModal: () => void;
+  openOTPModal?: (email: string, purpose: '2fa') => void;
 };
 
 type NotificationType = 'success' | 'error' | null;
 
-export default function LoginModal({ isOpen, closeModal, openRegisterModal, openForgotPasswordModal }: LoginModalProps) {
+export default function LoginModal({ isOpen, closeModal, openRegisterModal, openForgotPasswordModal, openOTPModal }: LoginModalProps) {
   const router = useRouter();
   const { login, loginWithGoogle, loginWithGithub, loading } = useAuth();
   
@@ -94,7 +95,16 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
     try {
       const result = await login({ email, password });
       
-      if (result.success) {
+      if (result.success && result.requires2FA) {
+        // 2FA required - open OTP modal immediately (email sending in background)
+        closeModal();
+        if (openOTPModal) {
+          openOTPModal(email, '2fa');
+        }
+        return;
+      }
+      
+      if (result.success && result.user) {
         setNotification({
           type: 'success',
           message: 'Login successful!'
@@ -102,10 +112,13 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
         
         // Redirect based on role
         setTimeout(() => {
+          const userId = result.user?.id;
           if (result.user?.role === 'TEACHER') {
-            router.push('/teacher/1'); // Replace 1 with actual teacher ID
+            router.push(`/teacher/${userId}`);
+          } else if (result.user?.role === 'ADMIN') {
+            router.push(`/admin/${userId}`);
           } else {
-            router.push('/student/dashboard');
+            router.push(`/student/${userId}/dashboard`);
           }
           closeModal();
         }, 1500);
@@ -115,7 +128,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
           message: result.error || 'Login failed. Please check your email and password.'
         });
       }
-    } catch (err) {
+    } catch {
       setNotification({
         type: 'error',
         message: 'Login failed. Please check your email and password.'
@@ -297,7 +310,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                     <div className="flex justify-end mt-2">
                       <button 
                         type="button"
-                        onClick={() => { closeModal(); openForgotPasswordModal(); }}
+                        onClick={openForgotPasswordModal}
                         className="text-xs text-[#161853] hover:text-[#EC255A] cursor-pointer"
                       >
                         Forgot password?
@@ -332,7 +345,7 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
                     Dont have an account?{' '}
                     <button
                       type="button"
-                      onClick={() => { closeModal(); openRegisterModal(); }}
+                      onClick={openRegisterModal}
                       className={`font-semibold text-[#${PrimaryColor}] hover:text-opacity-80 transition duration-150 cursor-pointer`}
                     >
                       Sign Up

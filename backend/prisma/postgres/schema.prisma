@@ -30,28 +30,42 @@ model User {
   bio      String?
   location String?
 
-  // Teacher-specific fields
+  // Relations
   teacherProfile TeacherProfile?
+  studentProfile StudentProfile?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("users")
 }
 
 model TeacherProfile {
-  id            String   @id @default(uuid())
-  userId        String   @unique
-  cvUrl         String?
-  subjects      String[]
-  experience    Int?
-  education     String?
-  totalStudents Int      @default(0)
-  totalCourses  Int      @default(0)
-  rating        Float    @default(0)
-  website       String?
-  linkedin      String?
-  youtube       String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Teacher details
+  cvUrl      String? // URL to uploaded CV
+  subjects   String[] // ["English", "Math", "Physics"]
+  experience Int? // Years of experience
+  education  String?
+
+  // Stats
+  totalStudents Int   @default(0)
+  totalCourses  Int   @default(0)
+  rating        Float @default(0)
+
+  // Social
+  website  String?
+  linkedin String?
+  youtube  String?
+
+  // Followers
+  followers FollowedTeacher[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("teacher_profiles")
 }
@@ -78,10 +92,11 @@ model StudentProfile {
   sentFriendRequests     FriendList[] @relation("SentFriendRequests")
   receivedFriendRequests FriendList[] @relation("ReceivedFriendRequests")
 
+  // Following teachers
+  followedTeachers FollowedTeacher[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  // friendLists FriendList[]
-  // friendLists FriendList[]
 
   @@map("student_profiles")
 }
@@ -105,6 +120,18 @@ enum FriendStatus {
   ACCEPTED
   REJECTED
   BLOCKED
+}
+
+model FollowedTeacher {
+  id        String         @id @default(uuid())
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  teacherId String
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  @@unique([studentId, teacherId])
+  @@map("followed_teachers")
 }
 
 model LiveStream {

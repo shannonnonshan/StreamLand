@@ -209,11 +209,11 @@ export default function RegisterModal({
 
   const validateStep3 = () => {
     if (formData.role === 'teacher') {
-      const teacherCVError = !formData.teacherCV ? 'Vui lòng tải lên CV của bạn' : '';
-      const teacherSubjectsError = !formData.teacherSubjects ? 'Vui lòng nhập môn học bạn giảng dạy' : '';
-      const teacherExperienceError = !formData.teacherExperience ? 'Vui lòng nhập số năm kinh nghiệm' : '';
-      const teacherIntroductionError = !formData.teacherIntroduction ? 'Vui lòng nhập giới thiệu về bạn' : '';
-      const teacherSpecialtyError = !formData.teacherSpecialty ? 'Vui lòng nhập chuyên môn của bạn' : '';
+      const teacherCVError = !formData.teacherCV ? 'Please upload your CV' : '';
+      const teacherSubjectsError = !formData.teacherSubjects ? 'Please enter the subjects you teach' : '';
+      const teacherExperienceError = !formData.teacherExperience ? 'Please enter years of experience' : '';
+      const teacherIntroductionError = !formData.teacherIntroduction ? 'Please enter your introduction' : '';
+      const teacherSpecialtyError = !formData.teacherSpecialty ? 'Please enter your specialty' : '';
       
       setFormErrors({
         ...formErrors,
@@ -227,9 +227,9 @@ export default function RegisterModal({
       return !teacherCVError && !teacherSubjectsError && !teacherExperienceError && 
              !teacherIntroductionError && !teacherSpecialtyError;
     } else if (formData.role === 'student') {
-      const studentIDError = !formData.studentID ? 'Vui lòng nhập mã số học sinh/sinh viên' : '';
-      const studentSchoolError = !formData.studentSchool ? 'Vui lòng nhập tên trường' : '';
-      const studentClassError = !formData.studentClass ? 'Vui lòng nhập lớp' : '';
+      const studentIDError = !formData.studentID ? 'Please enter your student ID' : '';
+      const studentSchoolError = !formData.studentSchool ? 'Please enter your school name' : '';
+      const studentClassError = !formData.studentClass ? 'Please enter your class' : '';
       
       setFormErrors({
         ...formErrors,
@@ -534,7 +534,7 @@ export default function RegisterModal({
                     <DocumentIcon className="mx-auto h-8 w-8 text-gray-400" />
                     <div className="flex text-sm text-gray-600">
                       <label htmlFor="teacherCV" className="relative cursor-pointer rounded-md bg-white font-medium text-[#161853] focus-within:outline-none focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-offset-2 hover:text-[#EC255A]">
-                        <span>Tải lên CV của bạn</span>
+                        <span>Upload your CV</span>
                         <input 
                           id="teacherCV" 
                           name="teacherCV" 
@@ -545,9 +545,9 @@ export default function RegisterModal({
                           required
                         />
                       </label>
-                      <p className="pl-1">hoặc kéo và thả</p>
+                      <p className="pl-1">or drag and drop</p>
                     </div>
-                    <p className="text-xs text-gray-500">PDF, DOC, DOCX không quá 10MB</p>
+                    <p className="text-xs text-gray-500">PDF, DOC, DOCX up to 10MB</p>
                     {formData.teacherCV && (
                       <p className="text-sm text-green-600">{formData.teacherCV.name}</p>
                     )}
@@ -561,14 +561,14 @@ export default function RegisterModal({
               {/* Certificates Upload */}
               <div>
                 <label htmlFor="teacherCertificates" className="block text-sm font-medium text-gray-700 mb-1">
-                  Các chứng chỉ liên quan <span className="text-gray-500">(tùy chọn)</span>
+                  Related Certificates <span className="text-gray-500">(optional)</span>
                 </label>
                 <div className={`mt-1 flex justify-center px-6 py-4 border-2 border-dashed rounded-lg border-gray-300`}>
                   <div className="space-y-2 text-center">
                     <DocumentDuplicateIcon className="mx-auto h-8 w-8 text-gray-400" />
                     <div className="flex text-sm text-gray-600">
                       <label htmlFor="teacherCertificates" className="relative cursor-pointer rounded-md bg-white font-medium text-[#161853] focus-within:outline-none focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-offset-2 hover:text-[#EC255A]">
-                        <span>Tải lên chứng chỉ</span>
+                        <span>Upload certificates</span>
                         <input 
                           id="teacherCertificates" 
                           name="teacherCertificates" 
@@ -579,11 +579,11 @@ export default function RegisterModal({
                           multiple
                         />
                       </label>
-                      <p className="pl-1">hoặc kéo và thả</p>
+                      <p className="pl-1">or drag and drop</p>
                     </div>
-                    <p className="text-xs text-gray-500">PDF, DOC, DOCX, JPG, PNG không quá 10MB</p>
+                    <p className="text-xs text-gray-500">PDF, DOC, DOCX, JPG, PNG up to 10MB</p>
                     {formData.teacherCertificates.length > 0 && (
-                      <p className="text-sm text-green-600">{formData.teacherCertificates.length} tệp đã được chọn</p>
+                      <p className="text-sm text-green-600">{formData.teacherCertificates.length} files selected</p>
                     )}
                   </div>
                 </div>
@@ -592,7 +592,7 @@ export default function RegisterModal({
               {/* Môn học giảng dạy */}
               <div>
                 <label htmlFor="teacherSubjects" className="block text-sm font-medium text-gray-700 mb-1">
-                  Môn học giảng dạy <span className="text-red-500">*</span>
+                  Teaching Subjects <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
@@ -608,7 +608,7 @@ export default function RegisterModal({
                     className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset ${
                       formErrors.teacherSubjects ? 'ring-red-500' : 'ring-gray-300'
                     } focus:ring-2 focus:ring-[#${PrimaryColor}]`}
-                    placeholder="VD: Toán, Lý, Hóa"
+                    placeholder="e.g., Math, Physics, Chemistry"
                   />
                 </div>
                 {formErrors.teacherSubjects && (
@@ -619,7 +619,7 @@ export default function RegisterModal({
               {/* Kinh nghiệm */}
               <div>
                 <label htmlFor="teacherExperience" className="block text-sm font-medium text-gray-700 mb-1">
-                  Số năm kinh nghiệm <span className="text-red-500">*</span>
+                  Years of Experience <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
@@ -635,7 +635,7 @@ export default function RegisterModal({
                     className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset ${
                       formErrors.teacherExperience ? 'ring-red-500' : 'ring-gray-300'
                     } focus:ring-2 focus:ring-[#${PrimaryColor}]`}
-                    placeholder="VD: 5 năm"
+                    placeholder="e.g., 5 years"
                   />
                 </div>
                 {formErrors.teacherExperience && (
@@ -646,7 +646,7 @@ export default function RegisterModal({
               {/* Chuyên môn */}
               <div>
                 <label htmlFor="teacherSpecialty" className="block text-sm font-medium text-gray-700 mb-1">
-                  Chuyên môn <span className="text-red-500">*</span>
+                  Specialty <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
@@ -662,7 +662,7 @@ export default function RegisterModal({
                     className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset ${
                       formErrors.teacherSpecialty ? 'ring-red-500' : 'ring-gray-300'
                     } focus:ring-2 focus:ring-[#${PrimaryColor}]`}
-                    placeholder="VD: Toán cao cấp, Ôn thi đại học"
+                    placeholder="e.g., Advanced Math, College Prep"
                   />
                 </div>
                 {formErrors.teacherSpecialty && (
@@ -673,7 +673,7 @@ export default function RegisterModal({
               {/* Giới thiệu */}
               <div>
                 <label htmlFor="teacherIntroduction" className="block text-sm font-medium text-gray-700 mb-1">
-                  Giới thiệu bản thân <span className="text-red-500">*</span>
+                  Self Introduction <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="pointer-events-none absolute top-3 left-0 pl-3">
@@ -689,7 +689,7 @@ export default function RegisterModal({
                     className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset ${
                       formErrors.teacherIntroduction ? 'ring-red-500' : 'ring-gray-300'
                     } focus:ring-2 focus:ring-[#${PrimaryColor}]`}
-                    placeholder="Giới thiệu ngắn gọn về bản thân, kinh nghiệm và phương pháp giảng dạy của bạn"
+                    placeholder="Brief introduction about yourself, experience and teaching methods"
                   />
                 </div>
                 {formErrors.teacherIntroduction && (
@@ -701,15 +701,15 @@ export default function RegisterModal({
         } else if (formData.role === 'student') {
           return (
             <div className="space-y-6">
-              <h4 className="text-lg font-semibold text-gray-700">Thông tin học sinh</h4>
+              <h4 className="text-lg font-semibold text-gray-700">Student Information</h4>
               <p className="text-sm text-gray-600">
-                Để cung cấp nội dung phù hợp, vui lòng cung cấp thông tin học tập của bạn.
+                To provide appropriate content, please provide your academic information.
               </p>
               
               {/* Student ID */}
               <div>
                 <label htmlFor="studentID" className="block text-sm font-medium text-gray-700 mb-1">
-                  Mã số học sinh/sinh viên <span className="text-red-500">*</span>
+                  Student ID <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
@@ -725,7 +725,7 @@ export default function RegisterModal({
                     className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset ${
                       formErrors.studentID ? 'ring-red-500' : 'ring-gray-300'
                     } focus:ring-2 focus:ring-[#${PrimaryColor}]`}
-                    placeholder="VD: HS12345"
+                    placeholder="e.g., ST12345"
                   />
                 </div>
                 {formErrors.studentID && (
@@ -736,7 +736,7 @@ export default function RegisterModal({
               {/* School */}
               <div>
                 <label htmlFor="studentSchool" className="block text-sm font-medium text-gray-700 mb-1">
-                  Trường <span className="text-red-500">*</span>
+                  School <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
@@ -752,7 +752,7 @@ export default function RegisterModal({
                     className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset ${
                       formErrors.studentSchool ? 'ring-red-500' : 'ring-gray-300'
                     } focus:ring-2 focus:ring-[#${PrimaryColor}]`}
-                    placeholder="VD: Trường THPT Nguyễn Huệ"
+                    placeholder="e.g., Lincoln High School"
                   />
                 </div>
                 {formErrors.studentSchool && (
@@ -763,7 +763,7 @@ export default function RegisterModal({
               {/* Class */}
               <div>
                 <label htmlFor="studentClass" className="block text-sm font-medium text-gray-700 mb-1">
-                  Lớp <span className="text-red-500">*</span>
+                  Class <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
@@ -779,7 +779,7 @@ export default function RegisterModal({
                     className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset ${
                       formErrors.studentClass ? 'ring-red-500' : 'ring-gray-300'
                     } focus:ring-2 focus:ring-[#${PrimaryColor}]`}
-                    placeholder="VD: 12A1"
+                    placeholder="e.g., 12A1"
                   />
                 </div>
                 {formErrors.studentClass && (

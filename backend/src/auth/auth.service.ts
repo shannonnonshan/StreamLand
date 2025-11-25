@@ -115,7 +115,32 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Generate tokens
+    // Check if 2FA is enabled
+    if (user.twoFactorEnabled) {
+      // Generate OTP for 2FA
+      const otp = this.generateOTP();
+      const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+      // Update user with OTP
+      await this.prisma.postgres.user.update({
+        where: { id: user.id },
+        data: {
+          otp,
+          otpExpiry,
+        },
+      });
+
+      // Send OTP email
+      await this.mailService.sendOTP(email, otp, user.fullName);
+
+      return {
+        message: '2FA OTP sent to your email',
+        requires2FA: true,
+        email: user.email,
+      };
+    }
+
+    // Generate tokens (no 2FA)
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
     // Create session
@@ -135,6 +160,7 @@ export class AuthService {
         fullName: user.fullName,
         role: user.role,
         avatar: user.avatar,
+        twoFactorEnabled: user.twoFactorEnabled,
       },
       ...tokens,
     };
@@ -215,6 +241,69 @@ export class AuthService {
         fullName: user.fullName,
         role: user.role,
         avatar: user.avatar,
+        twoFactorEnabled: user.twoFactorEnabled,
+      },
+      ...tokens,
+    };
+  }
+
+  async verify2FAOtp(verifyOtpDto: VerifyOtpDto) {
+    const { email, otp } = verifyOtpDto;
+
+    // Find user
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Check if 2FA is enabled
+    if (!user.twoFactorEnabled) {
+      throw new BadRequestException('2FA is not enabled for this account');
+    }
+
+    // Check OTP
+    if (user.otp !== otp) {
+      throw new UnauthorizedException('Invalid OTP');
+    }
+
+    // Check OTP expiration
+    if (!user.otpExpiry || user.otpExpiry < new Date()) {
+      throw new UnauthorizedException('OTP expired. Please login again.');
+    }
+
+    // Clear OTP after successful verification
+    await this.prisma.postgres.user.update({
+      where: { id: user.id },
+      data: {
+        otp: null,
+        otpExpiry: null,
+      },
+    });
+
+    // Generate tokens
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+
+    // Create session
+    await this.prisma.postgres.session.create({
+      data: {
+        userId: user.id,
+        token: tokens.refreshToken,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      },
+    });
+
+    return {
+      message: '2FA verification successful',
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        avatar: user.avatar,
+        twoFactorEnabled: user.twoFactorEnabled,
       },
       ...tokens,
     };
@@ -351,6 +440,51 @@ export class AuthService {
     return tokens;
   }
 
+  async refreshTokenByToken(refreshToken: string) {
+    // Find active session by refresh token only
+    const session = await this.prisma.postgres.session.findFirst({
+      where: {
+        token: refreshToken,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+    });
+
+    if (!session) {
+      console.error('❌ Session not found for refresh token');
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    console.log('✅ Session found, userId:', session.userId);
+
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { id: session.userId },
+    });
+
+    if (!user) {
+      console.error('❌ User not found for session userId:', session.userId);
+      throw new UnauthorizedException('User not found');
+    }
+
+    console.log('✅ User found, generating new tokens');
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+
+    // Update session with new refresh token
+    await this.prisma.postgres.session.update({
+      where: { id: session.id },
+      data: {
+        token: tokens.refreshToken,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    console.log('✅ Token refreshed successfully for user:', user.email);
+
+    return tokens;
+  }
+
   async logout(userId: string) {
     // Delete all sessions for user
     await this.prisma.postgres.session.deleteMany({
@@ -372,7 +506,7 @@ export class AuthService {
         bio: true,
         location: true,
         isVerified: true,
-        createdAt: true,
+        twoFactorEnabled: true,
         studentProfile: true,
         teacherProfile: true,
       },
@@ -468,6 +602,7 @@ export class AuthService {
         fullName: user.fullName,
         role: user.role,
         avatar: user.avatar,
+        twoFactorEnabled: user.twoFactorEnabled,
       },
       ...tokens,
     };
@@ -537,6 +672,7 @@ export class AuthService {
         fullName: user.fullName,
         role: user.role,
         avatar: user.avatar,
+        twoFactorEnabled: user.twoFactorEnabled,
       },
       ...tokens,
     };
@@ -650,6 +786,7 @@ export class AuthService {
         fullName: user.fullName,
         role: user.role,
         avatar: user.avatar,
+        twoFactorEnabled: user.twoFactorEnabled,
       },
       ...tokens,
     };
@@ -677,7 +814,6 @@ export class AuthService {
         bio: true,
         location: true,
         isVerified: true,
-        createdAt: true,
         studentProfile: true,
         teacherProfile: true,
       },
@@ -761,6 +897,13 @@ export class AuthService {
     return await this.prisma.postgres.user.findUnique({
       where: { id: userId },
       include: { teacherProfile: true },
+    });
+  }
+    async updateTwoFA(userId: string, twoFactorEnabled: boolean) {
+    return this.prisma.postgres.user.update({
+      where: { id: userId },
+      data: { twoFactorEnabled },
+      select: { id: true, twoFactorEnabled: true },
     });
   }
 }

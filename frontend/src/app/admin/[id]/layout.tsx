@@ -13,10 +13,15 @@ import {
   ListFilter,
   X,
 } from "lucide-react";
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import HoverTooltip from "@/component/HoverTooltip";
 import SearchModal from "@/component/admin/SearchModal";
 import AuthButton from "@/component/AuthButton";
+import { useAuth } from "@/hooks/useAuth";
+import LoginModal from "@/component/(modal)/login";
+import RegisterModal from "@/component/(modal)/register";
+import ForgotPasswordModal from "@/component/(modal)/forgotPassword";
+import OTPModal from "@/component/(modal)/verifyOtp";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -24,6 +29,43 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const params = useParams();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [showOTPModal, setShowOTPModal] = useState(false);
+  const [otpEmail, setOtpEmail] = useState('');
+  const [otpPurpose, setOtpPurpose] = useState<'registration' | 'password-reset'>('registration');
+  const [authCheckDone, setAuthCheckDone] = useState(false);
+  const { user, isAuthenticated, loading } = useAuth();
+
+  // Check authentication and role
+  useEffect(() => {
+    if (!loading) {
+      if (!isAuthenticated) {
+        // Not logged in - show login modal
+        setShowLoginModal(true);
+        setAuthCheckDone(true);
+      } else if (user?.role !== 'ADMIN') {
+        // Wrong role - redirect to correct dashboard
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        
+        if (user?.role === 'TEACHER') {
+          router.push(`/teacher/${user.id}`);
+        } else if (user?.role === 'STUDENT') {
+          router.push(`/student/${user.id}`);
+        } else {
+          // Unknown role - show login
+          setShowLoginModal(true);
+          setAuthCheckDone(true);
+        }
+      } else {
+        // Correct role - allow access
+        setShowLoginModal(false);
+        setAuthCheckDone(true);
+      }
+    }
+  }, [loading, isAuthenticated, user, router]);
 
   const accountId =
     typeof window !== "undefined" ? localStorage.getItem("accountId") : null;
@@ -69,6 +111,94 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     
     router.push(`/admin/${id}/chat`);
   };
+
+  // Show loading state while checking auth
+  if (loading || !authCheckDone) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#FAEDF0]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#EC255A] mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If not authenticated or wrong role, show modal overlay
+  if (showLoginModal || showRegisterModal || showForgotPasswordModal || showOTPModal) {
+    return (
+      <>
+        <div className="flex min-h-screen items-center justify-center bg-[#FAEDF0]">
+          <div className="text-center">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">Admin Access Required</h2>
+            <p className="text-gray-600">Please login with an ADMIN account to access this page</p>
+          </div>
+        </div>
+        
+        {/* All modals rendered separately with proper z-index */}
+        <LoginModal
+          isOpen={showLoginModal && !showRegisterModal && !showForgotPasswordModal && !showOTPModal}
+          closeModal={() => {
+            // Prevent closing - must login
+          }}
+          openRegisterModal={() => {
+            setShowLoginModal(false);
+            setShowRegisterModal(true);
+          }}
+          openForgotPasswordModal={() => {
+            setShowLoginModal(false);
+            setShowForgotPasswordModal(true);
+          }}
+        />
+        
+        <RegisterModal
+          isOpen={showRegisterModal}
+          closeModal={() => {
+            setShowRegisterModal(false);
+            setShowLoginModal(true);
+          }}
+          openOTPModal={(email: string, purpose: 'registration' | 'password-reset') => {
+            setOtpEmail(email);
+            setOtpPurpose(purpose);
+            setShowRegisterModal(false);
+            setShowOTPModal(true);
+          }}
+          openLoginModal={() => {
+            setShowRegisterModal(false);
+            setShowLoginModal(true);
+          }}
+        />
+        
+        <ForgotPasswordModal
+          isOpen={showForgotPasswordModal}
+          closeModal={() => {
+            setShowForgotPasswordModal(false);
+            setShowLoginModal(true);
+          }}
+          openOTPModal={(email: string) => {
+            setOtpEmail(email);
+            setOtpPurpose('password-reset');
+            setShowForgotPasswordModal(false);
+            setShowOTPModal(true);
+          }}
+        />
+        
+        <OTPModal
+          isOpen={showOTPModal}
+          closeModal={() => {
+            setShowOTPModal(false);
+            if (otpPurpose === 'registration') {
+              setShowLoginModal(true);
+            } else {
+              setShowLoginModal(true);
+            }
+          }}
+          email={otpEmail}
+          otpPurpose={otpPurpose}
+        />
+      </>
+    );
+  }
 
   return (
     <div

@@ -55,10 +55,10 @@ export default function RoleSelectorModal({ isOpen, closeModal, onSelectRole, pr
                   as="h3"
                   className={`text-2xl font-extrabold leading-6 text-[#${PrimaryColor}] mb-2`}
                 >
-                  Chọn vai trò của bạn
+                  Choose Your Role
                 </Dialog.Title>
                 <p className="text-sm text-gray-600 mb-8">
-                  Bạn muốn đăng nhập với {providerName} như một Học viên hay Giáo viên?
+                  Do you want to sign in with {providerName} as a Student or Teacher?
                 </p>
 
                 {/* Role Options */}
@@ -73,10 +73,10 @@ export default function RoleSelectorModal({ isOpen, closeModal, onSelectRole, pr
                     </div>
                     <div className="flex-1 text-left">
                       <h4 className="text-lg font-bold text-gray-900 group-hover:text-blue-600">
-                        Học Viên
+                        Student
                       </h4>
                       <p className="text-sm text-gray-600">
-                        Tham gia khóa học, xem livestream và học tập
+                        Join courses, watch livestreams and learn
                       </p>
                     </div>
                   </button>
@@ -91,10 +91,10 @@ export default function RoleSelectorModal({ isOpen, closeModal, onSelectRole, pr
                     </div>
                     <div className="flex-1 text-left">
                       <h4 className="text-lg font-bold text-gray-900 group-hover:text-purple-600">
-                        Giáo Viên
+                        Teacher
                       </h4>
                       <p className="text-sm text-gray-600">
-                        Tạo khóa học, livestream và giảng dạy
+                        Create courses, livestream and teach
                       </p>
                     </div>
                   </button>

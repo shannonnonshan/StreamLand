@@ -4,54 +4,80 @@ import { PlayCircleIcon, SignalIcon, HeartIcon, ChevronLeftIcon, ChevronRightIco
 import { motion } from 'framer-motion';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useFollow } from '@/hooks/useFollow';
+import Image from 'next/image';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-const followedChannels = [
-  { id: 1, name: 'Mr. David Nguyen', avatar: '/avatars/teacher-1.png', followers: '12.5k', isFollowing: true },
-  { id: 2, name: 'Ms. Lan Anh', avatar: '/avatars/teacher-2.png', followers: '8.3k', isFollowing: true },
-  { id: 3, name: 'Ms. Thao', avatar: '/avatars/teacher-3.png', followers: '15.2k', isFollowing: true },
-  { id: 4, name: 'Mr. Minh Tuan', avatar: '/avatars/teacher-4.png', followers: '9.7k', isFollowing: true },
-  { id: 5, name: 'Ms. Phuong Linh', avatar: '/avatars/teacher-5.png', followers: '11.1k', isFollowing: true },
-];
+interface Teacher {
+  id: string;
+  teacher: {
+    id: string;
+    fullName: string;
+    avatar?: string;
+    email: string;
+  };
+  followedSince: string;
+}
 
-const followedLivestreams = [
-  { id: 1, title: 'IELTS Speaking Prep', teacher: 'Mr. David Nguyen', teacherId: 1, views: '2.5k', viewCount: 2500, image: '/images/cat.png', isLive: true, duration: null, uploadedAt: null },
-  { id: 2, title: 'Calculus I - Chapter 3', teacher: 'Ms. Lan Anh', teacherId: 2, views: '1.2k', viewCount: 1200, image: '', isLive: true, duration: null, uploadedAt: null },
-  { id: 3, title: 'Physics for Beginners', teacher: 'Mr. Minh Tuan', teacherId: 4, views: '1.8k', viewCount: 1800, image: '/images/cat.png', isLive: true, duration: null, uploadedAt: null },
-  { id: 4, title: 'Advanced Literature', teacher: 'Ms. Phuong Linh', teacherId: 5, views: '950', viewCount: 950, image: '', isLive: true, duration: null, uploadedAt: null },
-];
+interface Livestream {
+  id: string;
+  title: string;
+  teacher: {
+    id: string;
+    fullName: string;
+    avatar?: string;
+  };
+  viewCount: number;
+  thumbnailUrl?: string;
+  isLive: boolean;
+}
 
-const followedVideos = [
-  { id: 5, title: 'Organic Chemistry - Lesson 5', teacher: 'Ms. Thao', teacherId: 3, views: '5.2k', viewCount: 5200, image: '', isLive: false, duration: '45:30', uploadedAt: '2 days ago' },
-  { id: 6, title: 'English Grammar Advanced', teacher: 'Mr. David Nguyen', teacherId: 1, views: '3.8k', viewCount: 3800, image: '', isLive: false, duration: '32:15', uploadedAt: '1 week ago' },
-  { id: 7, title: 'Calculus Practice Problems', teacher: 'Ms. Lan Anh', teacherId: 2, views: '2.9k', viewCount: 2900, image: '', isLive: false, duration: '28:45', uploadedAt: '3 days ago' },
-  { id: 8, title: 'Physics Experiments Lab', teacher: 'Mr. Minh Tuan', teacherId: 4, views: '4.1k', viewCount: 4100, image: '/images/cat.png', isLive: false, duration: '52:20', uploadedAt: '5 days ago' },
-  { id: 9, title: 'Literature Analysis Session', teacher: 'Ms. Phuong Linh', teacherId: 5, views: '2.3k', viewCount: 2300, image: '', isLive: false, duration: '38:50', uploadedAt: '1 week ago' },
-  { id: 10, title: 'Chemistry Lab Tutorial', teacher: 'Ms. Thao', teacherId: 3, views: '3.5k', viewCount: 3500, image: '', isLive: false, duration: '41:10', uploadedAt: '4 days ago' },
-];
+interface Video {
+  id: string;
+  title: string;
+  teacher: {
+    id: string;
+    fullName: string;
+    avatar?: string;
+  };
+  viewCount: number;
+  thumbnailUrl?: string;
+  duration?: string;
+  uploadedAt: string;
+}
 
-function ChannelCard({ channel }: { channel: { id: number; name: string; avatar: string; followers: string; isFollowing: boolean } }) {
+function ChannelCard({ channel }: { channel: Teacher }) {
   const [isHovered, setIsHovered] = useState(false);
-  const following = channel.isFollowing;
+  const router = useRouter();
+  const following = true; // Always true since these are followed teachers
+
+  const handleClick = () => {
+    router.push(`/teacher/public/${channel.teacher.id}`);
+  };
 
   return (
     <div 
-      className={`relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform ${isHovered ? 'scale-[1.02]' : ''} border border-gray-200`}
+      className={`relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform ${isHovered ? 'scale-[1.02]' : ''} border border-gray-200 cursor-pointer`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onClick={handleClick}
     >
       <div className="p-5 flex flex-col items-center">
         <div className="relative mb-4">
           <div className={`h-20 w-20 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 ${following ? `border-[#${SecondaryColor}]` : 'border-gray-300'} transition-all duration-300`}>
-            {channel.avatar ? (
-              <div 
-                className="w-full h-full bg-cover bg-center"
-                style={{ backgroundImage: `url(${channel.avatar})` }}
+            {channel.teacher.avatar ? (
+              <Image 
+                src={channel.teacher.avatar}
+                alt={channel.teacher.fullName}
+                width={80}
+                height={80}
+                className="w-full h-full object-cover"
               />
             ) : (
-              <span className="text-2xl text-gray-500">{channel.name.charAt(0)}</span>
+              <span className="text-2xl text-gray-500">{channel.teacher.fullName.charAt(0)}</span>
             )}
           </div>
           {following && (
@@ -62,11 +88,11 @@ function ChannelCard({ channel }: { channel: { id: number; name: string; avatar:
         </div>
 
         <h3 className={`text-sm font-semibold text-[#${PrimaryColor}] text-center mb-2 line-clamp-2`}>
-          {channel.name}
+          {channel.teacher.fullName}
         </h3>
 
         <p className="text-xs text-gray-500 mb-3">
-          {channel.followers} followers
+          Following since {new Date(channel.followedSince).toLocaleDateString()}
         </p>
 
         <div className={`px-3 py-1.5 rounded-full text-xs font-medium ${following ? `bg-[#${SecondaryColor}]/10 text-[#${SecondaryColor}]` : `bg-gray-100 text-gray-600`} transition-all duration-300`}>
@@ -77,66 +103,73 @@ function ChannelCard({ channel }: { channel: { id: number; name: string; avatar:
   );
 }
 
-function VideoCard({ video }: { 
-  video: { 
-    id: number; 
-    title: string; 
-    teacher: string; 
-    teacherId: number;
-    views: string; 
-    viewCount: number; 
-    image: string; 
-    isLive: boolean;
-    duration: string | null;
-    uploadedAt: string | null;
-  }
-}) {
+function VideoCard({ video }: { video: Livestream | Video }) {
   const [isHovered, setIsHovered] = useState(false);
   const router = useRouter();
+  const isLive = 'isLive' in video && video.isLive;
 
   const handleClick = () => {
-    if (video.isLive) {
-      router.push(`/student/livestream/teacher-${video.teacherId}/livestream-${video.id}`);
-    } else {
-      router.push(`/student/video/teacher-${video.teacherId}/video-${video.id}`);
+    router.push(`/teacher/${video.teacher.id}/profile`);
+  };
+
+  const formatViews = (count: number) => {
+    if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
     }
+    return count.toString();
   };
 
   return (
     <div 
-      className={`relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform ${isHovered ? 'scale-[1.02]' : ''} border border-gray-200 cursor-pointer`}
+      className="relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-[1.02] cursor-pointer"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
     >
-      <div className="relative bg-gray-200 overflow-hidden h-48">
-        {video.image ? (
-          <div 
-            className={`absolute inset-0 bg-cover bg-center transform transition-transform duration-500 ${isHovered ? 'scale-110' : 'scale-100'}`} 
-            style={{ backgroundImage: `url(${video.image})` }}
+      <div className="relative aspect-video bg-gray-200">
+        {video.thumbnailUrl ? (
+          <Image 
+            src={video.thumbnailUrl}
+            alt={video.title}
+            fill
+            className="object-cover"
           />
         ) : (
-          <div className="flex items-center justify-center h-full text-gray-400 transition-all duration-300">
-            <PlayCircleIcon className={`w-12 h-12 transition-all duration-300 ${isHovered ? `text-[#${video.isLive ? SecondaryColor : PrimaryColor}] scale-110` : ''}`} />
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-400 to-pink-500">
+            <PlayCircleIcon className="h-16 w-16 text-white opacity-50" />
           </div>
         )}
         
-        {video.isLive ? (
-          <div className={`absolute top-3 left-3 flex items-center space-x-1 px-2 py-1 rounded-md text-xs font-bold text-white bg-[#${SecondaryColor}] ${isHovered ? 'animate-pulse' : ''}`}>
-            <SignalIcon className={`h-3 w-3 ${isHovered ? 'animate-pulse' : ''}`} />
+        {isLive && (
+          <div className="absolute top-2 left-2 flex items-center space-x-1 bg-red-600 text-white px-2 py-1 rounded-md text-xs font-bold">
+            <SignalIcon className="h-3 w-3 animate-pulse" />
             <span>LIVE</span>
           </div>
-        ) : (
-          <div className="absolute bottom-3 right-3 px-2 py-1 rounded-md text-xs font-semibold text-white bg-black/80">
+        )}
+        
+        {!isLive && 'duration' in video && video.duration && (
+          <div className="absolute bottom-2 right-2 bg-black/70 text-white px-2 py-0.5 rounded text-xs">
             {video.duration}
           </div>
         )}
-
-        <div className={`absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent text-white`}>
+        
+        <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent text-white">
           <p className="font-semibold text-sm truncate">{video.title}</p>
           <div className="flex items-center text-xs mt-1">
-            <div className="h-5 w-5 rounded-full bg-[#161853]/70 mr-2 border border-white"></div>
-            <span className="font-medium">{video.teacher}</span>
+            {video.teacher.avatar ? (
+              <Image 
+                src={video.teacher.avatar}
+                alt={video.teacher.fullName}
+                width={20}
+                height={20}
+                className="rounded-full mr-2 border border-white"
+              />
+            ) : (
+              <div className="h-5 w-5 rounded-full bg-[#161853]/70 mr-2 border border-white flex items-center justify-center">
+                <span className="text-xs">{video.teacher.fullName.charAt(0)}</span>
+              </div>
+            )}
+            <span className="font-medium">{video.teacher.fullName}</span>
           </div>
         </div>
       </div>
@@ -144,11 +177,11 @@ function VideoCard({ video }: {
       <div className="p-3 flex justify-between items-center">
         <div className="flex flex-col">
           <span className={`text-xs font-medium text-[#${PrimaryColor}]`}>
-            {video.views} views
+            {formatViews(video.viewCount)} views
           </span>
-          {!video.isLive && video.uploadedAt && (
+          {!isLive && 'uploadedAt' in video && (
             <span className="text-xs text-gray-500 mt-0.5">
-              {video.uploadedAt}
+              {new Date(video.uploadedAt).toLocaleDateString()}
             </span>
           )}
         </div>
@@ -164,12 +197,57 @@ function VideoCard({ video }: {
 export default function LiveFollowingPage() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'live' | 'videos'>('all');
+  const [followedChannels, setFollowedChannels] = useState<Teacher[]>([]);
+  const [livestreams, setLivestreams] = useState<Livestream[]>([]);
+  const [videos, setVideos] = useState<Video[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { getFollowedTeachers } = useFollow();
   
   const livestreamContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setIsLoaded(true);
-  }, []);
+    
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const accessToken = localStorage.getItem('accessToken');
+        
+        if (!accessToken) {
+          setLoading(false);
+          return;
+        }
+        
+        // Fetch followed teachers
+        const result = await getFollowedTeachers();
+        if (result.success && result.data) {
+          setFollowedChannels(result.data);
+        }
+        
+        // Fetch livestreams from followed teachers
+        const livestreamsRes = await fetch(`${API_URL}/student/followed-livestreams`, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+          },
+        });
+        
+        if (livestreamsRes.ok) {
+          const livestreamsData = await livestreamsRes.json();
+          setLivestreams(livestreamsData);
+        }
+        
+        // TODO: Fetch videos when API endpoint is available
+        setVideos([]);
+        
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchData();
+  }, [getFollowedTeachers]);
   
   const fadeInUp = {
     hidden: { opacity: 0, y: 20 },
@@ -188,8 +266,16 @@ export default function LiveFollowingPage() {
     }
   };
 
-  const filteredLivestreams = activeTab === 'videos' ? [] : followedLivestreams;
-  const filteredVideos = activeTab === 'live' ? [] : followedVideos;
+  const filteredLivestreams = activeTab === 'videos' ? [] : livestreams;
+  const filteredVideos = activeTab === 'live' ? [] : videos;
+  
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#161853]"></div>
+      </div>
+    );
+  }
   
   return (
     <motion.div 
@@ -218,7 +304,7 @@ export default function LiveFollowingPage() {
                   : 'text-gray-500 border-transparent hover:text-gray-700'
               }`}
             >
-              All ({followedLivestreams.length + followedVideos.length})
+              All ({livestreams.length + videos.length})
             </button>
             <button
               onClick={() => setActiveTab('live')}
@@ -230,7 +316,7 @@ export default function LiveFollowingPage() {
             >
               <span className="flex items-center gap-2">
                 <SignalIcon className="h-4 w-4" />
-                Live Now ({followedLivestreams.length})
+                Live Now ({livestreams.length})
               </span>
             </button>
             <button
@@ -243,7 +329,7 @@ export default function LiveFollowingPage() {
             >
               <span className="flex items-center gap-2">
                 <PlayCircleIcon className="h-4 w-4" />
-                Videos ({followedVideos.length})
+                Videos ({videos.length})
               </span>
             </button>
           </div>

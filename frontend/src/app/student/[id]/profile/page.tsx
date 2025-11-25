@@ -25,7 +25,6 @@ import {
   PlusIcon,
   BuildingOffice2Icon,
 } from '@heroicons/react/24/outline';
-import Sidebar from '@/component/student/Sidebar';
 import Headerbar from '@/component/student/Headerbar';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -134,7 +133,8 @@ export default function StudentProfilePage() {
   const { id } = params;
   const { user: currentUser } = useAuth();
   
-  const [isFriend, setIsFriend] = useState(false);
+  const [friendshipStatus, setFriendshipStatus] = useState<'NONE' | 'PENDING' | 'ACCEPTED'>('NONE');
+  const [friendshipId, setFriendshipId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'about' | 'channels' | 'activity'>('about');
   const [isEditMode, setIsEditMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -195,6 +195,19 @@ export default function StudentProfilePage() {
       });
 
       console.log('Response status:', response.status);
+      
+      // Check friendship status
+      if (!isOwnProfile) {
+        const friendshipResponse = await fetch(`${API_URL}/student/friendship-status/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (friendshipResponse.ok) {
+          const friendshipData = await friendshipResponse.json();
+          setFriendshipStatus(friendshipData.status || 'NONE');
+          setFriendshipId(friendshipData.friendshipId || null);
+        }
+      }
       
       if (!response.ok) {
         const errorData = await response.text();
@@ -331,17 +344,55 @@ export default function StudentProfilePage() {
     s => !interests.includes(s) && s.toLowerCase().includes(newInterest.toLowerCase())
   );
   
-  const handleAddFriend = () => {
-    setIsFriend(!isFriend);
+  const handleAddFriend = async () => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      
+      const response = await fetch(`${API_URL}/student/friends/request`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ receiverId: id }),
+      });
+      
+      if (response.ok) {
+        setFriendshipStatus('PENDING');
+      }
+    } catch (error) {
+      console.error('Failed to send friend request:', error);
+    }
+  };
+  
+  const handleUnfriend = async () => {
+    if (!friendshipId) return;
+    
+    try {
+      const token = localStorage.getItem('accessToken');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      
+      const response = await fetch(`${API_URL}/student/friends/${friendshipId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (response.ok) {
+        setFriendshipStatus('NONE');
+        setFriendshipId(null);
+      }
+    } catch (error) {
+      console.error('Failed to unfriend:', error);
+    }
   };
   
   const handleMessage = () => {
-    router.push(`/student/message?userId=${id}`);
+    router.push('/student/message');
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <Sidebar />
       <Headerbar />
       
       <div className="ml-20 pt-16">
@@ -459,26 +510,31 @@ export default function StudentProfilePage() {
                     )
                   ) : (
                     <>
-                      <button
-                        onClick={handleAddFriend}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-all ${
-                          isFriend
-                            ? 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-                            : `bg-[#${PrimaryColor}] hover:bg-[#1a1d6b] text-white shadow-md hover:shadow-lg`
-                        }`}
-                      >
-                        {isFriend ? (
-                          <>
-                            <UserMinusIcon className="h-4 w-4" />
-                            Unfriend
-                          </>
-                        ) : (
-                          <>
-                            <UserPlusIcon className="h-4 w-4" />
-                            Add Friend
-                          </>
-                        )}
-                      </button>
+                      {friendshipStatus === 'ACCEPTED' ? (
+                        <button
+                          onClick={handleUnfriend}
+                          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-sm transition-all"
+                        >
+                          <UserMinusIcon className="h-4 w-4" />
+                          Unfriend
+                        </button>
+                      ) : friendshipStatus === 'PENDING' ? (
+                        <button
+                          disabled
+                          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-yellow-100 text-yellow-700 font-semibold text-sm cursor-not-allowed"
+                        >
+                          <ClockIcon className="h-4 w-4" />
+                          Pending
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleAddFriend}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-[#${PrimaryColor}] hover:bg-[#1a1d6b] text-white font-semibold text-sm transition-all shadow-md hover:shadow-lg`}
+                        >
+                          <UserPlusIcon className="h-4 w-4" />
+                          Add Friend
+                        </button>
+                      )}
                       <button
                         onClick={handleMessage}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-[#${SecondaryColor}] hover:bg-[#d41f4d] text-white font-semibold text-sm transition-all shadow-md hover:shadow-lg`}

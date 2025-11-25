@@ -124,7 +124,7 @@ export default function PublicTeacherProfilePage() {
         }
       }
     } catch (error) {
-      console.error('Error toggling follow:', error);
+      // Error toggling follow
     }
   };
 

@@ -43,7 +43,7 @@ export default function ScheduleEventModal({
   const [eventNotification, setEventNotification] = useState("10");
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState("");
-  console.log("Rendering ScheduleEventModal with defaultDate:", defaultDate);
+  
   useEffect(() => {
     if (defaultDate) {
       setEventDate(defaultDate);

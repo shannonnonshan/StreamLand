@@ -45,13 +45,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // Check authentication and role
   useEffect(() => {
     if (!loading) {
+      const routeId = (params?.id as string);
+      
       if (!isAuthenticated) {
         // Not logged in - show login modal
         setShowLoginModal(true);
         setAuthCheckDone(true);
       } else if (user?.role !== 'TEACHER') {
         // Wrong role - logout and redirect to correct dashboard
-        localStorage.removeItem('token');
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
         localStorage.removeItem('user');
         
         if (user?.role === 'ADMIN') {
@@ -63,17 +66,19 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           setShowLoginModal(true);
           setAuthCheckDone(true);
         }
+      } else if (routeId && user?.id && routeId !== user.id) {
+        // ID in URL doesn't match authenticated user - redirect to correct URL
+        router.replace(`/teacher/${user.id}${pathname.replace(`/teacher/${routeId}`, '')}`);
+        setAuthCheckDone(true);
       } else {
-        // Correct role - allow access
+        // Correct role and ID - allow access
         setShowLoginModal(false);
         setAuthCheckDone(true);
       }
     }
-  }, [loading, isAuthenticated, user, router]);
+  }, [loading, isAuthenticated, user, router, params?.id, pathname]);
 
-  const accountId =
-    typeof window !== "undefined" ? localStorage.getItem("accountId") : null;
-  const id = (params?.id as string) || accountId || "1"; // fallback id = 1
+  const id = user?.id || (params?.id as string) || "1"; // Use authenticated user's ID
 
   const handleStartLiveClick = () => {
       const livestreamID = uuidv4();
@@ -90,22 +95,31 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       const userStr = localStorage.getItem('user');
       const user = userStr ? JSON.parse(userStr) : null;
       
-      console.log('=== Livestream Creation Debug ===');
-      console.log('Token:', token ? 'exists' : 'missing');
-      console.log('Token value (first 20 chars):', token?.substring(0, 20));
-      console.log('User from localStorage:', user);
-      console.log('Teacher ID from route:', id);
-      console.log('User ID from localStorage:', user?.id);
-      console.log('User role:', user?.role);
-      console.log('Sending teacherId:', user?.id || id);
-      console.log('================================');
-      
       if (!token) {
         throw new Error('No authentication token found. Please login again.');
       }
 
       if (!user?.id) {
         throw new Error('User information not found. Please login again.');
+      }
+
+      // Verify token is not expired
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const expirationTime = payload.exp * 1000;
+        const currentTime = Date.now();
+        
+        if (currentTime >= expirationTime) {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('user');
+          throw new Error('Your session has expired. Please login again.');
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message.includes('expired')) {
+          throw e;
+        }
+        throw new Error('Invalid authentication token. Please login again.');
       }
 
       const response = await fetch('http://localhost:4000/livestream/create', {
@@ -116,7 +130,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         },
         body: JSON.stringify({
           id: pendingLivestreamId,
-          teacherId: user?.id || id, // Use user.id from localStorage first
+          teacherId: user?.id, // MUST use user.id from JWT - not route param
           title: data.title,
           description: data.description,
           category: data.category,
@@ -125,29 +139,27 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         }),
       });
 
-      console.log('Response status:', response.status);
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Failed to create livestream' }));
-        console.error('Error from backend:', errorData);
-        throw new Error(errorData.message || 'Failed to create livestream');
+        if (response.status === 401) {
+          throw new Error('Authentication failed. Please log in again.');
+        }
+        throw new Error(errorData.message || `Failed to create livestream (${response.status})`);
       }
 
-      const livestream = await response.json();
-      console.log('Livestream created:', livestream);
+      await response.json();
 
       // Close modal and navigate to livestream page
       setShowStartLiveModal(false);
       router.push(`/teacher/${id}/livestream/${pendingLivestreamId}`);
     } catch (error) {
-      console.error('Error creating livestream:', error);
       alert(error instanceof Error ? error.message : 'Failed to create livestream');
       throw error; // Re-throw to keep modal in loading state
     }
   };
   
-  const handleSave = (event: ScheduleEvent) => {
-    console.log("New scheduled event:", event);
+  const handleSave = (_event: ScheduleEvent) => {
+    // Schedule event saved
   };
   
   const navItems = [

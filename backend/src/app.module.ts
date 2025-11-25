@@ -10,6 +10,7 @@ import { StudentModule } from './student/student.module';
 import { RedisModule } from './redis/redis.module';
 import { LivestreamModule } from './livestream/livestream.module';
 import { ChatModule } from './chat/chat.module';
+import { R2StorageModule } from './r2-storage/r2-storage.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ChatModule } from './chat/chat.module';
     RedisModule,
     LivestreamModule,
     ChatModule,
+    R2StorageModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { ICE_SERVERS } from "@/utils/ice";
 import socket from "@/socket";
 import {
@@ -43,6 +43,7 @@ interface LivestreamInfo {
 
 export default function BroadcasterPage() {
   const params = useParams<{ id?: string; livestreamID?: string }>();
+  const router = useRouter();
 
   const teacherID = params?.id ?? "1";
   const livestreamID = params?.livestreamID ?? "1";
@@ -82,23 +83,40 @@ export default function BroadcasterPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  const fetchTeacherDocuments = useCallback(async () => {
+    try {
+      // TODO: Replace with actual API call when backend is ready
+      // const response = await fetch(`/api/teachers/${teacherID}/documents`);
+      // const data = await response.json();
+      // setDocuments(data);
+      
+      // No documents initially - user needs to upload
+      setDocuments([]);
+    } catch (error) {
+      console.error('Error fetching documents:', error);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTeacherDocuments();
     
     const fetchLivestreamInfo = async () => {
       try {
-        const response = await fetch(`http://localhost:4000/livestream/${livestreamID}`);
+        const response = await fetch(`http://localhost:4000/livestream/${livestreamID}`, {
+          // Add cache control for better performance
+          cache: 'no-store',
+          next: { revalidate: 0 }
+        });
         if (response.ok) {
           const data = await response.json();
           
           // Check if livestream has ended
           if (data.status === 'ENDED') {
-            // If recording was saved, redirect to recording page
+            // Use router.push for client-side navigation (faster)
             if (data.isRecorded && data.recordingUrl) {
-              window.location.href = `/teacher/${teacherID}/recordings/${livestreamID}`;
+              router.push(`/teacher/${teacherID}/recordings/${livestreamID}`);
             } else {
-              // No recording, redirect to home
-              window.location.href = `/teacher/${teacherID}`;
+              router.push(`/teacher/${teacherID}`);
             }
             return;
           }
@@ -118,21 +136,7 @@ export default function BroadcasterPage() {
     };
     
     fetchLivestreamInfo();
-  }, [teacherID, livestreamID]);
-
-  const fetchTeacherDocuments = async () => {
-    try {
-      // TODO: Replace with actual API call when backend is ready
-      // const response = await fetch(`/api/teachers/${teacherID}/documents`);
-      // const data = await response.json();
-      // setDocuments(data);
-      
-      // No documents initially - user needs to upload
-      setDocuments([]);
-    } catch (error) {
-      console.error('Error fetching documents:', error);
-    }
-  };
+  }, [teacherID, livestreamID, router, fetchTeacherDocuments]);
 
   useEffect(() => {
     socket.on("watcher", handleWatcher);
@@ -194,7 +198,6 @@ export default function BroadcasterPage() {
         mediaRecorder.ondataavailable = (event) => {
           if (event.data && event.data.size > 0) {
             recordedChunksRef.current.push(event.data);
-            console.log(`[Broadcaster] Recorded chunk ${recordedChunksRef.current.length}, size: ${event.data.size} bytes`);
           }
         };
 
@@ -205,8 +208,6 @@ export default function BroadcasterPage() {
         // Record continuously (will save all chunks when stopped)
         mediaRecorder.start(10000); // 10s chunks for better memory management
         mediaRecorderRef.current = mediaRecorder;
-        
-        console.log('[Broadcaster] Recording started in browser');
       } catch (error) {
         console.warn('[Broadcaster] MediaRecorder not supported:', error);
       }

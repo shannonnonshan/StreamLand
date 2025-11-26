@@ -21,12 +21,22 @@ export function useLivestreamViewer({
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({ 
+      iceServers: ICE_SERVERS,
+      // Optimize for faster connection
+      iceTransportPolicy: 'all',
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
+    });
     pcRef.current = pc;
 
     pc.ontrack = (event) => {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = event.streams[0];
+        
+        // Optimize video playback
+        remoteVideoRef.current.preload = 'auto';
+        remoteVideoRef.current.playsInline = true;
         
         // Force play the video
         remoteVideoRef.current.play().catch((error) => {

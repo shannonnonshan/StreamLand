@@ -160,6 +160,7 @@ model LiveStream {
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   tags              Tag[]
+  schedule          Schedule?
 
   @@index([teacherId, status])
   @@index([scheduledAt])
@@ -201,22 +202,42 @@ model Tag {
 }
 
 model Schedule {
-  id           String       @id @default(uuid())
-  teacherId    String
-  title        String
-  description  String?
-  type         ScheduleType
-  startTime    DateTime
-  endTime      DateTime
-  isRecurring  Boolean      @default(false)
-  recurrence   String?
-  livestreamId String?
-  notifyBefore Int          @default(15)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id                String         @id @default(uuid())
+  teacherId         String
+  title             String
+  startTime         DateTime
+  endTime           DateTime
+  
+  // Livestream association
+  livestreamId      String?        @unique
+  liveStream        LiveStream?    @relation(fields: [livestreamId], references: [id], onDelete: SetNull)
+  
+  // Visibility settings
+  isPublic          Boolean        @default(true) // Public or subscribers only
+  
+  // Reminder settings
+  notifyBefore      Int            @default(15) // minutes before start
+  reminderSent      Boolean        @default(false)
+  reminderSentAt    DateTime?
+  
+  // Status tracking
+  status            ScheduleStatus @default(SCHEDULED)
+  cancelReason      String?
+  cancelledAt       DateTime?
+  
+  // Metadata
+  color             String? // For calendar display
+  location          String? // Virtual room, physical location, etc
+  maxParticipants   Int?
+  tags              String[]
+  
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   @@index([teacherId, startTime])
-  @@index([type])
+  @@index([livestreamId])
+  @@index([status])
+  @@index([isPublic])
   @@map("schedules")
 }
 
@@ -262,11 +283,12 @@ enum ChatMode {
   DISABLED
 }
 
-enum ScheduleType {
-  LIVESTREAM
-  MEETING
-  OFFICE_HOURS
-  OTHER
+enum ScheduleStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
 }
 
 enum SubscriptionTier {

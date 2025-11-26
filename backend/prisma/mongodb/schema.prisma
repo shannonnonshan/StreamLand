@@ -112,6 +112,48 @@ model LiveStreamDocuments {
   @@map("livestream_documents")
 }
 
+// Schedule Analytics and Reminders
+model ScheduleNotification {
+  id         String                  @id @default(auto()) @map("_id") @mongodb.ObjectId
+  scheduleId String                  @unique
+  
+  // Reminder tracking
+  reminders  ScheduleReminder[]
+  
+  // Attendee tracking
+  attendees  ScheduleAttendee[]
+  
+  // Engagement metrics
+  viewsCount      Int     @default(0)
+  clicksCount     Int     @default(0)
+  registeredCount Int     @default(0)
+  
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("schedule_notifications")
+}
+
+// Embedded types for schedule notifications
+type ScheduleReminder {
+  userId       String
+  sentAt       DateTime
+  method       String // email, push, sms
+  opened       Boolean  @default(false)
+  openedAt     DateTime?
+  clicked      Boolean  @default(false)
+  clickedAt    DateTime?
+}
+
+type ScheduleAttendee {
+  userId       String
+  registeredAt DateTime
+  attended     Boolean   @default(false)
+  attendedAt   DateTime?
+  leftAt       DateTime?
+  duration     Int? // in seconds
+}
+
 // Live Stream Sessions (for analytics)
 model LiveStreamSession {
   id           String    @id @default(auto()) @map("_id") @mongodb.ObjectId

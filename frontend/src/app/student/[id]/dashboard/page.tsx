@@ -52,7 +52,7 @@ function LivestreamCard({ stream, index }: { stream: { id: number; title: string
         <div className="relative bg-gray-200 overflow-hidden h-48">
             {/* Sử dụng một placeholder nếu không có ảnh, hoặc dùng ảnh thật */}
             {stream.image ? (
-                // Nếu bạn có ảnh, hãy dùng thẻ Next Image.
+                // If you have images, use Next Image component
                 // <Image src={stream.image} layout="fill" objectFit="cover" alt={stream.title} />
                 <div 
                   className={`absolute inset-0 bg-cover bg-center transform transition-transform duration-500 ${isHovered ? 'scale-110' : 'scale-100'}`} 

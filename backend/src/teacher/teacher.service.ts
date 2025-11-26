@@ -110,9 +110,9 @@ export class TeacherService {
     // Upload to R2
     const documentUrl = await this.r2StorageService.uploadDocument(
       teacherId,
-      file.originalname as string,
-      file.buffer as Buffer,
-      file.mimetype as string,
+      file.originalname,
+      file.buffer,
+      file.mimetype,
     );
 
     return {

@@ -43,17 +43,20 @@ export class RedisService implements OnModuleDestroy {
 
   // ============= LIVESTREAM SPECIFIC METHODS =============
 
-  // Track active viewers for a livestream
+  // Track active viewers for a livestream with pipeline for better performance
   async addViewer(livestreamId: string, viewerId: string, metadata?: any) {
     const key = `livestream:${livestreamId}:viewers`;
     const score = Date.now();
     
+    // Use pipeline to batch commands for better performance
+    const pipeline = this.redis.pipeline();
+    
     // Add to sorted set with timestamp as score
-    await this.redis.zadd(key, score, viewerId);
+    pipeline.zadd(key, score, viewerId);
     
     // Store viewer metadata if provided
     if (metadata) {
-      await this.redis.hset(
+      pipeline.hset(
         `livestream:${livestreamId}:viewer:${viewerId}`,
         'metadata',
         JSON.stringify(metadata)
@@ -61,16 +64,23 @@ export class RedisService implements OnModuleDestroy {
     }
     
     // Set TTL for cleanup (1 hour)
-    await this.redis.expire(key, 3600);
+    pipeline.expire(key, 3600);
+    
+    // Execute all commands at once
+    await pipeline.exec();
     
     return this.getViewerCount(livestreamId);
   }
 
-  // Remove viewer from livestream
+  // Remove viewer from livestream with pipeline
   async removeViewer(livestreamId: string, viewerId: string) {
     const key = `livestream:${livestreamId}:viewers`;
-    await this.redis.zrem(key, viewerId);
-    await this.redis.del(`livestream:${livestreamId}:viewer:${viewerId}`);
+    
+    // Use pipeline for batch deletion
+    const pipeline = this.redis.pipeline();
+    pipeline.zrem(key, viewerId);
+    pipeline.del(`livestream:${livestreamId}:viewer:${viewerId}`);
+    await pipeline.exec();
     
     return this.getViewerCount(livestreamId);
   }

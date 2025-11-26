@@ -63,7 +63,7 @@ const mockStudent = {
   avatar: '/avatars/student-1.png',
   coverImage: '/images/cover-default.jpg',
   bio: '🎓 Đam mê học tiếng Anh và lập trình | 📚 IELTS 7.5 | 💻 Full-stack Developer',
-  location: 'Hồ Chí Minh, Việt Nam',
+  location: 'Ho Chi Minh City, Vietnam',
   joinDate: '2024-03-15',
   verified: true,
   stats: {

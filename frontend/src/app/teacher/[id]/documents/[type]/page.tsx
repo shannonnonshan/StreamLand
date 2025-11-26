@@ -117,7 +117,7 @@ export default function DocumentsTypePage() {
                 <Image
                     src={doc.thumbnail || "/logo.png"}
                     alt={doc.title}
-                    width={110}    // hoặc tuỳ bạn
+                    width={110}    // or adjust as needed
                     height={100}
                     style={{ objectFit: "contain" }}
                 />
@@ -181,7 +181,7 @@ export default function DocumentsTypePage() {
                 <Image
                     src={selectedDoc.thumbnail || "/logo.png"}
                     alt={selectedDoc.title}
-                    width={400}    // hoặc tuỳ bạn
+                    width={400}    // or adjust as needed
                     height={350}
                     style={{ objectFit: "contain" }}
                 />

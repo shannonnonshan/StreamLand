@@ -456,7 +456,7 @@ export default function RegisterModal({
       case 2:
         return (
           <div className="space-y-6">
-            <h4 className="text-lg font-semibold text-gray-700">Bạn là ai?</h4>
+            <h4 className="text-lg font-semibold text-gray-700">Who are you?</h4>
             <div className="grid grid-cols-2 gap-4">
               {/* Teacher Role */}
               <div 

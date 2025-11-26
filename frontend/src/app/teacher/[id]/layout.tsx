@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
-import ScheduleEventModal, { ScheduleEvent } from "@/component/teacher/calendar/ScheduleEventModal";
+import ScheduleEventModal from "@/component/teacher/calendar/ScheduleEventModal";
 import Sidebar from "@/component/Sidebar";
 import AuthButton from "@/component/AuthButton";
 import { useAuth } from "@/hooks/useAuth";
@@ -175,7 +175,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     }
   };
   
-  const handleSave = (_event: ScheduleEvent) => {
+  const handleSave = () => {
     // Schedule event saved
   };
   

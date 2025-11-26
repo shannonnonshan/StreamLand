@@ -15,6 +15,7 @@ import {
   CheckIcon,
   UserPlusIcon,
 } from '@heroicons/react/24/outline';
+import { useFriends, useFriendRequests, useSuggestions, useBlockedUsers, useSearchStudents } from '@/hooks/useFriends';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
@@ -35,26 +36,6 @@ interface Friend {
   };
 }
 
-interface FriendshipResponse {
-  friendshipId: string;
-  friend: Friend;
-  since: string;
-}
-
-interface FriendRequestResponse {
-  id: string;
-  status: string;
-  createdAt: string;
-  requester?: {
-    id: string;
-    user: Friend;
-  };
-  receiver?: {
-    id: string;
-    user: Friend;
-  };
-}
-
 interface FriendRequest {
   id: string;
   status: string;
@@ -63,57 +44,56 @@ interface FriendRequest {
   receiver?: Friend;
 }
 
-interface SearchResult extends Friend {
-  friendshipStatus: string | null;
-}
-
 export default function FriendsPage() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'friends' | 'requests' | 'suggestions' | 'blocked'>('friends');
-  const [friends, setFriends] = useState<Friend[]>([]);
-  const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [suggestions, setSuggestions] = useState<SearchResult[]>([]);
-  const [blockedUsers, setBlockedUsers] = useState<Friend[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searching, setSearching] = useState(false);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim() || searchQuery.trim().length < 2) {
-      setSearchResults([]);
-      setShowSearchDropdown(false);
-      return;
-    }
+  // Use SWR hooks for data fetching with caching
+  const { friends: friendsData, isLoading: friendsLoading, mutate: mutateFriends } = useFriends();
+  const { friendRequests: requestsData, isLoading: requestsLoading, mutate: mutateRequests } = useFriendRequests();
+  const { suggestions: suggestionsData, isLoading: suggestionsLoading, mutate: mutateSuggestions } = useSuggestions();
+  const { blockedUsers: blockedData, isLoading: blockedLoading, mutate: mutateBlocked } = useBlockedUsers();
+  const { searchResults, isLoading: searching } = useSearchStudents(searchQuery);
 
-    setSearching(true);
-    try {
-      const accessToken = localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/student/search?q=${encodeURIComponent(searchQuery)}`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setSearchResults(data);
-        setShowSearchDropdown(data.length > 0);
-      }
-    } catch (error) {
-      console.error('Error searching students:', error);
-    } finally {
-      setSearching(false);
-    }
-  };
+  // Map SWR data to component state format
+  const friends: Friend[] = friendsData.map((item: { friend: Friend; friendshipId: string }) => ({
+    id: item.friend.id,
+    fullName: item.friend.fullName,
+    avatar: item.friend.avatar,
+    bio: item.friend.bio,
+    friendshipId: item.friendshipId,
+    studentProfile: item.friend.studentProfile,
+  }));
+
+  const friendRequests: FriendRequest[] = requestsData.map((item: { id: string; status: string; createdAt: string; requester?: { user: Friend }; receiver?: { user: Friend } }) => ({
+    id: item.id,
+    status: item.status,
+    createdAt: item.createdAt,
+    requester: item.requester?.user ? {
+      id: item.requester.user.id,
+      fullName: item.requester.user.fullName,
+      avatar: item.requester.user.avatar,
+      bio: item.requester.user.bio,
+      studentProfile: item.requester.user.studentProfile,
+    } : undefined,
+  }));
+
+  const suggestions = suggestionsData;
+  const blockedUsers = blockedData;
+
+  // Determine if any tab is loading
+  const loading = friendsLoading || requestsLoading || suggestionsLoading || blockedLoading;
 
   useEffect(() => {
-    fetchFriends();
-    fetchFriendRequests();
-    fetchSuggestions();
-    fetchBlockedUsers();
-  }, []);
+    if (searchResults.length > 0) {
+      setShowSearchDropdown(true);
+    } else {
+      setShowSearchDropdown(false);
+    }
+  }, [searchResults]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -129,126 +109,8 @@ export default function FriendsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
-    const delaySearch = setTimeout(() => {
-      if (searchQuery.trim().length >= 2) {
-        handleSearch();
-      } else {
-        setSearchResults([]);
-        setShowSearchDropdown(false);
-      }
-    }, 500);
-
-    return () => clearTimeout(delaySearch);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery]);
-
-  const fetchFriends = async () => {
-    try {
-      const accessToken = localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/student/friends`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        const data: FriendshipResponse[] = await response.json();
-        // Map the response to match Friend interface
-        const mappedFriends = data.map((item) => ({
-          id: item.friend.id,
-          fullName: item.friend.fullName,
-          email: item.friend.email,
-          avatar: item.friend.avatar,
-          bio: item.friend.bio,
-          friendshipId: item.friendshipId,
-          studentProfile: item.friend.studentProfile,
-        }));
-        setFriends(mappedFriends);
-      }
-    } catch (error) {
-      console.error('Error fetching friends:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchFriendRequests = async () => {
-    try {
-      const accessToken = localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/student/friends/requests?type=received&status=PENDING`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        const data: FriendRequestResponse[] = await response.json();
-        // Map the response to match FriendRequest interface
-        const mappedRequests = data.map((item) => ({
-          id: item.id,
-          status: item.status,
-          createdAt: item.createdAt,
-          requester: item.requester?.user ? {
-            id: item.requester.user.id,
-            fullName: item.requester.user.fullName,
-            email: item.requester.user.email,
-            avatar: item.requester.user.avatar,
-            bio: item.requester.user.bio,
-            studentProfile: item.requester.user.studentProfile,
-          } : undefined,
-          receiver: item.receiver?.user ? {
-            id: item.receiver.user.id,
-            fullName: item.receiver.user.fullName,
-            email: item.receiver.user.email,
-            avatar: item.receiver.user.avatar,
-            bio: item.receiver.user.bio,
-            studentProfile: item.receiver.user.studentProfile,
-          } : undefined,
-        }));
-        setFriendRequests(mappedRequests);
-      }
-    } catch (error) {
-      console.error('Error fetching friend requests:', error);
-    }
-  };
-
-  const fetchSuggestions = async () => {
-    try {
-      const accessToken = localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/student/suggestions`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setSuggestions(data);
-      }
-    } catch (error) {
-      console.error('Error fetching suggestions:', error);
-    }
-  };
-
-  const fetchBlockedUsers = async () => {
-    try {
-      const accessToken = localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/student/friends/blocked`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setBlockedUsers(data);
-      }
-    } catch (error) {
-      console.error('Error fetching blocked users:', error);
-    }
-  };
-
   const filteredFriends = friends.filter(friend => {
-    const matchesSearch = friend.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         friend.email?.toLowerCase().includes(searchQuery.toLowerCase());
-    
+    const matchesSearch = friend.fullName?.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesSearch;
   });
 
@@ -262,7 +124,7 @@ export default function FriendsPage() {
         },
       });
       if (response.ok) {
-        fetchFriends();
+        mutateFriends(); // Revalidate friends list
       }
     } catch (error) {
       console.error('Error removing friend:', error);
@@ -281,8 +143,8 @@ export default function FriendsPage() {
         body: JSON.stringify({ status: 'ACCEPTED' }),
       });
       if (response.ok) {
-        fetchFriends();
-        fetchFriendRequests();
+        mutateFriends();
+        mutateRequests();
       }
     } catch (error) {
       console.error('Error accepting friend request:', error);
@@ -301,7 +163,7 @@ export default function FriendsPage() {
         body: JSON.stringify({ status: 'REJECTED' }),
       });
       if (response.ok) {
-        fetchFriendRequests();
+        mutateRequests();
       }
     } catch (error) {
       console.error('Error rejecting friend request:', error);
@@ -320,13 +182,7 @@ export default function FriendsPage() {
         body: JSON.stringify({ receiverId }),
       });
       if (response.ok) {
-        // Update search results and suggestions to show pending status
-        setSearchResults(prev => prev.map(user => 
-          user.id === receiverId ? { ...user, friendshipStatus: 'PENDING' } : user
-        ));
-        setSuggestions(prev => prev.map(user => 
-          user.id === receiverId ? { ...user, friendshipStatus: 'PENDING' } : user
-        ));
+        mutateSuggestions(); // Revalidate suggestions
       }
     } catch (error) {
       console.error('Error sending friend request:', error);
@@ -345,8 +201,8 @@ export default function FriendsPage() {
         body: JSON.stringify({ status: 'BLOCKED' }),
       });
       if (response.ok) {
-        fetchFriendRequests();
-        fetchBlockedUsers();
+        mutateFriends();
+        mutateBlocked();
       }
     } catch (error) {
       console.error('Error blocking user:', error);
@@ -363,15 +219,19 @@ export default function FriendsPage() {
         },
       });
       if (response.ok) {
-        fetchBlockedUsers();
+        mutateBlocked();
       }
     } catch (error) {
       console.error('Error unblocking user:', error);
     }
   };
 
-  const handleMessage = (userId: string) => {
-    router.push(`/student/message?userId=${userId}`);
+  const handleMessage = (targetUserId: string) => {
+    // Get current student ID from URL
+    const currentPath = window.location.pathname;
+    const match = currentPath.match(/\/student\/([^\/]+)\//);
+    const studentId = match ? match[1] : 'guest';
+    router.push(`/student/${studentId}/message?userId=${targetUserId}`);
   };
 
   const handleViewProfile = (userId: string) => {
@@ -415,7 +275,6 @@ export default function FriendsPage() {
                 <button 
                   onClick={() => {
                     setSearchQuery('');
-                    setSearchResults([]);
                     setShowSearchDropdown(false);
                   }} 
                   className="p-1 hover:bg-gray-200 rounded-full"
@@ -438,8 +297,8 @@ export default function FriendsPage() {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <div className="max-h-96 overflow-y-auto">
-                    {searchResults.map((student) => (
+                  <div className="max-h-80 overflow-y-auto">
+                    {searchResults.map((student: Friend & { friendshipStatus?: string | null }) => (
                       <div
                         key={student.id}
                         onClick={() => {
@@ -728,7 +587,7 @@ export default function FriendsPage() {
                   <p className="text-gray-500">Check back later for friend suggestions</p>
                 </div>
               ) : (
-                suggestions.map((student) => (
+                suggestions.map((student: Friend & { friendshipStatus?: string | null }) => (
                   <div
                     key={student.id}
                     className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-all"
@@ -764,7 +623,7 @@ export default function FriendsPage() {
                       {/* Interests */}
                       {student.studentProfile?.interests && student.studentProfile.interests.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-3">
-                          {student.studentProfile.interests.slice(0, 3).map((interest, idx) => (
+                          {student.studentProfile.interests.slice(0, 3).map((interest: string, idx: number) => (
                             <span key={idx} className="text-xs bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full">
                               {interest}
                             </span>
@@ -775,21 +634,37 @@ export default function FriendsPage() {
                       {/* Actions */}
                       <div className="flex gap-2">
                         {!student.friendshipStatus ? (
-                          <button
-                            onClick={() => handleSendFriendRequest(student.studentProfile!.id)}
-                            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#${PrimaryColor}] hover:bg-[#1a1d6b] text-white font-semibold text-xs transition-all shadow-sm hover:shadow-md`}
-                          >
-                            <UserPlusIcon className="h-4 w-4" />
-                            Add Friend
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleSendFriendRequest(student.id)}
+                              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#${PrimaryColor}] hover:bg-[#1a1d6b] text-white font-semibold text-xs transition-all shadow-sm hover:shadow-md`}
+                            >
+                              <UserPlusIcon className="h-4 w-4" />
+                              Add Friend
+                            </button>
+                            <button
+                              onClick={() => handleMessage(student.id)}
+                              className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#${SecondaryColor}] hover:bg-[#d41f4d] text-white font-semibold text-xs transition-all shadow-sm hover:shadow-md`}
+                            >
+                              <ChatBubbleLeftRightIcon className="h-4 w-4" />
+                            </button>
+                          </>
                         ) : (
-                          <button
-                            disabled
-                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gray-200 text-gray-500 font-semibold text-xs cursor-not-allowed"
-                          >
-                            <ClockIcon className="h-4 w-4" />
-                            Request Sent
-                          </button>
+                          <>
+                            <button
+                              disabled
+                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gray-200 text-gray-500 font-semibold text-xs cursor-not-allowed"
+                            >
+                              <ClockIcon className="h-4 w-4" />
+                              Request Sent
+                            </button>
+                            <button
+                              onClick={() => handleMessage(student.id)}
+                              className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#${SecondaryColor}] hover:bg-[#d41f4d] text-white font-semibold text-xs transition-all shadow-sm hover:shadow-md`}
+                            >
+                              <ChatBubbleLeftRightIcon className="h-4 w-4" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -811,7 +686,7 @@ export default function FriendsPage() {
                   <p className="text-gray-500">You haven&apos;t blocked anyone yet</p>
                 </div>
               ) : (
-                blockedUsers.map((user) => (
+                blockedUsers.map((user: Friend) => (
                   <div
                     key={user.id}
                     className="flex items-center gap-4 p-4 hover:bg-gray-50 rounded-xl transition-all border-b border-gray-100 last:border-b-0"

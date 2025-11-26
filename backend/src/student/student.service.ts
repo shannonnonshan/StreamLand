@@ -231,14 +231,17 @@ export class StudentService {
 
     const friendRequests = await this.prisma.postgres.friendList.findMany({
       where: whereClause,
-      include: {
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
         requester: {
-          include: {
+          select: {
+            id: true,
             user: {
               select: {
                 id: true,
                 fullName: true,
-                email: true,
                 avatar: true,
                 bio: true,
                 studentProfile: {
@@ -254,12 +257,12 @@ export class StudentService {
           },
         },
         receiver: {
-          include: {
+          select: {
+            id: true,
             user: {
               select: {
                 id: true,
                 fullName: true,
-                email: true,
                 avatar: true,
                 bio: true,
                 studentProfile: {
@@ -302,14 +305,16 @@ export class StudentService {
           { receiverId: user.studentProfile.id, status: FriendStatus.ACCEPTED },
         ],
       },
-      include: {
+      select: {
+        id: true,
+        createdAt: true,
         requester: {
-          include: {
+          select: {
+            id: true,
             user: {
               select: {
                 id: true,
                 fullName: true,
-                email: true,
                 avatar: true,
                 bio: true,
                 studentProfile: {
@@ -325,12 +330,12 @@ export class StudentService {
           },
         },
         receiver: {
-          include: {
+          select: {
+            id: true,
             user: {
               select: {
                 id: true,
                 fullName: true,
-                email: true,
                 avatar: true,
                 bio: true,
                 studentProfile: {
@@ -414,7 +419,7 @@ export class StudentService {
 
     const studentProfileId = user.studentProfile.id;
 
-    // Get list of current friends and pending requests
+    // Get list of ALL friendships (to show status)
     const friendships = await this.prisma.postgres.friendList.findMany({
       where: {
         OR: [
@@ -429,13 +434,15 @@ export class StudentService {
       },
     });
 
-    // Extract friend IDs and pending request IDs
-    const excludedProfileIds = new Set<string>();
+    // Only exclude BLOCKED users
+    const blockedProfileIds = new Set<string>();
     friendships.forEach(f => {
-      if (f.requestId === studentProfileId) {
-        excludedProfileIds.add(f.receiverId);
-      } else {
-        excludedProfileIds.add(f.requestId);
+      if (f.status === FriendStatus.BLOCKED) {
+        if (f.requestId === studentProfileId) {
+          blockedProfileIds.add(f.receiverId);
+        } else {
+          blockedProfileIds.add(f.requestId);
+        }
       }
     });
 
@@ -453,18 +460,29 @@ export class StudentService {
           },
         ],
       },
-      include: {
-        studentProfile: true,
+      select: {
+        id: true,
+        fullName: true,
+        avatar: true,
+        bio: true,
+        studentProfile: {
+          select: {
+            id: true,
+            school: true,
+            grade: true,
+            interests: true,
+          },
+        },
       },
       take: 20,
     });
 
-    // Filter out existing friends and add friendship status
+    // Filter out blocked users and add friendship status
     const results = students
-      .filter(s => s.studentProfile && !excludedProfileIds.has(s.studentProfile.id))
+      .filter(s => s.studentProfile && !blockedProfileIds.has(s.studentProfile.id))
       .map(s => {
-        // Check if there's a pending request
-        const pendingRequest = friendships.find(f => 
+        // Check friendship status
+        const friendship = friendships.find(f => 
           (f.requestId === studentProfileId && f.receiverId === s.studentProfile?.id) ||
           (f.receiverId === studentProfileId && f.requestId === s.studentProfile?.id)
         );
@@ -472,11 +490,10 @@ export class StudentService {
         return {
           id: s.id,
           fullName: s.fullName,
-          email: s.email,
           avatar: s.avatar,
           bio: s.bio,
           studentProfile: s.studentProfile,
-          friendshipStatus: pendingRequest ? pendingRequest.status : null,
+          friendshipStatus: friendship ? friendship.status : null,
         };
       });
 
@@ -530,10 +547,21 @@ export class StudentService {
           { id: { not: userId } },
         ],
       },
-      include: {
-        studentProfile: true,
+      select: {
+        id: true,
+        fullName: true,
+        avatar: true,
+        bio: true,
+        studentProfile: {
+          select: {
+            id: true,
+            school: true,
+            grade: true,
+            interests: true,
+          },
+        },
       },
-      take: 50, // Get more to filter from
+      take: 50,
     });
 
     // Filter and shuffle
@@ -545,7 +573,6 @@ export class StudentService {
     const results = filtered.map(s => ({
       id: s.id,
       fullName: s.fullName,
-      email: s.email,
       avatar: s.avatar,
       bio: s.bio,
       studentProfile: s.studentProfile,
@@ -577,14 +604,16 @@ export class StudentService {
           { receiverId: studentProfileId, status: FriendStatus.BLOCKED },
         ],
       },
-      include: {
+      select: {
+        id: true,
+        requestId: true,
         requester: {
-          include: {
+          select: {
+            id: true,
             user: {
               select: {
                 id: true,
                 fullName: true,
-                email: true,
                 avatar: true,
                 bio: true,
               },
@@ -592,12 +621,12 @@ export class StudentService {
           },
         },
         receiver: {
-          include: {
+          select: {
+            id: true,
             user: {
               select: {
                 id: true,
                 fullName: true,
-                email: true,
                 avatar: true,
                 bio: true,
               },

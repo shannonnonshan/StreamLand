@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import { 
@@ -13,36 +13,71 @@ import {
   Edit3,
   Camera,
   Play,
-  ArrowLeft
+  ArrowLeft,
+  Loader2
 } from "lucide-react";
 
 // Import mock recordings
 import { mockRecordings } from "@/utils/data/teacher/mockRecordings";
+
+interface TeacherProfile {
+  id: string;
+  name: string;
+  username: string;
+  avatar: string;
+  bio: string;
+  subscribers: number;
+  totalVideos: number;
+  rating: number;
+  createAt: string;
+  address: string | null;
+  substantiate: string | null;
+  yearOfWorking: number | null;
+  subjects: string[];
+  website: string | null;
+  linkedin: string | null;
+  youtube: string | null;
+}
 
 export default function TeacherProfilePage() {
   const params = useParams();
   const router = useRouter();
   const teacherId = params?.id as string;
 
-  // Mock data - sẽ lấy từ backend
-  const [teacher, setTeacher] = useState({
-    id: teacherId,
-    name: "Dr. John Smith",
-    username: "@johnsmith",
-    avatar: "/logo.png",
-    bio: "Passionate educator with 10+ years of experience in Computer Science. Dedicated to making complex topics easy to understand.",
-    subscribers: 1234,
-    totalVideos: 56,
-    totalViews: 45678,
-    rating: 4.8,
-    createAt: "2023-01-15",
-    address: "Hanoi, Vietnam",
-    substantiate: "PhD in Computer Science",
-    yearOfWorking: 10,
-  });
-
+  const [teacher, setTeacher] = useState<TeacherProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isEditingBio, setIsEditingBio] = useState(false);
-  const [editedBio, setEditedBio] = useState(teacher.bio);
+  const [editedBio, setEditedBio] = useState('');
+
+  // Fetch teacher profile
+  useEffect(() => {
+    const fetchTeacherProfile = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/teacher/${teacherId}/profile`
+        );
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch teacher profile');
+        }
+
+        const data = await response.json();
+        setTeacher(data);
+        setEditedBio(data.bio);
+      } catch (err) {
+        console.error('Error fetching teacher profile:', err);
+        setError('Failed to load teacher profile');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (teacherId) {
+      fetchTeacherProfile();
+    }
+  }, [teacherId]);
 
   // Get recent videos from recordings
   const recentVideos = mockRecordings
@@ -51,6 +86,7 @@ export default function TeacherProfilePage() {
     .slice(0, 3);
 
   const handleSaveBio = () => {
+    if (!teacher) return;
     // TODO: Call API to save bio
     setTeacher({ ...teacher, bio: editedBio });
     setIsEditingBio(false);
@@ -60,6 +96,33 @@ export default function TeacherProfilePage() {
     // TODO: Implement avatar upload
     alert("Avatar upload will be implemented");
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-[#292C6D] mx-auto mb-4" />
+          <p className="text-gray-600">Loading teacher profile...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !teacher) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">{error || 'Teacher not found'}</p>
+          <button
+            onClick={() => router.back()}
+            className="px-4 py-2 bg-[#292C6D] text-white rounded-lg hover:bg-[#1f2350] transition-colors"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">

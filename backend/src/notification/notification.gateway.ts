@@ -25,40 +25,35 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
   private userSockets = new Map<string, string>(); // userId -> socketId
 
   handleConnection(@ConnectedSocket() client: Socket) {
-    const userId = (client as any).user?.sub || (client as any).user?.id;
+    const userId = client.data.user?.sub;
     if (userId && typeof userId === 'string') {
       this.userSockets.set(userId, client.id);
-      console.log(`✅ Notification client connected: ${userId}`);
     }
   }
 
   handleDisconnect(@ConnectedSocket() client: Socket) {
-    const userId = (client as any).user?.sub || (client as any).user?.id;
+    const userId = client.data.user?.sub;
     if (userId && typeof userId === 'string') {
       this.userSockets.delete(userId);
-      console.log(`❌ Notification client disconnected: ${userId}`);
     }
   }
 
   @SubscribeMessage('register')
   handleRegister(@ConnectedSocket() client: Socket) {
-    const userId = (client as any).user?.sub || (client as any).user?.id;
+    const userId = client.data.user?.sub;
     if (userId && typeof userId === 'string') {
       this.userSockets.set(userId, client.id);
-      console.log(`📝 User registered for notifications: ${userId}`);
+      client.emit('registered', { success: true, userId });
+    } else {
+      client.emit('registered', { success: false, error: 'No valid userId' });
     }
   }
 
   // Send notification to specific user
   sendNotificationToUser(userId: string, notification: any) {
     const socketId = this.userSockets.get(userId);
-    console.log(`🔍 Looking for user ${userId} socket:`, socketId);
-    console.log(`🔍 All registered users:`, Array.from(this.userSockets.keys()));
     if (socketId) {
       this.server.to(socketId).emit('newNotification', notification);
-      console.log(`🔔 Sent notification to user ${userId}:`, notification.type);
-    } else {
-      console.log(`⚠️ User ${userId} not connected, notification saved to DB only`);
     }
   }
 

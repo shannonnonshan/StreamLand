@@ -16,11 +16,12 @@ export function useLivestreamBroadcaster({
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunkIndexRef = useRef<number>(0);
 
   useEffect(() => {
     const handleWatcher = async ({ id }: { id: string }) => {
       try {
-        console.log('[Broadcaster] New viewer joined:', id);
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         peerConnectionsRef.current.set(id, pc);
 
@@ -37,7 +38,6 @@ export function useLivestreamBroadcaster({
 
         pc.onicecandidate = (event) => {
           if (event.candidate) {
-            console.log('[Broadcaster] Sending ICE candidate to viewer');
             socket.emit('candidate', {
               to: id,
               candidate: event.candidate,
@@ -47,11 +47,11 @@ export function useLivestreamBroadcaster({
         };
 
         pc.onconnectionstatechange = () => {
-          console.log('[Broadcaster] Connection state for', id, ':', pc.connectionState);
+          // Connection state changed
         };
 
         pc.oniceconnectionstatechange = () => {
-          console.log('[Broadcaster] ICE connection state for', id, ':', pc.iceConnectionState);
+          // ICE connection state changed
         };
 
         const offer = await pc.createOffer();
@@ -147,6 +147,47 @@ export function useLivestreamBroadcaster({
         localVideoRef.current.srcObject = stream;
       }
 
+      // Start recording for saving to R2
+      try {
+        const mediaRecorder = new MediaRecorder(stream, {
+          mimeType: 'video/webm;codecs=vp8,opus',
+          videoBitsPerSecond: 2500000, // 2.5 Mbps
+        });
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            // Convert blob to base64 and send to server
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64data = reader.result as string;
+              const base64 = base64data.split(',')[1]; // Remove data URL prefix
+              
+              socket.emit('video-chunk', {
+                livestreamID,
+                chunk: base64,
+                chunkIndex: chunkIndexRef.current++,
+              });
+              
+              console.log(`[Broadcaster] Sent video chunk ${chunkIndexRef.current - 1}`);
+            };
+            reader.readAsDataURL(event.data);
+          }
+        };
+
+        mediaRecorder.onerror = (error) => {
+          console.error('[Broadcaster] MediaRecorder error:', error);
+        };
+
+        // Record in 10-second chunks
+        mediaRecorder.start(10000);
+        mediaRecorderRef.current = mediaRecorder;
+        
+        console.log('[Broadcaster] MediaRecorder started');
+      } catch (error) {
+        console.warn('[Broadcaster] MediaRecorder not supported or failed:', error);
+        // Continue without recording - not critical for live streaming
+      }
+
       socket.emit('broadcaster', { livestreamID });
       setIsStreaming(true);
     } catch (error) {
@@ -157,6 +198,13 @@ export function useLivestreamBroadcaster({
   };
 
   const stopBroadcast = () => {
+    // Stop MediaRecorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+      console.log('[Broadcaster] MediaRecorder stopped');
+    }
+    
     const localStream = localStreamRef.current;
     if (localStream) {
       localStream.getTracks().forEach((track) => track.stop());
@@ -170,9 +218,10 @@ export function useLivestreamBroadcaster({
       localVideoRef.current.srcObject = null;
     }
 
-    socket.emit('stream-ended', { livestreamID });
+    // Note: stream-ended event is emitted in the parent component with saveRecording flag
     setIsStreaming(false);
     setViewerCount(0);
+    chunkIndexRef.current = 0;
   };
 
   return {

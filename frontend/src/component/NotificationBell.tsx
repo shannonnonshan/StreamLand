@@ -1,23 +1,18 @@
 "use client";
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { BellIcon, CheckIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { BellAlertIcon } from '@heroicons/react/24/solid';
-import { useNotification, type Notification } from '@/hooks/useNotification';
+import { useNotificationContext } from '@/contexts/NotificationContext';
+import type { Notification } from '@/hooks/useNotification';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 
-interface NotificationBellProps {
-  userId: string;
-}
-
-export default function NotificationBell({ userId }: NotificationBellProps) {
+export default function NotificationBell() {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [processedRequests, setProcessedRequests] = useState<Set<string>>(new Set());
-
-  console.log('🔔 NotificationBell rendered with userId:', userId);
 
   const {
     notifications,
@@ -25,7 +20,7 @@ export default function NotificationBell({ userId }: NotificationBellProps) {
     markAsRead,
     markAllAsRead,
     deleteNotification,
-  } = useNotification(userId);
+  } = useNotificationContext();
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -46,7 +41,7 @@ export default function NotificationBell({ userId }: NotificationBellProps) {
     }
   }, []);
 
-  const handleNotificationClick = async (notification: Notification) => {
+  const handleNotificationClick = useCallback(async (notification: Notification) => {
     // Mark as read
     if (!notification.read) {
       await markAsRead(notification.id);
@@ -60,49 +55,52 @@ export default function NotificationBell({ userId }: NotificationBellProps) {
 
     switch (data.type) {
       case 'friend_request':
-        // Navigate to requester's profile - don't navigate for friend requests, just open/close dropdown
-        // User should use Accept/Reject buttons instead
+        // Navigate to requester's profile to view their info
+        if (data.requesterId) {
+          router.push(`/student/${data.requesterId}/profile`);
+        }
         break;
       case 'friend_request_accepted':
         // Navigate to accepter's profile
-        router.push(`/student/profile/${data.accepterId}`);
+        if (data.accepterId) {
+          router.push(`/student/${data.accepterId}/profile`);
+        }
         break;
       case 'new_follower':
-        // Navigate to student's profile
-        router.push(`/teacher/${userId}/profile/${data.studentId}`);
+        // Navigate to student's profile (for teachers)
+        if (data.studentId) {
+          router.push(`/student/${data.studentId}/profile`);
+        }
         break;
       case 'livestream_start':
-        // Navigate to livestream
-        router.push(`/viewer/${data.teacherId}/${data.livestreamId}`);
+        // Navigate to livestream viewer page
+        if (data.teacherId && data.livestreamId) {
+          router.push(`/viewer/${data.teacherId}/${data.livestreamId}`);
+        }
         break;
       case 'new_video':
-        // Navigate to video or teacher's recordings
-        router.push(`/teacher/${data.teacherId}/recordings`);
+        // Navigate to teacher's recordings page
+        if (data.teacherId) {
+          router.push(`/teacher/${data.teacherId}/recordings`);
+        }
         break;
       default:
+        // For other notifications, just mark as read (already done above)
         break;
     }
-  };
+  }, [markAsRead, router]);
 
-  const handleAcceptFriendRequest = async (e: React.MouseEvent, notification: Notification) => {
+  const handleAcceptFriendRequest = useCallback(async (e: React.MouseEvent, notification: Notification) => {
     e.stopPropagation();
     
-    console.log('Accept button clicked');
-    console.log('Notification data:', notification.data);
-    console.log('friendRequestId:', notification.data?.friendRequestId);
-    
     if (!notification.data?.friendRequestId) {
-      console.error('No friendRequestId in notification data');
-      alert('Lỗi: Không tìm thấy ID yêu cầu kết bạn');
       return;
     }
 
     try {
       const token = localStorage.getItem('accessToken');
-      console.log('Token exists:', !!token);
       
       const url = `${process.env.NEXT_PUBLIC_API_URL}/student/friends/request/${notification.data.friendRequestId}`;
-      console.log('API URL:', url);
       
       const response = await fetch(url, {
         method: 'PATCH',
@@ -113,47 +111,34 @@ export default function NotificationBell({ userId }: NotificationBellProps) {
         body: JSON.stringify({ status: 'ACCEPTED' }),
       });
 
-      console.log('Response status:', response.status);
-      const responseData = await response.json();
-      console.log('Response data:', responseData);
-
       if (response.ok) {
-        // Mark as read instead of deleting to show it was processed
+        // Mark as read to show it was processed
         await markAsRead(notification.id);
         // Track this request as processed
         if (notification.data?.friendRequestId) {
           setProcessedRequests((prev) => new Set(prev).add(notification.data!.friendRequestId!));
         }
-        alert('Đã chấp nhận lời mời kết bạn!');
-      } else {
-        console.error('Failed to accept friend request:', response.status, responseData);
-        alert(`Lỗi: ${responseData.message || 'Không thể chấp nhận lời mời'}`);
+        // Dispatch event to update profile pages
+        window.dispatchEvent(new CustomEvent('friendRequestAccepted', {
+          detail: { userId: notification.data?.requesterId }
+        }));
       }
     } catch (error) {
       console.error('Error accepting friend request:', error);
-      alert('Lỗi khi chấp nhận lời mời kết bạn');
     }
-  };
+  }, [markAsRead, setProcessedRequests]);
 
-  const handleRejectFriendRequest = async (e: React.MouseEvent, notification: Notification) => {
+  const handleRejectFriendRequest = useCallback(async (e: React.MouseEvent, notification: Notification) => {
     e.stopPropagation();
     
-    console.log('Reject button clicked');
-    console.log('Notification data:', notification.data);
-    console.log('friendRequestId:', notification.data?.friendRequestId);
-    
     if (!notification.data?.friendRequestId) {
-      console.error('No friendRequestId in notification data');
-      alert('Lỗi: Không tìm thấy ID yêu cầu kết bạn');
       return;
     }
 
     try {
       const token = localStorage.getItem('accessToken');
-      console.log('Token exists:', !!token);
       
       const url = `${process.env.NEXT_PUBLIC_API_URL}/student/friends/request/${notification.data.friendRequestId}`;
-      console.log('API URL:', url);
       
       const response = await fetch(url, {
         method: 'PATCH',
@@ -164,25 +149,16 @@ export default function NotificationBell({ userId }: NotificationBellProps) {
         body: JSON.stringify({ status: 'REJECTED' }),
       });
 
-      console.log('Response status:', response.status);
-      const responseData = await response.json();
-      console.log('Response data:', responseData);
-
       if (response.ok) {
         // Delete notification after rejecting
         await deleteNotification(notification.id);
-        alert('Đã từ chối lời mời kết bạn');
-      } else {
-        console.error('Failed to reject friend request:', response.status, responseData);
-        alert(`Lỗi: ${responseData.message || 'Không thể từ chối lời mời'}`);
       }
     } catch (error) {
       console.error('Error rejecting friend request:', error);
-      alert('Lỗi khi từ chối lời mời kết bạn');
     }
-  };
+  }, [deleteNotification]);
 
-  const formatTimeAgo = (date: string) => {
+  const formatTimeAgo = useCallback((date: string) => {
     const now = new Date();
     const notifDate = new Date(date);
     const seconds = Math.floor((now.getTime() - notifDate.getTime()) / 1000);
@@ -192,7 +168,7 @@ export default function NotificationBell({ userId }: NotificationBellProps) {
     if (seconds < 86400) return `${Math.floor(seconds / 3600)} giờ trước`;
     if (seconds < 2592000) return `${Math.floor(seconds / 86400)} ngày trước`;
     return notifDate.toLocaleDateString('vi-VN');
-  };
+  }, []);
 
   const getNotificationIcon = (notification: Notification) => {
     const avatar = notification.data?.requesterAvatar || 
@@ -364,7 +340,7 @@ export default function NotificationBell({ userId }: NotificationBellProps) {
               <button
                 onClick={() => {
                   setIsOpen(false);
-                  router.push(`/student/${userId}/notifications`);
+                  router.push(`/student/notifications`);
                 }}
                 className="text-sm text-purple-600 hover:text-purple-700 font-medium"
               >

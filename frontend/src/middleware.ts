@@ -50,13 +50,9 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  console.log('[Middleware]', { pathname, role: user.role, userId: user.sub });
-
   // Role-based route protection - logout and redirect to login if wrong role
   if (pathname.startsWith('/teacher/')) {
-    console.log('[Middleware] Checking TEACHER route access');
     if (user.role !== 'TEACHER') {
-      console.log('[Middleware] Access denied - forcing logout');
       const response = NextResponse.redirect(new URL('/auth/login?error=unauthorized&required=teacher', request.url));
       response.cookies.delete('token');
       response.cookies.delete('user');
@@ -65,9 +61,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith('/admin/')) {
-    console.log('[Middleware] Checking ADMIN route access');
     if (user.role !== 'ADMIN') {
-      console.log('[Middleware] Access denied - forcing logout');
       const response = NextResponse.redirect(new URL('/auth/login?error=unauthorized&required=admin', request.url));
       response.cookies.delete('token');
       response.cookies.delete('user');
@@ -76,9 +70,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith('/student/') && pathname !== '/student') {
-    console.log('[Middleware] Checking STUDENT route access');
     if (user.role !== 'STUDENT') {
-      console.log('[Middleware] Access denied - forcing logout');
       const response = NextResponse.redirect(new URL('/auth/login?error=unauthorized&required=student', request.url));
       response.cookies.delete('token');
       response.cookies.delete('user');

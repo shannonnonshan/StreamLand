@@ -40,19 +40,17 @@ export const useChat = (userId: string | null) => {
     });
 
     newSocket.on('connect', () => {
-      console.log('Chat socket connected');
       setIsConnected(true);
       // Register user with their socket
       newSocket.emit('register', { userId });
     });
 
     newSocket.on('disconnect', () => {
-      console.log('Chat socket disconnected');
       setIsConnected(false);
     });
 
-    newSocket.on('connect_error', (error: Error) => {
-      console.error('Socket connection error:', error);
+    newSocket.on('connect_error', () => {
+      // Socket connection error
     });
 
     setSocket(newSocket);

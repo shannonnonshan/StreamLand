@@ -52,14 +52,11 @@ export default function Header() {
         
         if (response.ok) {
           const data = await response.json();
-          console.log('✅ Teachers fetched:', data);
           setTeachers(data);
           setFilteredTeachers(data);
-        } else {
-          console.error('❌ Failed to fetch teachers:', response.status);
         }
-      } catch (error) {
-        console.error('❌ Error fetching teachers:', error);
+      } catch {
+        // Error fetching teachers
       }
     };
 
@@ -74,7 +71,6 @@ export default function Header() {
       
       // If no token but has user data, clear everything
       if (!accessToken && storedUser) {
-        console.log('🧹 No token found, clearing stale user data');
         localStorage.removeItem('user');
         localStorage.removeItem('userId');
         localStorage.removeItem('role');
@@ -92,7 +88,6 @@ export default function Header() {
           
           // If token is expired, clear everything
           if (currentTime >= expirationTime) {
-            console.log('🧹 Token expired, clearing localStorage');
             localStorage.removeItem('accessToken');
             localStorage.removeItem('refreshToken');
             localStorage.removeItem('user');
@@ -100,8 +95,7 @@ export default function Header() {
             localStorage.removeItem('role');
             logout();
           }
-        } catch (error) {
-          console.error('Error checking token validity:', error);
+        } catch {
           // If token is malformed, clear everything
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
@@ -119,9 +113,6 @@ export default function Header() {
   // Load 2FA status from user data
   useEffect(() => {
     if (user) {
-      console.log('👤 Full User object:', JSON.stringify(user, null, 2));
-      console.log('🔑 User keys:', Object.keys(user));
-      console.log('🔐 twoFactorEnabled:', user.twoFactorEnabled);
       setTwoFactorEnabled(!!user.twoFactorEnabled);
     }
   }, [user]);
@@ -370,9 +361,9 @@ export default function Header() {
           </AnimatePresence>
         </div>
 
-        {/* Notification Bell */}
+        {/* Notifications */}
         {isAuthenticated && user && (
-          <NotificationBell userId={user.id} />
+          <NotificationBell />
         )}
 
         {/* Divider */}

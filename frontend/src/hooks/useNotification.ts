@@ -143,34 +143,42 @@ export const useNotification = (userId: string | null) => {
 
     const token = localStorage.getItem('accessToken');
     if (!token) return;
-
     const newSocket = io(`${API_URL}/notifications`, {
       auth: { token },
       transports: ['websocket'],
     });
 
     newSocket.on('connect', () => {
-      console.log('🔔 Notification socket connected');
-      console.log('🔔 User ID:', userId);
-      console.log('🔔 Socket ID:', newSocket.id);
       setIsConnected(true);
       newSocket.emit('register', { userId });
     });
 
+    newSocket.on('connect_error', (error: Error) => {
+      console.error('❌ Socket connection error:', error);
+      console.error('🔐 Token exists:', !!token);
+      setIsConnected(false);
+    });
+
+    newSocket.on('error', (error: Error) => {
+      console.error('⚠️ Socket error:', error);
+    });
+
+    newSocket.on('registered', (data: { success: boolean; userId?: string; error?: string }) => {
+      if (!data.success) {
+        console.error('❌ Registration failed:', data.error);
+      }
+    });
+
     newSocket.on('disconnect', () => {
-      console.log('🔕 Notification socket disconnected');
       setIsConnected(false);
     });
 
     newSocket.on('newNotification', (notification: Notification) => {
-      console.log('🔔 New notification received:', notification);
-      console.log('🔔 Notification type:', notification.type);
-      console.log('🔔 Current notifications count:', notifications.length);
       setNotifications((prev) => [notification, ...prev]);
       setUnreadCount((prev) => prev + 1);
 
       // Show browser notification if permission granted
-      if (Notification.permission === 'granted') {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
         new Notification(notification.title, {
           body: notification.content,
           icon: '/logo.png',
@@ -187,7 +195,8 @@ export const useNotification = (userId: string | null) => {
     return () => {
       newSocket.disconnect();
     };
-  }, [userId, fetchNotifications, fetchUnreadCount]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]); // Only depend on userId, not on fetchNotifications/fetchUnreadCount
 
   return {
     socket,

@@ -30,11 +30,6 @@ export class NotificationService {
       },
     });
 
-    console.log(`📤 Sending notification to user ${dto.userId}:`, {
-      type: notification.type,
-      title: notification.title,
-    });
-
     // Send real-time notification via WebSocket
     this.notificationGateway.sendNotificationToUser(dto.userId, notification);
 
@@ -45,8 +40,8 @@ export class NotificationService {
     return this.createNotification({
       userId: receiverId,
       type: 'FRIEND_REQUEST' as NotificationType,
-      title: 'Yêu cầu kết bạn mới',
-      content: `${requesterName} đã gửi lời mời kết bạn`,
+      title: 'New Friend Request',
+      content: `${requesterName} sent you a friend request`,
       data: {
         requesterId,
         requesterName,
@@ -61,8 +56,8 @@ export class NotificationService {
     return this.createNotification({
       userId: requesterId,
       type: 'FRIEND_REQUEST_ACCEPTED' as NotificationType,
-      title: 'Yêu cầu kết bạn được chấp nhận',
-      content: `${accepterName} đã chấp nhận lời mời kết bạn của bạn`,
+      title: 'Friend Request Accepted',
+      content: `${accepterName} accepted your friend request`,
       data: {
         accepterId,
         accepterName,
@@ -76,8 +71,8 @@ export class NotificationService {
     return this.createNotification({
       userId: teacherId,
       type: 'NEW_FOLLOWER' as NotificationType,
-      title: 'Follower mới',
-      content: `${studentName} đã bắt đầu theo dõi bạn`,
+      title: 'New Follower',
+      content: `${studentName} started following you`,
       data: {
         studentId,
         studentName,
@@ -93,8 +88,8 @@ export class NotificationService {
         this.createNotification({
           userId: studentId,
           type: 'LIVESTREAM_START' as NotificationType,
-          title: 'Livestream mới',
-          content: `${teacherName} đã bắt đầu phát trực tiếp: ${livestreamTitle}`,
+          title: 'New Livestream',
+          content: `${teacherName} started a livestream: ${livestreamTitle}`,
           data: {
             teacherId,
             teacherName,
@@ -115,8 +110,8 @@ export class NotificationService {
         this.createNotification({
           userId: studentId,
           type: 'COURSE_UPDATE' as NotificationType,
-          title: 'Video mới',
-          content: `${teacherName} đã đăng video mới: ${videoTitle}`,
+          title: 'New Video',
+          content: `${teacherName} posted a new video: ${videoTitle}`,
           data: {
             teacherId,
             teacherName,

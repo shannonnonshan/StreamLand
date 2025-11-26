@@ -381,7 +381,6 @@ export default function LivestreamViewerPage() {
                       onLoadedMetadata={() => {}}
                       onPlay={() => {}}
                       onPause={() => {}}
-                      onError={(e) => console.error('[Video] Error:', e)}
                     />
                   </div>
 
@@ -625,33 +624,6 @@ export default function LivestreamViewerPage() {
                         <span className="text-white text-sm font-bold tracking-wide">LIVE</span>
                       </div>
                     )}
-                  
-                    {/* Debug Status (remove later) */}
-                    <div className="px-3 py-1.5 bg-black/60 backdrop-blur-md rounded-lg text-xs text-white/70">
-                      Loading: {isLoading ? '✓' : '✗'} | Connected: {isConnected ? '✓' : '✗'}
-                    </div>
-                  
-                    {/* Debug Test Button */}
-                    <button
-                      onClick={() => {
-                        console.log('=== VIDEO DEBUG ===');
-                        console.log('Video ref:', remoteVideoRef.current);
-                        console.log('Video srcObject:', remoteVideoRef.current?.srcObject);
-                        console.log('Video paused:', remoteVideoRef.current?.paused);
-                        console.log('Video readyState:', remoteVideoRef.current?.readyState);
-                        if (remoteVideoRef.current?.srcObject) {
-                          const stream = remoteVideoRef.current.srcObject as MediaStream;
-                          console.log('Stream active:', stream.active);
-                          console.log('Stream tracks:', stream.getTracks());
-                          stream.getTracks().forEach(track => {
-                            console.log(`Track ${track.kind}:`, track.enabled, track.readyState);
-                          });
-                        }
-                      }}
-                      className="px-3 py-1.5 bg-blue-600/80 hover:bg-blue-600 backdrop-blur-md rounded-lg text-xs text-white font-semibold"
-                    >
-                      Debug
-                    </button>
                   </div>
                 
                   <div className="flex items-center gap-2">

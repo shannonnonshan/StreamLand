@@ -1,4 +1,5 @@
-import { Controller, Get, Patch, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Patch, Body, Param, UseGuards, Request, Post, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { TeacherService } from './teacher.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Public } from '../auth/decorators/public.decorator';
@@ -42,5 +43,26 @@ export class TeacherController {
       throw new Error('Unauthorized');
     }
     return this.teacherService.updateAvatar(teacherId, avatarUrl);
+  }
+
+  // Upload document for livestream
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/upload-document')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadDocument(
+    @Param('id') teacherId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Request() req: { user: { sub: string } }
+  ) {
+    // Verify that the user is uploading to their own account
+    if (req.user.sub !== teacherId) {
+      throw new BadRequestException('Unauthorized');
+    }
+
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    return this.teacherService.uploadDocument(teacherId, file);
   }
 }

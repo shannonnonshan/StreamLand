@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { R2StorageService } from '../r2-storage/r2-storage.service';
 
 @Injectable()
 export class TeacherService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private r2StorageService: R2StorageService,
+  ) {}
 
   // Get teacher profile by ID
   async getProfile(teacherId: string) {
@@ -89,6 +93,34 @@ export class TeacherService {
     return {
       message: 'Avatar updated successfully',
       avatar: updatedTeacher.avatar,
+    };
+  }
+
+  // Upload document to R2
+  async uploadDocument(teacherId: string, file: Express.Multer.File) {
+    const teacher = await this.prisma.postgres.user.findUnique({
+      where: { id: teacherId },
+      include: { teacherProfile: true },
+    });
+
+    if (!teacher || !teacher.teacherProfile) {
+      throw new NotFoundException('Teacher not found');
+    }
+
+    // Upload to R2
+    const documentUrl = await this.r2StorageService.uploadDocument(
+      teacherId,
+      file.originalname as string,
+      file.buffer as Buffer,
+      file.mimetype as string,
+    );
+
+    return {
+      message: 'Document uploaded successfully',
+      url: documentUrl,
+      filename: file.originalname,
+      size: file.size,
+      type: file.mimetype,
     };
   }
 }

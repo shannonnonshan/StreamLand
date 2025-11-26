@@ -72,12 +72,6 @@ interface Channel {
   videoChunks?: Buffer[];
   chunkCount?: number;
 }
-
-interface VideoChunkPayload extends BroadcasterPayload {
-  chunk: string; // Base64 encoded video data
-  chunkIndex: number;
-}
-
 @WebSocketGateway({ cors: { origin: '*' } })
 export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
@@ -244,77 +238,22 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('stream-ended')
-  async handleStreamEnded(@MessageBody() data: BroadcasterPayload & { saveRecording?: boolean }) {
+  handleStreamEnded(@MessageBody() data: BroadcasterPayload & { saveRecording?: boolean }) {
     const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
     if (channel) {
       this.server.to([...channel.watchers]).emit('stream-ended', data);
       
-      // Check if recording should be saved
-      const shouldSaveRecording = data.saveRecording !== false; // Default to true for backward compatibility
-      
-      // Save video chunks to R2 if available and saveRecording is true
-      if (shouldSaveRecording && channel.videoChunks && channel.videoChunks.length > 0) {
-        try {
-          console.log(`Saving recording for livestream ${data.livestreamID}...`);
-          const videoUrl = await this.saveVideoToR2(data.livestreamID, channel.videoChunks);
-          console.log(`Recording saved successfully: ${videoUrl}`);
-          
-          // Update livestream with recording URL
-          await this.prismaService.postgres.liveStream.update({
-            where: { id: data.livestreamID },
-            data: { 
-              recordingUrl: videoUrl,
-              isRecorded: true,
-            },
-          });
-        } catch (error) {
-          console.error('Failed to save video to R2:', error);
-        }
-      } else if (!shouldSaveRecording) {
-        console.log(`Recording not saved for livestream ${data.livestreamID} (user choice)`);
-      } else {
-        console.log(`No video chunks available for livestream ${data.livestreamID}`);
-      }
+      // Recording is now handled by frontend upload (not chunk-based)
+      // Just clean up the channel
+      console.log(`Stream ended for livestream ${data.livestreamID}`);
       
       delete this.channels[key];
     }
   }
 
-  @SubscribeMessage('video-chunk')
-  async handleVideoChunk(
-    @MessageBody() data: VideoChunkPayload,
-    @ConnectedSocket() socket: Socket,
-  ) {
-    const key = this.getKey(data.livestreamID);
-    const channel = this.channels[key];
-    
-    if (channel && channel.broadcaster === socket.id) {
-      // Initialize video chunks array if not exists
-      if (!channel.videoChunks) {
-        channel.videoChunks = [];
-        channel.chunkCount = 0;
-      }
-      
-      // Decode base64 chunk and store
-      const chunkBuffer = Buffer.from(data.chunk, 'base64');
-      channel.videoChunks.push(chunkBuffer);
-      channel.chunkCount = (channel.chunkCount || 0) + 1;
-      
-      console.log(`Received video chunk ${data.chunkIndex} for livestream ${data.livestreamID}`);
-      
-      // Optional: Upload chunk immediately to R2 (for better reliability)
-      try {
-        await this.r2StorageService.uploadChunk(
-          data.livestreamID,
-          data.chunkIndex,
-          chunkBuffer,
-        );
-      } catch (error) {
-        console.error('Failed to upload chunk to R2:', error);
-      }
-    }
-  }
+  // Video chunks are no longer handled via WebSocket
+  // Recording is now uploaded as complete video after stream ends
 
   @SubscribeMessage('share-document')
   handleShareDocument(
@@ -398,15 +337,13 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // Save chat message to MongoDB
   private async saveChatMessage(data: ChatMessagePayload): Promise<void> {
     try {
-      await this.prismaService.mongo.comment.create({
+      await this.prismaService.mongo.liveStreamChat.create({
         data: {
           livestreamId: data.livestreamID,
           userId: 'anonymous', // TODO: Get actual user ID from auth via socket connection
-          userName: data.message.username,
+          username: data.message.username,
           userAvatar: data.message.avatar,
-          content: data.message.message,
-          likes: 0,
-          replies: 0,
+          message: data.message.message,
         },
       });
 

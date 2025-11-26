@@ -150,6 +150,39 @@ export default function LivestreamViewerPage() {
     setIsMuted(true);
   }, []);
 
+  // Fetch livestream info from backend
+  useEffect(() => {
+    const fetchLivestreamInfo = async () => {
+      try {
+        const response = await fetch(`http://localhost:4000/livestream/${livestreamID}`);
+        if (response.ok) {
+          const data = await response.json();
+          
+          // Map backend data to frontend format
+          setLivestreamInfo({
+            title: data.title,
+            description: data.description || '',
+            category: data.category || 'Education',
+            teacher: {
+              id: data.teacherId,
+              name: data.teacher?.fullName || 'Teacher',
+              avatar: data.teacher?.avatar || '/avatars/teacher-default.png',
+              followers: data.teacher?.followersCount?.toString() || '0',
+            },
+            viewers: data.currentViewers || 0,
+            likes: data.likes || 0,
+            isLive: data.status === 'LIVE',
+            startedAt: data.startedAt || data.createdAt,
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching livestream info:', error);
+      }
+    };
+
+    fetchLivestreamInfo();
+  }, [livestreamID]);
+
   // Listen for livestream info from backend
   useEffect(() => {
     import('@/socket').then((module) => {
@@ -157,6 +190,11 @@ export default function LivestreamViewerPage() {
       
       socket.on('livestream-info', (info: LivestreamInfo) => {
         setLivestreamInfo(info);
+      });
+
+      // Listen for viewer count updates
+      socket.on('viewerCount', (count: number) => {
+        setLivestreamInfo(prev => prev ? { ...prev, viewers: count } : null);
       });
 
       // Listen for chat messages
@@ -203,6 +241,7 @@ export default function LivestreamViewerPage() {
     return () => {
       import('@/socket').then((module) => {
         module.default.off('livestream-info');
+        module.default.off('viewerCount');
         module.default.off('chat-message');
         module.default.off('share-document');
         module.default.off('close-document');

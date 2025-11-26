@@ -97,6 +97,21 @@ model ActivityLog {
   @@map("activity_logs")
 }
 
+// Live Stream Documents (which documents are shared in livestream)
+model LiveStreamDocuments {
+  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  livestreamId String   @unique
+  documentIds  String[] // Array of document IDs from PostgreSQL
+  
+  // Metadata for each shared document
+  sharedDocuments Json[] // [{documentId, sharedAt, order}, ...]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("livestream_documents")
+}
+
 // Live Stream Sessions (for analytics)
 model LiveStreamSession {
   id           String    @id @default(auto()) @map("_id") @mongodb.ObjectId
@@ -218,7 +233,7 @@ model Reaction {
   id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
   livestreamId String
   userId       String
-  emoji        String // 👍, ❤️, 😂, 😮, etc
+  emoji        String 
   timestamp    DateTime @default(now())
 
   @@index([livestreamId, timestamp])

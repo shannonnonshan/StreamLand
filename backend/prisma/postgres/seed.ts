@@ -21,7 +21,6 @@ async function main() {
       education: 'Master in English Literature',
       rating: 4.8,
       totalStudents: 1250,
-      totalCourses: 15,
     },
     {
       email: 'lan.anh@streamland.com',
@@ -33,7 +32,6 @@ async function main() {
       education: 'PhD in Mathematics',
       rating: 4.9,
       totalStudents: 980,
-      totalCourses: 12,
     },
     {
       email: 'thao.nguyen@streamland.com',
@@ -45,7 +43,6 @@ async function main() {
       education: 'Master in Chemistry',
       rating: 4.7,
       totalStudents: 850,
-      totalCourses: 10,
     },
     {
       email: 'minh.tuan@streamland.com',
@@ -57,7 +54,6 @@ async function main() {
       education: 'Master in Physics',
       rating: 4.6,
       totalStudents: 720,
-      totalCourses: 11,
     },
     {
       email: 'phuong.linh@streamland.com',
@@ -69,7 +65,6 @@ async function main() {
       education: 'Master in Literature',
       rating: 4.9,
       totalStudents: 650,
-      totalCourses: 9,
     },
     {
       email: 'john.smith@streamland.com',
@@ -81,7 +76,6 @@ async function main() {
       education: 'PhD in Computer Science',
       rating: 5.0,
       totalStudents: 1500,
-      totalCourses: 20,
     },
   ];
 
@@ -106,7 +100,6 @@ async function main() {
             education: teacherData.education,
             rating: teacherData.rating,
             totalStudents: teacherData.totalStudents,
-            totalCourses: teacherData.totalCourses,
           },
         },
       },

@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { documents, DocumentItem, ETypeDocument } from "@/utils/data/teacher/documents";
+import { DocumentItem, ETypeDocument } from "@/utils/data/teacher/documents";
 import Image from "next/image";
-import { ArrowDownToLine } from "lucide-react";
+import { ArrowDownToLine, Upload } from "lucide-react";
 
 export default function DocumentsTypePage() {
-  // Lấy params từ hook useParams() thay vì props
   const params = useParams();
   const type = params?.type;
   const teacherId = params?.id;
@@ -21,13 +20,89 @@ export default function DocumentsTypePage() {
   const docType =
     typeof type === "string" ? docTypeMap[type.toLowerCase()] : undefined;
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Fetch documents from backend (currently mock, will be real API later)
+  useEffect(() => {
+    // TODO: Replace with real API call
+    // fetch(`http://localhost:4000/teacher/${teacherId}/documents?type=${docType}`)
+    //   .then(res => res.json())
+    //   .then(data => setDocuments(data));
+    
+    // For now, load from mock data
+    import("@/utils/data/teacher/documents").then(mod => {
+      const filtered = mod.documents.filter((d: DocumentItem) => d.type === docType);
+      setDocuments(filtered);
+    });
+  }, [teacherId, docType]);
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+    if (!token) {
+      alert('Please login to upload documents');
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      for (const file of Array.from(files)) {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const response = await fetch(`http://localhost:4000/teacher/${teacherId}/upload-document`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          throw new Error('Upload failed');
+        }
+        
+        const data = await response.json();
+        console.log('Document uploaded:', data);
+        
+        // Refresh documents list
+        // TODO: Add new document to list or refetch
+      }
+      
+      alert('Documents uploaded successfully!');
+    } catch (error) {
+      console.error('Upload failed:', error);
+      alert('Failed to upload documents. Please try again.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   if (!docType) return <div>Invalid document type</div>;
 
-  const filteredDocs = documents.filter((d) => d.type === docType);
+  const filteredDocs = documents;
 
   return (
     <div className="p-4">
+      {/* Upload Button */}
+      <div className="mb-4 flex justify-end">
+        <label className="bg-[#EC255A] text-white px-4 py-2 rounded-lg hover:bg-red-600 cursor-pointer inline-flex items-center gap-2">
+          <Upload size={20} />
+          <span>{isUploading ? 'Uploading...' : 'Upload Documents'}</span>
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileUpload}
+            disabled={isUploading}
+          />
+        </label>
+      </div>
+
       {/* Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-black">
         {filteredDocs.map((doc) => (

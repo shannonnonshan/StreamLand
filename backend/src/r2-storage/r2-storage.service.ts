@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectsCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'stream';
 
@@ -12,62 +12,42 @@ export class R2StorageService {
   private videoBucketName: string;
   private documentBucketName: string;
 
+  private publicUrl: string;
+  private documentPublicUrl: string;
+
   constructor(private configService: ConfigService) {
     this.videoBucketName = this.configService.get<string>('R2_BUCKET_NAME')!;
-    this.documentBucketName = this.configService.get<string>('R2_DOCUMENT_BUCKET_NAME')!
+    this.documentBucketName = this.configService.get<string>('R2_DOCUMENT_BUCKET_NAME')!;
+    this.publicUrl = this.configService.get<string>('R2_PUBLIC_URL')!;
+    this.documentPublicUrl = this.configService.get<string>('R2_DOCUMENT_PUBLIC_URL')!;
+    
+    const videoAccountId = 'b14364ed47172b12203d851d355a7a71';
+    const documentAccountId = '4193b6b3b69cd503069712d14e7ab703';
 
     // S3 Client for video bucket
+    // Using account-level endpoint with path-style access
     this.videoS3Client = new S3Client({
       region: 'auto',
-      endpoint: 'https://b14364ed47172b12203d851d355a7a71.r2.cloudflarestorage.com',
+      endpoint: `https://${videoAccountId}.r2.cloudflarestorage.com`,
       credentials: {
         accessKeyId: this.configService.get<string>('R2_VIDEO_ACCESS_KEY_ID')!,
         secretAccessKey: this.configService.get<string>('R2_VIDEO_SECRET_ACCESS_KEY')!,
       },
+      forcePathStyle: true,
     });
 
     // S3 Client for document bucket
     this.documentS3Client = new S3Client({
       region: 'auto',
-      endpoint: 'https://4193b6b3b69cd503069712d14e7ab703.r2.cloudflarestorage.com',
+      endpoint: `https://${documentAccountId}.r2.cloudflarestorage.com`,
       credentials: {
         accessKeyId: this.configService.get<string>('R2_DOCUMENT_ACCESS_KEY_ID')!,
         secretAccessKey: this.configService.get<string>('R2_DOCUMENT_SECRET_ACCESS_KEY')!,
       },
+      forcePathStyle: true,
     });
 
-    this.logger.log('R2 Storage Service initialized');
-    this.logger.log(`Video bucket: ${this.videoBucketName}`);
-    this.logger.log(`Document bucket: ${this.documentBucketName}`);
   }
-
-  /**
-   * Upload video chunk to R2
-   */
-  async uploadChunk(
-    livestreamId: string,
-    chunkIndex: number,
-    data: Buffer,
-  ): Promise<string> {
-    const key = `livestreams/${livestreamId}/chunks/chunk-${chunkIndex}.webm`;
-
-    try {
-      const command = new PutObjectCommand({
-        Bucket: this.videoBucketName,
-        Key: key,
-        Body: data,
-        ContentType: 'video/webm',
-      });
-
-      await this.videoS3Client.send(command);
-      this.logger.log(`Uploaded chunk ${chunkIndex} for livestream ${livestreamId}`);
-      return key;
-    } catch (error) {
-      this.logger.error(`Failed to upload chunk ${chunkIndex}:`, error);
-      throw error;
-    }
-  }
-
   /**
    * Upload complete video file to R2
    */
@@ -93,8 +73,8 @@ export class R2StorageService {
       await upload.done();
       this.logger.log(`Uploaded complete video for livestream ${livestreamId}`);
       
-      // Return public URL
-      return `https://b14364ed47172b12203d851d355a7a71.r2.cloudflarestorage.com/${this.videoBucketName}/${key}`;
+      // Return public URL (R2.dev subdomain)
+      return `${this.publicUrl}/${key}`;
     } catch (error) {
       this.logger.error(`Failed to upload video for ${livestreamId}:`, error);
       throw error;
@@ -105,16 +85,42 @@ export class R2StorageService {
    * Get public URL for a video
    */
   getPublicUrl(key: string): string {
-    return `https://b14364ed47172b12203d851d355a7a71.r2.cloudflarestorage.com/${this.videoBucketName}/${key}`;
+    return `${this.publicUrl}/${key}`;
   }
 
   /**
-   * Delete video and its chunks
+   * Delete video and its chunks from R2
    */
-  deleteVideo(livestreamId: string): void {
-    // Implementation for deleting objects
-    // You can add batch delete logic here if needed
-    this.logger.log(`Delete requested for livestream ${livestreamId}`);
+  async deleteVideo(livestreamId: string): Promise<void> {
+    try {
+      // List all objects with the prefix
+      const listCommand = new ListObjectsV2Command({
+        Bucket: this.videoBucketName,
+        Prefix: `livestreams/${livestreamId}/`,
+      });
+
+      const listResponse = await this.videoS3Client.send(listCommand);
+
+      if (!listResponse.Contents || listResponse.Contents.length === 0) {
+        this.logger.log(`No chunks found for livestream ${livestreamId}`);
+        return;
+      }
+
+      // Delete all objects
+      const deleteCommand = new DeleteObjectsCommand({
+        Bucket: this.videoBucketName,
+        Delete: {
+          Objects: listResponse.Contents.map(obj => ({ Key: obj.Key })),
+          Quiet: true,
+        },
+      });
+
+      await this.videoS3Client.send(deleteCommand);
+      this.logger.log(`Deleted ${listResponse.Contents.length} chunks for livestream ${livestreamId}`);
+    } catch (error) {
+      this.logger.error(`Failed to delete chunks for livestream ${livestreamId}:`, error);
+      throw error;
+    }
   }
 
   /**
@@ -140,7 +146,7 @@ export class R2StorageService {
       this.logger.log(`Uploaded document ${fileName} for teacher ${teacherId}`);
       
       // Return public URL
-      return `https://4193b6b3b69cd503069712d14e7ab703.r2.cloudflarestorage.com/${this.documentBucketName}/${key}`;
+      return `${this.documentPublicUrl}/${key}`;
     } catch (error) {
       this.logger.error(`Failed to upload document ${fileName}:`, error);
       throw error;

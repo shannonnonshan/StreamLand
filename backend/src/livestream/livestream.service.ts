@@ -2,6 +2,8 @@ import { Injectable, ConflictException, NotFoundException, BadRequestException, 
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLivestreamDto } from './dto/create-livestream.dto';
 import { LiveStreamStatus } from '@prisma/client';
+import { R2StorageService } from '../r2-storage/r2-storage.service';
+import { Readable } from 'stream';
 
 @Injectable()
 export class LivestreamService {
@@ -9,6 +11,7 @@ export class LivestreamService {
   
   constructor(
     private prisma: PrismaService,
+    private r2StorageService: R2StorageService,
   ) {}
 
   async createLivestream(createLivestreamDto: CreateLivestreamDto) {
@@ -72,13 +75,46 @@ export class LivestreamService {
   async getLivestreamById(id: string) {
     const livestream = await this.prisma.postgres.liveStream.findUnique({
       where: { id },
+      include: {
+        teacher: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            avatar: true,
+            bio: true,
+            teacherProfile: {
+              select: {
+                subjects: true,
+                experience: true,
+                education: true,
+                rating: true,
+                totalStudents: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!livestream) {
       throw new NotFoundException('Livestream not found');
     }
 
-    return livestream;
+    // Get followers count separately
+    const followersCount = livestream.teacherId
+      ? await this.prisma.postgres.followedTeacher.count({
+          where: { teacherId: livestream.teacherId },
+        })
+      : 0;
+
+    return {
+      ...livestream,
+      teacher: livestream.teacher ? {
+        ...livestream.teacher,
+        followersCount,
+      } : null,
+    };
   }
 
   async updateLivestreamStatus(id: string, status: LiveStreamStatus) {
@@ -169,6 +205,36 @@ export class LivestreamService {
     return updatedLivestream;
   }
 
-  // Recording is now handled by stream.gateway.ts and R2 storage
-  // These methods are deprecated and replaced by R2 upload flow
+  async uploadRecording(livestreamId: string, videoBase64: string) {
+    this.logger.log(`Uploading recording for livestream ${livestreamId}`);
+    
+    try {
+      // Decode base64 video
+      const videoBuffer = Buffer.from(videoBase64, 'base64');
+      this.logger.log(`Video size: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+      
+      // Convert buffer to stream for upload
+      const videoStream = Readable.from(videoBuffer);
+      
+      // Upload to R2
+      const videoUrl = await this.r2StorageService.uploadVideo(livestreamId, videoStream, {
+        uploadedAt: new Date().toISOString(),
+      });
+      
+      // Update livestream with recording URL
+      await this.prisma.postgres.liveStream.update({
+        where: { id: livestreamId },
+        data: {
+          recordingUrl: videoUrl,
+          isRecorded: true,
+        },
+      });
+      
+      this.logger.log(`Recording uploaded successfully: ${videoUrl}`);
+      return { success: true, url: videoUrl };
+    } catch (error) {
+      this.logger.error(`Failed to upload recording:`, error);
+      throw error;
+    }
+  }
 }

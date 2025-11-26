@@ -13,6 +13,7 @@ import {
   Settings as SettingsIcon,
   Radio,
   Headset,
+  ArrowUp,
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
@@ -40,7 +41,23 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const [authCheckDone, setAuthCheckDone] = useState(false);
   const [showStartLiveModal, setShowStartLiveModal] = useState(false);
   const [pendingLivestreamId, setPendingLivestreamId] = useState<string | null>(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const { user, isAuthenticated, loading } = useAuth();
+
+  // Scroll to top button
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollPercentage = (window.scrollY / document.documentElement.scrollHeight) * 100;
+      setShowScrollTop(scrollPercentage > 20);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Check authentication and role
   useEffect(() => {
@@ -303,7 +320,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         >
           <div className="flex min-h-screen flex-col bg-[#F9F9F9]">
           {/* Top Navigation */}
-          <nav className=" bg-[#F9F9F9] shadow-2xs pl-[8%] px-10 py-4 flex justify-between items-center fixed top-0 left-0 right-0 z-10">
+          <nav className=" bg-[#F9F9F9] shadow-2xs pl-[8%] px-10 py-4 flex justify-between items-center">
             {/* Logo */}
             <div className="flex items-center">
               <a href={`/teacher/${id}`}>
@@ -373,7 +390,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </ul>
           </nav>
 
-          <div className="flex flex-row flex-1 mt-16">
+          <div className="flex flex-row flex-1">
             {/* Shared Sidebar Component */}
             <Sidebar 
               userId={id}
@@ -388,6 +405,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               {children}
             </main>
           </div>
+
+          {/* Scroll to Top Button */}
+          {showScrollTop && (
+            <button
+              onClick={scrollToTop}
+              className="fixed bottom-8 right-8 bg-[#EC255A] text-white p-3 rounded-full shadow-lg hover:bg-red-600 transition-all duration-300 z-50"
+              aria-label="Scroll to top"
+            >
+              <ArrowUp size={24} />
+            </button>
+          )}
         </div>
         </div>
       </>

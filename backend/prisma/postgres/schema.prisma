@@ -227,7 +227,6 @@ model Schedule {
   
   // Metadata
   color             String? // For calendar display
-  location          String? // Virtual room, physical location, etc
   maxParticipants   Int?
   tags              String[]
   

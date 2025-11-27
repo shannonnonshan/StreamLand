@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ICE_SERVERS } from "@/utils/ice";
 import socket from "@/socket";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 import {
   Mic,
   MicOff,
@@ -102,7 +104,7 @@ export default function BroadcasterPage() {
     
     const fetchLivestreamInfo = async () => {
       try {
-        const response = await fetch(`http://localhost:4000/livestream/${livestreamID}`, {
+        const response = await fetch(`${API_URL}/livestream/${livestreamID}`, {
           // Add cache control for better performance
           cache: 'no-store',
           next: { revalidate: 0 }
@@ -283,7 +285,7 @@ export default function BroadcasterPage() {
         
         // Upload to backend
         const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-        const uploadResponse = await fetch(`http://localhost:4000/livestream/${livestreamID}/upload-recording`, {
+        const uploadResponse = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -303,7 +305,7 @@ export default function BroadcasterPage() {
       
       // Update livestream status
       const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-      const response = await fetch(`http://localhost:4000/livestream/${livestreamID}/end`, {
+      const response = await fetch(`${API_URL}/livestream/${livestreamID}/end`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -539,7 +541,7 @@ export default function BroadcasterPage() {
         const formData = new FormData();
         formData.append('file', file);
         
-        const response = await fetch(`http://localhost:4000/teacher/${teacherID}/upload-document`, {
+        const response = await fetch(`${API_URL}/teacher/${teacherID}/upload-document`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,

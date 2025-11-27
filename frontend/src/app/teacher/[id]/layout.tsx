@@ -42,6 +42,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const [showStartLiveModal, setShowStartLiveModal] = useState(false);
   const [pendingLivestreamId, setPendingLivestreamId] = useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const { user, isAuthenticated, loading } = useAuth();
 
   // Scroll to top button
@@ -70,6 +71,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         setAuthCheckDone(true);
       } else if (user?.role !== 'TEACHER') {
         // Wrong role - logout and redirect to correct dashboard
+        setIsRedirecting(true);
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('user');
@@ -85,6 +87,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         }
       } else if (routeId && user?.id && routeId !== user.id) {
         // ID in URL doesn't match authenticated user - redirect to correct URL
+        setIsRedirecting(true);
         router.replace(`/teacher/${user.id}${pathname.replace(`/teacher/${routeId}`, '')}`);
         setAuthCheckDone(true);
       } else {
@@ -139,7 +142,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         throw new Error('Invalid authentication token. Please login again.');
       }
 
-      const response = await fetch('http://localhost:4000/livestream/create', {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const response = await fetch(`${API_URL}/livestream/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -168,6 +172,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
       // Close modal and navigate to livestream page
       setShowStartLiveModal(false);
+      setIsRedirecting(true);
       router.push(`/teacher/${id}/livestream/${pendingLivestreamId}`);
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to create livestream');
@@ -189,6 +194,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   ];
 
   const handleChatClick = () => {
+    setIsRedirecting(true);
     router.push(`/teacher/${id}/chat-with-admin`);
   };
 
@@ -199,13 +205,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     isActive: (pathname: string) => pathname.includes("/chat-with-admin"),
   };
 
-  // Show loading state while checking auth
-  if (loading || !authCheckDone) {
+  // Show loading state while checking auth or redirecting
+  if (loading || !authCheckDone || isRedirecting) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F9F9F9]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#EC255A] mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+          <p className="text-gray-600">{isRedirecting ? 'Redirecting...' : 'Loading...'}</p>
         </div>
       </div>
     );

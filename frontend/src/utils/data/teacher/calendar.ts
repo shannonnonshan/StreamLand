@@ -10,6 +10,7 @@ export interface CalendarEvent {
   audience: "public" | "subscribers";
   notification?: number;
   description?: string;
+  livestreamId?: string; // ID of associated livestream
 }
 
 export const sampleEvents: CalendarEvent[] = [

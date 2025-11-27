@@ -56,6 +56,7 @@ export class LivestreamController {
   @UseGuards(JwtAuthGuard)
   async getTeacherLivestreams(
     @Param('teacherId') teacherId: string,
+    @Query('status') status: string,
     @Request() req: any,
   ) {
     // Only allow teachers to view their own livestreams or admins
@@ -63,7 +64,7 @@ export class LivestreamController {
       throw new UnauthorizedException('You can only view your own livestreams');
     }
 
-    return await this.livestreamService.getTeacherLivestreams(teacherId);
+    return await this.livestreamService.getTeacherLivestreams(teacherId, status);
   }
 
   @Get('active/all')

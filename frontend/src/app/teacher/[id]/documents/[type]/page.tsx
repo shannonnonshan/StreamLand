@@ -2,77 +2,58 @@
 
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { DocumentItem, ETypeDocument } from "@/utils/data/teacher/documents";
 import Image from "next/image";
 import { ArrowDownToLine, Upload } from "lucide-react";
+import { getTeacherDocuments, uploadDocument, Document, mapDocumentTypeToFileType } from "@/lib/api/teacher";
 
 export default function DocumentsTypePage() {
   const params = useParams();
-  const type = params?.type;
-  const teacherId = params?.id;
+  const type = params?.type as string;
+  const teacherId = params?.id as string;
 
-  const docTypeMap: Record<string, ETypeDocument> = {
-    file: ETypeDocument.FILE,
-    image: ETypeDocument.IMAGE,
-    video: ETypeDocument.VIDEO,
-  };
-
-  const docType =
-    typeof type === "string" ? docTypeMap[type.toLowerCase()] : undefined;
-  const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
-  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
+  const [documents, setDocuments] = useState<Document[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Fetch documents from backend (currently mock, will be real API later)
+  // Fetch documents from backend
   useEffect(() => {
-    // TODO: Replace with real API call
-    // fetch(`http://localhost:4000/teacher/${teacherId}/documents?type=${docType}`)
-    //   .then(res => res.json())
-    //   .then(data => setDocuments(data));
+    if (!teacherId || !type) return;
     
-    // For now, load from mock data
-    import("@/utils/data/teacher/documents").then(mod => {
-      const filtered = mod.documents.filter((d: DocumentItem) => d.type === docType);
-      setDocuments(filtered);
-    });
-  }, [teacherId, docType]);
+    const fetchDocuments = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const fileType = mapDocumentTypeToFileType(type);
+        const data = await getTeacherDocuments(teacherId, fileType);
+        setDocuments(data);
+      } catch (err) {
+        console.error('Failed to fetch documents:', err);
+        setError('Failed to load documents');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDocuments();
+  }, [teacherId, type]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
-    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-    if (!token) {
-      alert('Please login to upload documents');
-      return;
-    }
-
     setIsUploading(true);
 
     try {
+      const uploadedDocs: Document[] = [];
       for (const file of Array.from(files)) {
-        const formData = new FormData();
-        formData.append('file', file);
-        
-        const response = await fetch(`http://localhost:4000/teacher/${teacherId}/upload-document`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-          body: formData,
-        });
-        
-        if (!response.ok) {
-          throw new Error('Upload failed');
-        }
-        
-        const data = await response.json();
-        console.log('Document uploaded:', data);
-        
-        // Refresh documents list
-        // TODO: Add new document to list or refetch
+        const data = await uploadDocument(teacherId, file);
+        uploadedDocs.push(data);
       }
       
+      // Add new documents to list
+      setDocuments([...uploadedDocs, ...documents]);
       alert('Documents uploaded successfully!');
     } catch (error) {
       console.error('Upload failed:', error);
@@ -82,9 +63,21 @@ export default function DocumentsTypePage() {
     }
   };
 
-  if (!docType) return <div>Invalid document type</div>;
+  if (isLoading) {
+    return (
+      <div className="p-4 flex justify-center items-center min-h-[400px]">
+        <div className="text-gray-500">Loading documents...</div>
+      </div>
+    );
+  }
 
-  const filteredDocs = documents;
+  if (error) {
+    return (
+      <div className="p-4 flex justify-center items-center min-h-[400px]">
+        <div className="text-red-500">{error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4">
@@ -105,7 +98,7 @@ export default function DocumentsTypePage() {
 
       {/* Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-black">
-        {filteredDocs.map((doc) => (
+        {documents.map((doc) => (
           <div
             key={doc.id}
             className="bg-white shadow p-3 cursor-pointer hover:shadow-md transition"
@@ -117,7 +110,7 @@ export default function DocumentsTypePage() {
                 <Image
                     src={doc.thumbnail || "/logo.png"}
                     alt={doc.title}
-                    width={110}    // or adjust as needed
+                    width={110}
                     height={100}
                     style={{ objectFit: "contain" }}
                 />
@@ -126,7 +119,7 @@ export default function DocumentsTypePage() {
            
             <p className="mt-2 text-sm font-semibold truncate">{doc.title}</p>
             <p className="text-xs text-gray-500">
-              {new Date(doc.uploadedDate).toLocaleDateString()}
+              {new Date(doc.uploadedAt).toLocaleDateString()}
             </p>
           </div>
         ))}
@@ -151,60 +144,51 @@ export default function DocumentsTypePage() {
 
             <h3 className="font-bold text-lg mb-2">{selectedDoc.title}</h3>
             <p className="text-sm text-gray-500 mb-2">
-              Uploaded: {new Date(selectedDoc.uploadedDate).toLocaleString()}
+              Uploaded: {new Date(selectedDoc.uploadedAt).toLocaleString()}
             </p>
-
-            {selectedDoc.type === ETypeDocument.FILE && (
-              <div className="flex flex-col gap-2">
-                <p className="text-sm">
-                  Course: <span className="font-semibold">{selectedDoc.course.name}</span>
-                </p>
-                <div className="flex gap-1 flex-wrap">
-                  {selectedDoc.tag.map((t) => (
-                    <span
-                      key={t.id}
-                      className="text-xs bg-gray-100 border rounded px-2 py-0.5"
-                    >
-                      #{t.name}
-                    </span>
-                  ))}
-                </div>
-                <p className="mt-2 text-xs text-gray-500">
-                  Preview only. To download, click below.
-                </p>
-              </div>
+            
+            {selectedDoc.description && (
+              <p className="text-sm mb-2">{selectedDoc.description}</p>
             )}
 
-            {selectedDoc.type === ETypeDocument.IMAGE && (
-              <div className="w-full h-[400px] relative mt-2">
-                <div className="w-full flex justify-center mt-2">
+            <div className="flex flex-col gap-2">
+              <p className="text-sm">
+                File: <span className="font-semibold">{selectedDoc.fileName}</span>
+              </p>
+              <p className="text-sm">
+                Type: <span className="font-semibold">{selectedDoc.fileType}</span>
+              </p>
+              <p className="text-sm">
+                Size: <span className="font-semibold">{(selectedDoc.fileSize / 1024 / 1024).toFixed(2)} MB</span>
+              </p>
+            </div>
+
+            {selectedDoc.fileType === 'image' && selectedDoc.thumbnail && (
+              <div className="w-full mt-4 flex justify-center">
                 <Image
-                    src={selectedDoc.thumbnail || "/logo.png"}
-                    alt={selectedDoc.title}
-                    width={400}    // or adjust as needed
-                    height={350}
-                    style={{ objectFit: "contain" }}
+                  src={selectedDoc.thumbnail}
+                  alt={selectedDoc.title}
+                  width={400}
+                  height={350}
+                  style={{ objectFit: "contain" }}
                 />
-                </div>
               </div>
             )}
 
-            {selectedDoc.type === ETypeDocument.VIDEO && (
+            {selectedDoc.fileType === 'video' && selectedDoc.fileUrl && (
               <video
-                src={selectedDoc.thumbnail || ""} // chỉ dùng video thật
-                poster="/logo.png"
-                className="mt-2 w-full rounded"
+                src={selectedDoc.fileUrl}
+                poster={selectedDoc.thumbnail || "/logo.png"}
+                className="mt-4 w-full rounded"
                 controls
               />
             )}
 
             <a
-              href={
-                selectedDoc.type === ETypeDocument.FILE
-                  ? "/files/" + selectedDoc.title
-                  : selectedDoc.thumbnail || "/logo.png"
-              }
-              download
+              href={selectedDoc.fileUrl}
+              download={selectedDoc.fileName}
+              target="_blank"
+              rel="noopener noreferrer"
               className="mt-4 inline-block px-4 py-2 bg-[#EC255A] text-white rounded hover:bg-[#EC255A]/90 transition"
             >
               <ArrowDownToLine/>

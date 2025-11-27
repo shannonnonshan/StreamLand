@@ -149,9 +149,15 @@ export class LivestreamService {
     });
   }
 
-  async getTeacherLivestreams(teacherId: string) {
+  async getTeacherLivestreams(teacherId: string, status?: string) {
+    const where: any = { teacherId };
+    
+    if (status && ['SCHEDULED', 'LIVE', 'ENDED', 'CANCELLED'].includes(status)) {
+      where.status = status;
+    }
+    
     return await this.prisma.postgres.liveStream.findMany({
-      where: { teacherId },
+      where,
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -278,7 +284,6 @@ export class LivestreamService {
       isPublic: isPublic !== undefined ? isPublic : true,
       notifyBefore: rest.notifyBefore || 15,
       color: rest.color,
-      location: rest.location,
       maxParticipants: rest.maxParticipants,
       tags: rest.tags || [],
       status: ScheduleStatus.SCHEDULED,

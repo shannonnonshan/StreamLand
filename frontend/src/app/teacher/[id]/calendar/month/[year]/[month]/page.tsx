@@ -3,17 +3,30 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { raleway } from "@/utils/front";
-import { Bell, CalendarDays, Clock, Palette, UserRound, XIcon } from "lucide-react";
-import { CalendarEvent, sampleEvents } from "@/utils/data/teacher/calendar";
 import pastelize from "@/utils/colorise";
 import EventDrawer from "@/component/teacher/calendar/EventDrawer";
 import { ScheduleEvent } from "@/component/teacher/calendar/ScheduleEventModal";
 import ScheduleEventModal from "@/component/teacher/calendar/ScheduleEventModal";
+import { getTeacherSchedules, formatScheduleForCalendar, createSchedule } from "@/lib/api/teacher";
+
 const MONTH_NAMES = [
   "January","February","March","April","May","June",
   "July","August","September","October","November","December"
 ];
 const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+interface CalendarEvent {
+  id?: string;
+  teacherId: string;
+  title: string;
+  date: string;
+  start: string;
+  end: string;
+  color: string;
+  audience: "public" | "subscribers";
+  notification?: number;
+  description?: string;
+}
 
 export default function MonthCalendarPage({
   params,
@@ -21,7 +34,7 @@ export default function MonthCalendarPage({
   const today = new Date();
   const router = useRouter();
 
-  const teacherId = params?.id ?? "1"; // fallback teacherId = 1
+  const teacherId = params?.id ?? "1";
   const initialYear = params?.year ? Number(params.year) : today.getFullYear();
   const initialMonth = params?.month ? Number(params.month) - 1 : today.getMonth();
 
@@ -29,7 +42,7 @@ export default function MonthCalendarPage({
   const [year, setYear] = useState<number>(initialYear);
   const [noOfDays, setNoOfDays] = useState<number[]>([]);
   const [blankDays, setBlankDays] = useState<number[]>([]);
-  const [events, setEvents] = useState<CalendarEvent[]>(sampleEvents);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
 
   // modal state
   const [openModal, setOpenModal] = useState(false);
@@ -38,12 +51,27 @@ export default function MonthCalendarPage({
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const handleSaveEvent = (newEvent: ScheduleEvent) => {
-    const calendarEvent: CalendarEvent = {
-      ...newEvent,
-      end: newEvent.end || newEvent.start 
-    };
-    setEvents([...events, calendarEvent]);
+  const handleSaveEvent = async (newEvent: ScheduleEvent) => {
+    try {
+      const startDateTime = `${eventDate}T${newEvent.startTime}:00`;
+      const endDateTime = `${eventDate}T${newEvent.endTime}:00`;
+      
+      const schedule = await createSchedule({
+        title: newEvent.title,
+        startTime: startDateTime,
+        endTime: endDateTime,
+        isPublic: newEvent.isPublic,
+        color: newEvent.color,
+        location: newEvent.location,
+        notifyBefore: newEvent.notifyBefore,
+      });
+
+      const calendarEvent = formatScheduleForCalendar(schedule);
+      setEvents([...events, calendarEvent]);
+    } catch (error) {
+      console.error('Failed to create schedule:', error);
+      alert('Failed to create schedule');
+    }
   };
 
   const openDrawer = (ev: CalendarEvent) => {
@@ -55,6 +83,24 @@ export default function MonthCalendarPage({
     setDrawerOpen(false);
     setSelectedEvent(null);
   };
+
+  // Fetch schedules from backend
+  useEffect(() => {
+    const fetchSchedules = async () => {
+      try {
+        const startDate = new Date(year, month, 1).toISOString().split('T')[0];
+        const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
+        
+        const schedules = await getTeacherSchedules(teacherId, startDate, endDate);
+        const calendarEvents = schedules.map(formatScheduleForCalendar);
+        setEvents(calendarEvents);
+      } catch (error) {
+        console.error('Failed to fetch schedules:', error);
+      }
+    };
+
+    fetchSchedules();
+  }, [teacherId, year, month]);
 
   // khi đổi tháng/năm → tính lại số ngày
   useEffect(() => {

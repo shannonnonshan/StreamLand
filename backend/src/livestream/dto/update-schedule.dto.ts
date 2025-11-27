@@ -40,10 +40,6 @@ export class UpdateScheduleDto {
   color?: string;
 
   @IsOptional()
-  @IsString()
-  location?: string;
-
-  @IsOptional()
   @IsInt()
   @Min(1)
   maxParticipants?: number;

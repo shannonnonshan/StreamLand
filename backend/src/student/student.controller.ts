@@ -140,4 +140,29 @@ export class StudentController {
   async getAllTeachers() {
     return this.studentService.getAllTeachers();
   }
+
+  // Track watch activity (livestream or video)
+  @Post('track-activity')
+  async trackWatchActivity(
+    @Request() req: { user: { sub: string } },
+    @Body() body: { contentType: 'livestream' | 'video'; contentId: string },
+  ) {
+    return this.studentService.trackWatchActivity(
+      req.user.sub,
+      body.contentType,
+      body.contentId,
+    );
+  }
+
+  // Get student statistics
+  @Get('stats')
+  async getStudentStats(@Request() req: { user: { sub: string } }) {
+    return this.studentService.getStudentStats(req.user.sub);
+  }
+
+  // Get stats for a specific student (by userId)
+  @Get('stats/:userId')
+  async getStudentStatsByUserId(@Param('userId') userId: string) {
+    return this.studentService.getStudentStats(userId);
+  }
 }

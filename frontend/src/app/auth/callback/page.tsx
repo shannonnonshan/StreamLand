@@ -30,7 +30,7 @@ export default function AuthCallback() {
           if (user.role === 'TEACHER') {
             router.push(`/teacher/${user.id}`);
           } else {
-            router.push('/student/dashboard');
+            router.push(`/student/${user.id}/dashboard`);
           }
         })
         .catch(() => {

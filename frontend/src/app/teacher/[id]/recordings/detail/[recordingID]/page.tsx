@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import { mockRecordings, Recording } from "@/utils/data/teacher/mockRecordings";
+import { trackWatchActivity } from "@/utils/trackActivity";
 import { ArrowLeft, Calendar, Clock, Download, Share2 } from "lucide-react";
 
 export default function RecordingDetailPage() {
@@ -12,6 +14,13 @@ export default function RecordingDetailPage() {
   const recordingID = params?.recordingID as string;
 
   const recording: Recording | undefined = mockRecordings.find(r => r.id === recordingID);
+
+  // Track watch activity when video loads
+  useEffect(() => {
+    if (recordingID && recording) {
+      trackWatchActivity('video', recordingID);
+    }
+  }, [recordingID, recording]);
 
   if (!recording) {
     return (

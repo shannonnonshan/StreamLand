@@ -60,6 +60,7 @@ model StudentProfile {
   interests              String[]
   studyHours             Int               @default(0)
   studyStreak            Int               @default(0)
+  lastActivityDate       DateTime?
   learningGoals          String[]
   createdAt              DateTime          @default(now())
   updatedAt              DateTime          @updatedAt
@@ -82,9 +83,6 @@ model FriendList {
   requester  StudentProfile @relation("SentFriendRequests", fields: [requestId], references: [id], onDelete: Cascade)
 
   @@unique([requestId, receiverId])
-  @@index([requestId, status])
-  @@index([receiverId, status])
-  @@index([status])
   @@map("friend_lists")
 }
 
@@ -126,6 +124,7 @@ model LiveStream {
   updatedAt      DateTime         @updatedAt
   category       String?
   users          User             @relation(fields: [teacherId], references: [id])
+  schedules      Schedule?
   tags           Tag[]
 
   @@index([teacherId, status])
@@ -168,22 +167,31 @@ model Tag {
 }
 
 model Schedule {
-  id           String       @id @default(uuid())
-  teacherId    String
-  title        String
-  description  String?
-  type         ScheduleType
-  startTime    DateTime
-  endTime      DateTime
-  isRecurring  Boolean      @default(false)
-  recurrence   String?
-  livestreamId String?
-  notifyBefore Int          @default(15)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id              String         @id @default(uuid())
+  teacherId       String
+  title           String
+  startTime       DateTime
+  endTime         DateTime
+  livestreamId    String?        @unique
+  notifyBefore    Int            @default(15)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  cancelReason    String?
+  cancelledAt     DateTime?
+  color           String?
+  location        String?
+  maxParticipants Int?
+  reminderSent    Boolean        @default(false)
+  reminderSentAt  DateTime?
+  status          ScheduleStatus @default(SCHEDULED)
+  tags            String[]
+  isPublic        Boolean        @default(true)
+  livestreams     LiveStream?    @relation(fields: [livestreamId], references: [id])
 
   @@index([teacherId, startTime])
-  @@index([type])
+  @@index([isPublic])
+  @@index([livestreamId])
+  @@index([status])
   @@map("schedules")
 }
 
@@ -236,13 +244,6 @@ enum ChatMode {
   DISABLED
 }
 
-enum ScheduleType {
-  LIVESTREAM
-  MEETING
-  OFFICE_HOURS
-  OTHER
-}
-
 enum SubscriptionTier {
   FREE
   BASIC
@@ -270,4 +271,12 @@ enum ReportStatus {
   REVIEWING
   RESOLVED
   DISMISSED
+}
+
+enum ScheduleStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
 }

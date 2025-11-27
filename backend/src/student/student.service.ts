@@ -979,4 +979,130 @@ export class StudentService {
       experience: teacher.teacherProfile?.experience || null,
     }));
   }
+
+  // Track watch activity and update streak
+  async trackWatchActivity(userId: string, contentType: 'livestream' | 'video', contentId: string) {
+    // Get student profile
+    const student = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true },
+    });
+
+    if (!student || !student.studentProfile) {
+      throw new ForbiddenException('Only students can track watch activity');
+    }
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const lastActivity = student.studentProfile.lastActivityDate;
+
+    let newStreak = student.studentProfile.studyStreak;
+    let shouldUpdate = false;
+
+    if (!lastActivity) {
+      // First activity ever
+      newStreak = 1;
+      shouldUpdate = true;
+    } else {
+      const lastActivityAsDate = new Date(lastActivity as Date);
+      const lastActivityDate = new Date(
+        lastActivityAsDate.getFullYear(),
+        lastActivityAsDate.getMonth(),
+        lastActivityAsDate.getDate()
+      );
+      
+      const diffTime = today.getTime() - lastActivityDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 0) {
+        // Same day, no update needed
+        shouldUpdate = false;
+      } else if (diffDays === 1) {
+        // Next day, increment streak
+        newStreak = student.studentProfile.studyStreak + 1;
+        shouldUpdate = true;
+      } else if (diffDays > 1) {
+        // Streak broken, reset to 1
+        newStreak = 1;
+        shouldUpdate = true;
+      }
+    }
+
+    if (shouldUpdate) {
+      await this.prisma.postgres.studentProfile.update({
+        where: { id: student.studentProfile.id },
+        data: {
+          studyStreak: newStreak,
+          lastActivityDate: now,
+        },
+      });
+    }
+
+    // Record watch history in MongoDB
+    await this.prisma.mongo.watchHistory.create({
+      data: {
+        userId,
+        livestreamId: contentId,
+        watchedAt: now,
+        duration: 0,
+        completed: false,
+        progress: 0,
+        lastPosition: 0,
+      },
+    });
+
+    return {
+      streak: newStreak,
+      updated: shouldUpdate,
+    };
+  }
+
+  // Get student stats
+  async getStudentStats(userId: string) {
+    const student = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { 
+        studentProfile: {
+          include: {
+            followedTeachers: true,
+            sentFriendRequests: {
+              where: { status: FriendStatus.ACCEPTED },
+            },
+            receivedFriendRequests: {
+              where: { status: FriendStatus.ACCEPTED },
+            },
+          },
+        },
+      },
+    });
+
+    if (!student || !student.studentProfile) {
+      throw new NotFoundException('Student not found');
+    }
+
+    // Count friends (both directions)
+    const friendsCount = 
+      student.studentProfile.sentFriendRequests.length +
+      student.studentProfile.receivedFriendRequests.length;
+
+    // Count watch history and documents from MongoDB
+    const [watchHistory, documents] = await Promise.all([
+      this.prisma.mongo.watchHistory.count({
+        where: { userId },
+      }),
+      this.prisma.mongo.notebook.count({
+        where: { userId },
+      }),
+    ]);
+
+    return {
+      following: student.studentProfile.followedTeachers.length,
+      friends: friendsCount,
+      courses: watchHistory, // Using watch history as course count
+      documents: documents,
+      studyHours: student.studentProfile.studyHours,
+      streak: student.studentProfile.studyStreak,
+    };
+  }
 }
+

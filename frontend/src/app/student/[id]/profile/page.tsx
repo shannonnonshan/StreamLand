@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Image from 'next/image';
 import {
   UserPlusIcon,
   UserMinusIcon,
@@ -12,13 +13,11 @@ import {
   CalendarIcon,
   ClockIcon,
   SparklesIcon,
-  TrophyIcon,
   FireIcon,
   BookOpenIcon,
   VideoCameraIcon,
   DocumentTextIcon,
   CheckBadgeIcon,
-  UserGroupIcon,
   ArrowLeftIcon,
   PencilIcon,
   XMarkIcon,
@@ -30,6 +29,14 @@ import { useAuth } from '@/hooks/useAuth';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
+
+interface FollowedTeacher {
+  id: string;
+  name: string;
+  avatar?: string;
+  subjects?: string[];
+  isVerified?: boolean;
+}
 
 // Suggested interests for students
 const SUGGESTED_INTERESTS = [
@@ -53,78 +60,6 @@ const SUGGESTED_INTERESTS = [
   'TOEFL',
   'University Exam Prep',
   'High School Exam Prep',
-];
-
-// Mock data
-const mockStudent = {
-  id: '123',
-  name: 'Nguyễn Minh Anh',
-  username: '@minhanh.study',
-  avatar: '/avatars/student-1.png',
-  coverImage: '/images/cover-default.jpg',
-  bio: '🎓 Đam mê học tiếng Anh và lập trình | 📚 IELTS 7.5 | 💻 Full-stack Developer',
-  location: 'Hồ Chí Minh, Việt Nam',
-  joinDate: '2024-03-15',
-  verified: true,
-  stats: {
-    following: 45,
-    followers: 128,
-    courses: 12,
-    documents: 89,
-    studyHours: 342,
-    streak: 28
-  },
-  badges: [
-    { id: 1, name: 'Early Adopter', icon: '🚀', color: 'blue' },
-    { id: 2, name: '100 Hours', icon: '⏰', color: 'purple' },
-    { id: 3, name: 'Top Learner', icon: '🏆', color: 'yellow' },
-    { id: 4, name: '30 Day Streak', icon: '🔥', color: 'orange' },
-  ],
-  interests: ['English', 'Programming', 'Mathematics', 'Physics', 'Design'],
-  recentActivity: [
-    { id: 1, type: 'course', title: 'Completed IELTS Writing Module', time: '2 hours ago' },
-    { id: 2, type: 'document', title: 'Added new notes on React Hooks', time: '5 hours ago' },
-    { id: 3, type: 'livestream', title: 'Attended Python Advanced Class', time: '1 day ago' },
-  ]
-};
-
-const mockFollowingChannels = [
-  {
-    id: '1',
-    name: 'Mr. David Nguyen',
-    subject: 'English - IELTS',
-    avatar: '/avatars/teacher-1.png',
-    followers: '12.5k',
-    isLive: true,
-    verified: true
-  },
-  {
-    id: '2',
-    name: 'Ms. Sarah Johnson',
-    subject: 'Mathematics',
-    avatar: '/avatars/teacher-2.png',
-    followers: '8.3k',
-    isLive: false,
-    verified: true
-  },
-  {
-    id: '3',
-    name: 'Mr. Trần Văn An',
-    subject: 'Programming',
-    avatar: '/avatars/teacher-3.png',
-    followers: '15.2k',
-    isLive: true,
-    verified: true
-  },
-  {
-    id: '4',
-    name: 'Dr. Emily Chen',
-    subject: 'Physics',
-    avatar: '/avatars/teacher-4.png',
-    followers: '6.7k',
-    isLive: false,
-    verified: false
-  },
 ];
 
 export default function StudentProfilePage() {
@@ -161,6 +96,18 @@ export default function StudentProfilePage() {
       education?: string;
     };
   } | null>(null);
+  
+  const [stats, setStats] = useState({
+    following: 0,
+    friends: 0,
+    courses: 0,
+    documents: 0,
+    studyHours: 0,
+    streak: 0,
+  });
+  
+  const [followedTeachers, setFollowedTeachers] = useState<FollowedTeacher[]>([]);
+  const [recentActivity] = useState<any[]>([]); // TODO: Add proper type when backend endpoint is ready
   
   // Edit form data
   const [editForm, setEditForm] = useState({
@@ -205,17 +152,18 @@ export default function StudentProfilePage() {
       const token = localStorage.getItem('accessToken');
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       
-      console.log('Loading profile for ID:', id);
-      console.log('API URL:', API_URL);
-      console.log('Token:', token ? 'Present' : 'Missing');
-      
-      const response = await fetch(`${API_URL}/auth/${id}/profile`, {
-        headers: { 
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      console.log('Response status:', response.status);
+      // Fetch profile, stats, and followed teachers in parallel
+      const [profileResponse, statsResponse, followedTeachersResponse] = await Promise.all([
+        fetch(`${API_URL}/auth/${id}/profile`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${API_URL}/student/stats/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => null),
+        fetch(`${API_URL}/student/followed-teachers`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => null),
+      ]);
       
       // Check friendship status
       if (!isOwnProfile) {
@@ -230,15 +178,26 @@ export default function StudentProfilePage() {
         }
       }
       
-      if (!response.ok) {
-        const errorData = await response.text();
+      if (!profileResponse.ok) {
+        const errorData = await profileResponse.text();
         console.error('Error response:', errorData);
-        throw new Error(`Failed to load profile: ${response.status} ${errorData}`);
+        throw new Error(`Failed to load profile: ${profileResponse.status} ${errorData}`);
       }
 
-      const data = await response.json();
-      console.log('Profile data:', data);
+      const data = await profileResponse.json();
       setProfileData(data);
+      
+      // Load stats if available
+      if (statsResponse && statsResponse.ok) {
+        const statsData = await statsResponse.json();
+        setStats(statsData);
+      }
+      
+      // Load followed teachers
+      if (followedTeachersResponse && followedTeachersResponse.ok) {
+        const teachersData = await followedTeachersResponse.json();
+        setFollowedTeachers(teachersData);
+      }
       
       // Set form data
       setEditForm({
@@ -472,9 +431,19 @@ export default function StudentProfilePage() {
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-start gap-4">
                       <div className="relative">
-                        <div className="h-24 w-24 rounded-2xl bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
-                          {profileData.fullName?.charAt(0) || 'U'}
-                        </div>
+                        {profileData.avatar ? (
+                          <Image
+                            src={profileData.avatar}
+                            alt={profileData.fullName}
+                            width={96}
+                            height={96}
+                            className="h-24 w-24 rounded-2xl object-cover shadow-lg"
+                          />
+                        ) : (
+                          <div className="h-24 w-24 rounded-2xl bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
+                            {profileData.fullName?.charAt(0) || 'U'}
+                          </div>
+                        )}
                         {profileData.isVerified && (
                           <div className="absolute -bottom-1 -right-1 bg-blue-500 rounded-full p-1 ring-2 ring-white">
                             <CheckBadgeIcon className="h-4 w-4 text-white" />
@@ -517,7 +486,11 @@ export default function StudentProfilePage() {
                       </div>
                       <div className="flex items-center gap-1">
                         <CalendarIcon className="h-3.5 w-3.5" />
-                        <span>Joined {new Date(profileData.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+                        <span>
+                          Joined {profileData.createdAt && !isNaN(new Date(profileData.createdAt).getTime())
+                            ? new Date(profileData.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                            : 'Recently'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -731,28 +704,28 @@ export default function StudentProfilePage() {
               {/* Stats */}
               <div className="grid grid-cols-6 gap-3">
                 <div className="text-center p-3 bg-gray-50 rounded-xl border border-gray-200 hover:border-blue-300 transition-colors">
-                  <div className="text-2xl font-bold text-blue-600">{mockStudent.stats.following}</div>
+                  <div className="text-2xl font-bold text-blue-600">{stats.following}</div>
                   <div className="text-xs text-gray-600 font-medium mt-0.5">Following</div>
                 </div>
                 <div className="text-center p-3 bg-gray-50 rounded-xl border border-gray-200 hover:border-purple-300 transition-colors">
-                  <div className="text-2xl font-bold text-purple-600">{mockStudent.stats.followers}</div>
-                  <div className="text-xs text-gray-600 font-medium mt-0.5">Followers</div>
+                  <div className="text-2xl font-bold text-purple-600">{stats.friends}</div>
+                  <div className="text-xs text-gray-600 font-medium mt-0.5">Friends</div>
                 </div>
                 <div className="text-center p-3 bg-gray-50 rounded-xl border border-gray-200 hover:border-green-300 transition-colors">
-                  <div className="text-2xl font-bold text-green-600">{mockStudent.stats.courses}</div>
+                  <div className="text-2xl font-bold text-green-600">{stats.courses}</div>
                   <div className="text-xs text-gray-600 font-medium mt-0.5">Courses</div>
                 </div>
                 <div className="text-center p-3 bg-gray-50 rounded-xl border border-gray-200 hover:border-yellow-300 transition-colors">
-                  <div className="text-2xl font-bold text-yellow-600">{mockStudent.stats.documents}</div>
+                  <div className="text-2xl font-bold text-yellow-600">{stats.documents}</div>
                   <div className="text-xs text-gray-600 font-medium mt-0.5">Documents</div>
                 </div>
                 <div className="text-center p-3 bg-gray-50 rounded-xl border border-gray-200 hover:border-indigo-300 transition-colors">
-                  <div className="text-2xl font-bold text-indigo-600">{mockStudent.stats.studyHours}</div>
+                  <div className="text-2xl font-bold text-indigo-600">{stats.studyHours}</div>
                   <div className="text-xs text-gray-600 font-medium mt-0.5">Study Hours</div>
                 </div>
                 <div className="text-center p-3 bg-gray-50 rounded-xl border border-gray-200 hover:border-orange-300 transition-colors">
                   <div className="flex items-center justify-center gap-1 text-2xl font-bold text-orange-600">
-                    {mockStudent.stats.streak}
+                    {stats.streak}
                     <FireIcon className="h-5 w-5 text-orange-500" />
                   </div>
                   <div className="text-xs text-gray-600 font-medium mt-0.5">Day Streak</div>
@@ -803,25 +776,6 @@ export default function StudentProfilePage() {
               {/* About Tab */}
               {activeTab === 'about' && (
                 <div className="space-y-4">
-                  {/* Badges */}
-                  <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
-                    <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                      <TrophyIcon className="h-5 w-5 text-yellow-500" />
-                      Achievements & Badges
-                    </h3>
-                    <div className="grid grid-cols-4 gap-3">
-                      {mockStudent.badges.map((badge) => (
-                        <div
-                          key={badge.id}
-                          className="text-center p-4 rounded-xl bg-gray-50 border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
-                        >
-                          <div className="text-3xl mb-1.5">{badge.icon}</div>
-                          <div className="text-xs font-semibold text-gray-700">{badge.name}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
                   {/* Interests */}
                   <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
                     <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -829,16 +783,42 @@ export default function StudentProfilePage() {
                       Interests
                     </h3>
                     <div className="flex flex-wrap gap-2">
-                      {mockStudent.interests.map((interest, index) => (
-                        <span
-                          key={index}
-                          className="px-4 py-1.5 bg-gray-100 text-gray-700 rounded-lg font-medium text-sm border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-all cursor-pointer"
-                        >
-                          {interest}
-                        </span>
-                      ))}
+                      {interests && interests.length > 0 ? (
+                        interests.map((interest, index) => (
+                          <span
+                            key={index}
+                            className="px-4 py-1.5 bg-gray-100 text-gray-700 rounded-lg font-medium text-sm border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-all cursor-pointer"
+                          >
+                            {interest}
+                          </span>
+                        ))
+                      ) : (
+                        <p className="text-sm text-gray-500">No interests added yet</p>
+                      )}
                     </div>
                   </div>
+                  
+                  {/* School Information */}
+                  {(profileData?.studentProfile?.school || profileData?.studentProfile?.grade) && (
+                    <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
+                      <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                        <BuildingOffice2Icon className="h-5 w-5 text-blue-500" />
+                        Education
+                      </h3>
+                      <div className="space-y-2">
+                        {profileData.studentProfile.school && (
+                          <p className="text-sm text-gray-700">
+                            <span className="font-semibold">School:</span> {profileData.studentProfile.school}
+                          </p>
+                        )}
+                        {profileData.studentProfile.grade && (
+                          <p className="text-sm text-gray-700">
+                            <span className="font-semibold">Grade:</span> {profileData.studentProfile.grade}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -847,47 +827,52 @@ export default function StudentProfilePage() {
                 <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
                   <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
                     <VideoCameraIcon className="h-5 w-5 text-red-500" />
-                    Following Channels ({mockFollowingChannels.length})
+                    Following Channels ({followedTeachers.length})
                   </h3>
                   <div className="space-y-3">
-                    {mockFollowingChannels.map((channel) => (
+                    {followedTeachers.length > 0 ? (
+                      followedTeachers.map((teacher) => (
                       <div
-                        key={channel.id}
+                        key={teacher.id}
                         className="flex items-center justify-between p-3 rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-all group"
                       >
                         <div className="flex items-center gap-3">
                           <div className="relative">
-                            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-lg font-bold">
-                              {channel.name.charAt(0)}
-                            </div>
-                            {channel.isLive && (
-                              <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-                                LIVE
+                            {teacher.avatar ? (
+                              <Image
+                                src={teacher.avatar}
+                                alt={teacher.name}
+                                width={48}
+                                height={48}
+                                className="h-12 w-12 rounded-xl object-cover"
+                              />
+                            ) : (
+                              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-lg font-bold">
+                                {teacher.name?.charAt(0) || 'T'}
                               </div>
                             )}
                           </div>
                           <div>
                             <div className="flex items-center gap-1.5">
-                              <h4 className="font-semibold text-sm text-gray-900">{channel.name}</h4>
-                              {channel.verified && (
+                              <h4 className="font-semibold text-sm text-gray-900">{teacher.name}</h4>
+                              {teacher.isVerified && (
                                 <CheckBadgeIcon className="h-4 w-4 text-blue-500" />
                               )}
                             </div>
-                            <p className="text-xs text-gray-600">{channel.subject}</p>
-                            <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
-                              <UserGroupIcon className="h-3 w-3" />
-                              <span>{channel.followers} followers</span>
-                            </div>
+                            <p className="text-xs text-gray-600">{teacher.subjects?.join(', ') || 'Teacher'}</p>
                           </div>
                         </div>
                         <button
-                          onClick={() => router.push(`/student/teacher/${channel.id}`)}
+                          onClick={() => router.push(`/teacher/public/${teacher.id}`)}
                           className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg font-semibold text-xs transition-all shadow-sm hover:shadow-md opacity-0 group-hover:opacity-100"
                         >
                           View
                         </button>
                       </div>
-                    ))}
+                    ))
+                    ) : (
+                      <p className="text-sm text-gray-500 text-center py-4">Not following any teachers yet</p>
+                    )}
                   </div>
                 </div>
               )}
@@ -900,7 +885,8 @@ export default function StudentProfilePage() {
                     Recent Activity
                   </h3>
                   <div className="space-y-3">
-                    {mockStudent.recentActivity.map((activity) => (
+                    {recentActivity.length > 0 ? (
+                      recentActivity.map((activity) => (
                       <div
                         key={activity.id}
                         className="flex items-start gap-3 p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all"
@@ -919,7 +905,10 @@ export default function StudentProfilePage() {
                           <p className="text-xs text-gray-500">{activity.time}</p>
                         </div>
                       </div>
-                    ))}
+                    ))
+                    ) : (
+                      <p className="text-sm text-gray-500 text-center py-4">No recent activity</p>
+                    )}
                   </div>
                 </div>
               )}
@@ -954,10 +943,10 @@ export default function StudentProfilePage() {
                   Study Streak
                 </h3>
                 <div className="text-center">
-                  <div className="text-4xl font-bold text-orange-600 mb-1">{mockStudent.stats.streak}</div>
+                  <div className="text-4xl font-bold text-orange-600 mb-1">{stats.streak}</div>
                   <div className="text-sm text-gray-700 font-medium mb-3">Days in a row! 🔥</div>
                   <div className="p-2 bg-white rounded-lg">
-                    <p className="text-xs text-gray-600">Keep it up! You&apos;re on fire! 🚀</p>
+                    <p className="text-xs text-gray-600">{stats.streak > 0 ? "Keep it up! You're on fire! 🚀" : "Start your streak today!"}</p>
                   </div>
                 </div>
               </div>
@@ -969,8 +958,8 @@ export default function StudentProfilePage() {
                   Total Study Time
                 </h3>
                 <div className="text-center">
-                  <div className="text-3xl font-bold text-purple-600 mb-1">{mockStudent.stats.studyHours}h</div>
-                  <div className="text-xs text-gray-600">That&apos;s {Math.round(mockStudent.stats.studyHours / 24)} days of learning!</div>
+                  <div className="text-3xl font-bold text-purple-600 mb-1">{stats.studyHours}h</div>
+                  <div className="text-xs text-gray-600">{stats.studyHours > 0 ? `That's ${Math.round(stats.studyHours / 24)} days of learning!` : 'Start learning today!'}</div>
                 </div>
               </div>
             </div>

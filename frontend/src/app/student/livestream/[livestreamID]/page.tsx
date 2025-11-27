@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { raleway } from '@/utils/front';
 import { useParams } from 'next/navigation';
 import { useLivestreamViewer } from '@/hooks/useLivestreamViewer';
+import { trackWatchActivity } from '@/utils/trackActivity';
 import { 
   PlayIcon, 
   PauseIcon,
@@ -149,6 +150,13 @@ export default function LivestreamViewerPage() {
   useEffect(() => {
     setIsMuted(true);
   }, []);
+
+  // Track watch activity when livestream loads
+  useEffect(() => {
+    if (livestreamID && isConnected) {
+      trackWatchActivity('livestream', livestreamID);
+    }
+  }, [livestreamID, isConnected]);
 
   // Listen for livestream info from backend
   useEffect(() => {

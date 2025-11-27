@@ -260,6 +260,8 @@ export class LivestreamService {
       throw new BadRequestException('Invalid teacher ID');
     }
 
+    let finalLivestreamId = livestreamId;
+
     // If livestreamId provided, verify it exists and belongs to teacher
     if (livestreamId) {
       const livestream = await this.prisma.postgres.liveStream.findUnique({
@@ -273,6 +275,23 @@ export class LivestreamService {
       if (livestream.teacherId !== teacherId) {
         throw new BadRequestException('Livestream does not belong to this teacher');
       }
+    } else {
+      // Auto-create livestream if not provided
+      const newLivestream = await this.prisma.postgres.liveStream.create({
+        data: {
+          teacherId,
+          title,
+          description: '',
+          status: LiveStreamStatus.SCHEDULED,
+          scheduledAt: new Date(startTime),
+          totalViews: 0,
+          peakViewers: 0,
+          duration: 0,
+          currentViewers: 0,
+        },
+      });
+      finalLivestreamId = newLivestream.id;
+      this.logger.log(`Auto-created livestream ${finalLivestreamId} for schedule`);
     }
 
     // Create schedule
@@ -284,14 +303,10 @@ export class LivestreamService {
       isPublic: isPublic !== undefined ? isPublic : true,
       notifyBefore: rest.notifyBefore || 15,
       color: rest.color,
-      maxParticipants: rest.maxParticipants,
       tags: rest.tags || [],
       status: ScheduleStatus.SCHEDULED,
+      livestreamId: finalLivestreamId,
     };
-
-    if (livestreamId) {
-      scheduleData.livestreamId = livestreamId;
-    }
 
     const schedule = await this.prisma.postgres.schedule.create({
       data: scheduleData,

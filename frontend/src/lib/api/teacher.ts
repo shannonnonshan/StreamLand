@@ -26,7 +26,6 @@ export interface Schedule {
   status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'RESCHEDULED';
   color?: string;
   location?: string;
-  maxParticipants?: number;
   tags?: string[];
   notifyBefore?: number;
   createdAt: string;
@@ -64,6 +63,12 @@ function getAuthToken(): string | null {
 // Helper for authenticated fetch
 async function authenticatedFetch(url: string, options: RequestInit = {}) {
   const token = getAuthToken();
+  
+  if (!token) {
+    console.error('No auth token found in localStorage');
+    throw new Error('Authentication required');
+  }
+  
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -79,12 +84,15 @@ async function authenticatedFetch(url: string, options: RequestInit = {}) {
     });
   }
 
+  console.log('Making authenticated request:', { url, hasToken: !!token });
+
   const response = await fetch(url, {
     ...options,
     headers,
   });
 
   if (!response.ok) {
+    console.error('API request failed:', response.status, response.statusText);
     throw new Error(`API Error: ${response.status} ${response.statusText}`);
   }
 
@@ -144,7 +152,7 @@ export async function getTeacherSchedules(
   return authenticatedFetch(url);
 }
 
-export async function createSchedule(data: {
+export async function createSchedule(teacherId: string, data: {
   title: string;
   startTime: string;
   endTime: string;
@@ -153,11 +161,13 @@ export async function createSchedule(data: {
   location?: string;
   tags?: string[];
   notifyBefore?: number;
-  maxParticipants?: number;
 }): Promise<Schedule> {
   return authenticatedFetch(`${API_URL}/livestream/schedule`, {
     method: 'POST',
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      ...data,
+      teacherId,
+    }),
   });
 }
 
@@ -222,13 +232,25 @@ export function formatScheduleForCalendar(schedule: Schedule & { liveStream?: { 
   const startDate = new Date(schedule.startTime);
   const endDate = new Date(schedule.endTime);
   
+  // Format date in local timezone (YYYY-MM-DD)
+  const year = startDate.getFullYear();
+  const month = String(startDate.getMonth() + 1).padStart(2, '0');
+  const day = String(startDate.getDate()).padStart(2, '0');
+  const dateStr = `${year}-${month}-${day}`;
+  
+  // Format time in local timezone (HH:mm)
+  const startHour = String(startDate.getHours()).padStart(2, '0');
+  const startMin = String(startDate.getMinutes()).padStart(2, '0');
+  const endHour = String(endDate.getHours()).padStart(2, '0');
+  const endMin = String(endDate.getMinutes()).padStart(2, '0');
+  
   return {
     id: schedule.id,
     teacherId: schedule.teacherId,
     title: schedule.title,
-    date: startDate.toISOString().split('T')[0], // yyyy-mm-dd
-    start: startDate.toTimeString().slice(0, 5),  // HH:mm
-    end: endDate.toTimeString().slice(0, 5),      // HH:mm
+    date: dateStr,
+    start: `${startHour}:${startMin}`,
+    end: `${endHour}:${endMin}`,
     color: schedule.color || 'blue',
     audience: schedule.isPublic ? 'public' : 'subscribers' as 'public' | 'subscribers',
     notification: schedule.notifyBefore,

@@ -3,6 +3,7 @@
 import React from "react";
 import dynamic from "next/dynamic";
 import { ApexOptions } from "apexcharts";
+import { useTeacherDashboard } from "@/hooks/useTeacherDashboard";
 
 const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -11,18 +12,20 @@ interface ContentProps {
 }
 
 export default function Content({ filter }: ContentProps) {
+  const { stats, loading, error } = useTeacherDashboard();
+  
   const series = [
     {
       name: "Views",
-      data: [1200, 3200, 4500, 3800, 6200, 5400, 7200, 6900, 8200, 7600, 8800, 9400],
+      data: stats?.monthlyViews || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     },
     {
-      name: "favorites",
-      data: [400, 800, 1200, 1600, 2000, 2600, 3100, 3500, 4200, 4600, 5100, 6000],
+      name: "Recordings",
+      data: stats ? Array(12).fill(Math.round(stats.totalRecordings / 12)) : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     },
     {
-      name: "comments",
-      data: [100, 600, 1000, 1400, 1800, 2400, 3000, 3300, 4000, 4400, 4900, 5000],
+      name: "Documents",
+      data: stats ? Array(12).fill(Math.round(stats.totalDocuments / 12)) : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     },
   ];
 
@@ -79,6 +82,24 @@ export default function Content({ filter }: ContentProps) {
         </p>
       </div>
 
+      {/* Stats Summary */}
+      {stats && (
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="text-center">
+            <div className="text-2xl font-bold text-gray-900">{stats.totalRecordings}</div>
+            <div className="text-sm text-gray-600">Recordings</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-gray-900">{stats.totalDocuments}</div>
+            <div className="text-sm text-gray-600">Documents</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-gray-900">{stats.avgViewsPerStream}</div>
+            <div className="text-sm text-gray-600">Avg Views/Stream</div>
+          </div>
+        </div>
+      )}
+
       {/* Legend */}
       <div className="flex justify-center sm:justify-end items-center gap-x-4 mb-6">
         <div className="inline-flex items-center">
@@ -87,11 +108,11 @@ export default function Content({ filter }: ContentProps) {
         </div>
         <div className="inline-flex items-center">
           <span className="size-2.5 inline-block bg-purple-600 rounded-sm me-2"></span>
-          <span className="text-[13px] text-gray-600">Favorites</span>
+          <span className="text-[13px] text-gray-600">Recordings</span>
         </div>
         <div className="inline-flex items-center">
           <span className="size-2.5 inline-block bg-green-600 rounded-sm me-2"></span>
-          <span className="text-[13px] text-gray-600">Comments</span>
+          <span className="text-[13px] text-gray-600">Documents</span>
         </div>
       </div>
 

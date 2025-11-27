@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { 
   User, 
@@ -35,85 +35,95 @@ export default function ChatPage() {
   const [newMessage, setNewMessage] = useState("");
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [pendingChats, setPendingChats] = useState<ChatUser[]>([]);
+  const [messages, setMessages] = useState<Record<string, Message[]>>({});
 
-  // Mock data for pending chats
-  const [pendingChats] = useState<ChatUser[]>([
-    {
-      id: "1",
-      name: "John Teacher",
-      lastMessage: "I need help with my account verification",
-      timestamp: "2025-10-25T10:30:00",
-      unreadCount: 3,
-      status: "online"
-    },
-    {
-      id: "2",
-      name: "Sarah Wilson",
-      lastMessage: "When will my documents be reviewed?",
-      timestamp: "2025-10-25T09:45:00",
-      unreadCount: 1,
-      status: "offline"
-    },
-    {
-      id: "3",
-      name: "Michael Chang",
-      lastMessage: "Hello, I have a question about...",
-      timestamp: "2025-10-25T09:15:00",
-      unreadCount: 0,
-      status: "online"
-    }
-  ]);
+  // Fetch conversations from backend
+  useEffect(() => {
+    const fetchConversations = async () => {
+      try {
+        const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+        
+        const response = await fetch(`${API_URL}/admin/messages`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
 
-  // Mock messages for the selected chat
-  const [messages] = useState<Record<string, Message[]>>({
-    "1": [
-      {
-        id: "1",
-        content: "Hello admin, I submitted my documents last week but haven't heard back",
-        timestamp: "2025-10-25T10:25:00",
-        isAdmin: false,
-        status: "urgent"
-      },
-      {
-        id: "2",
-        content: "Can you please check the status?",
-        timestamp: "2025-10-25T10:26:00",
-        isAdmin: false,
-        status: "urgent"
-      },
-      {
-        id: "3",
-        content: "Here's my submission ID:",
-        timestamp: "2025-10-25T10:27:00",
-        isAdmin: false,
-        status: "urgent"
-      },
-      {
-        id: "4",
-        content: "DOC-2025-001",
-        timestamp: "2025-10-25T10:28:00",
-        isAdmin: false,
-        status: "urgent"
+        if (response.ok) {
+          const data = await response.json();
+          interface ConversationResponse {
+            userId: string;
+            user: { fullName: string; avatar?: string };
+            lastMessage: string;
+            lastMessageAt: string;
+            unread: boolean;
+          }
+          const formattedChats = data.map((conv: ConversationResponse) => ({
+            id: conv.userId,
+            name: conv.user.fullName,
+            avatar: conv.user.avatar,
+            lastMessage: conv.lastMessage,
+            timestamp: conv.lastMessageAt,
+            unreadCount: conv.unread ? 1 : 0,
+            status: "online" as const,
+          }));
+          setPendingChats(formattedChats);
+        }
+      } catch (error) {
+        console.error('Error fetching conversations:', error);
       }
-    ],
-    "2": [
-      {
-        id: "1",
-        content: "Hi, I'm still waiting for my document review",
-        timestamp: "2025-10-25T09:40:00",
-        isAdmin: false,
-        status: "pending"
-      },
-      {
-        id: "2",
-        content: "Here's a screenshot of my submission",
-        timestamp: "2025-10-25T09:41:00",
-        isAdmin: false,
-        status: "pending",
-        imageUrl: "/image/mock-submission.jpg"
+    };
+
+    fetchConversations();
+    const interval = setInterval(fetchConversations, 10000); // Poll every 10s
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch messages for selected user
+  useEffect(() => {
+    if (!selectedUser) return;
+
+    const fetchMessages = async () => {
+      try {
+        const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+        
+        const response = await fetch(`${API_URL}/admin/messages/${selectedUser}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          interface MessageResponse {
+            id: string;
+            content: string;
+            createdAt: string;
+            senderId: string;
+          }
+          const formatted = data.map((msg: MessageResponse) => ({
+            id: msg.id,
+            content: msg.content,
+            timestamp: msg.createdAt,
+            isAdmin: msg.senderId === 'ADMIN',
+            status: "sent" as const,
+          }));
+          setMessages((prev) => ({ ...prev, [selectedUser]: formatted.reverse() }));
+        }
+      } catch (error) {
+        console.error('Error fetching messages:', error);
       }
-    ]
-  });
+    };
+
+    fetchMessages();
+    const interval = setInterval(fetchMessages, 5000); // Poll every 5s
+    return () => clearInterval(interval);
+  }, [selectedUser]);
+
+
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -133,29 +143,42 @@ export default function ChatPage() {
     e.preventDefault();
     if (!selectedUser || (!newMessage.trim() && !selectedImage)) return;
 
-    // TODO: When backend is ready
-    // const formData = new FormData();
-    // if (newMessage.trim()) {
-    //   formData.append('content', newMessage.trim());
-    // }
-    // if (selectedImage) {
-    //   formData.append('image', selectedImage);
-    // }
-    // try {
-    //   const response = await fetch(`/api/chat/${selectedUser}/message`, {
-    //     method: 'POST',
-    //     body: formData
-    //   });
-    //   if (!response.ok) throw new Error('Failed to send message');
-    //   const data = await response.json();
-    //   // Update messages state with the new message
-    // } catch (error) {
-    //   console.error('Error sending message:', error);
-    // }
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-    setNewMessage("");
-    setSelectedImage(null);
-    setImagePreview(null);
+    try {
+      const response = await fetch(`${API_URL}/admin/messages/${selectedUser}/reply`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: newMessage.trim(),
+        }),
+      });
+
+      if (response.ok) {
+        // Add message to local state immediately
+        const newMsg: Message = {
+          id: Date.now().toString(),
+          content: newMessage.trim(),
+          timestamp: new Date().toISOString(),
+          isAdmin: true,
+          status: "sent",
+        };
+        setMessages((prev) => ({
+          ...prev,
+          [selectedUser]: [...(prev[selectedUser] || []), newMsg],
+        }));
+
+        setNewMessage("");
+        setSelectedImage(null);
+        setImagePreview(null);
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+    }
   };
 
   return (

@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { 
   Shield, 
   Mail, 
-  Phone, 
   MapPin, 
   User, 
   Eye, 
@@ -18,6 +17,8 @@ import {
   ArrowLeft
 } from "lucide-react";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
 export default function SettingsPage() {
   const params = useParams();
   const router = useRouter();
@@ -29,14 +30,50 @@ export default function SettingsPage() {
   });
 
   const [settings, setSettings] = useState({
-    email: "teacher@example.com",
-    phone: "+84 123 456 789",
-    address: "123 Main Street, Hanoi, Vietnam",
-    gender: "male" as "male" | "female" | "other",
-    substantiate: "PhD in Computer Science",
-    yearOfWorking: 10,
+    email: "",
+    fullName: "",
+    bio: "",
+    location: "",
+    education: "",
+    experience: 0,
+    website: "",
+    linkedin: "",
     twoFactorEnabled: false,
   });
+
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchTeacherData = async () => {
+      try {
+        const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+        const response = await fetch(`${API_URL}/teacher/${teacherId}/profile`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setSettings({
+            email: data.email || '',
+            fullName: data.fullName || '',
+            bio: data.bio || '',
+            location: data.location || '',
+            education: data.teacherProfile?.education || '',
+            experience: data.teacherProfile?.experience || 0,
+            website: data.teacherProfile?.website || '',
+            linkedin: data.teacherProfile?.linkedin || '',
+            twoFactorEnabled: data.twoFactorEnabled || false,
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching teacher data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTeacherData();
+  }, [teacherId]);
 
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
@@ -54,21 +91,85 @@ export default function SettingsPage() {
     setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const handleSaveSettings = () => {
-    alert("Settings saved successfully!");
+  const handleSaveSettings = async () => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const response = await fetch(`${API_URL}/teacher/${teacherId}/settings`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(settings),
+      });
+
+      if (response.ok) {
+        alert('Settings saved successfully!');
+      } else {
+        alert('Failed to save settings');
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      alert('Error saving settings');
+    }
   };
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      alert("New passwords do not match!");
+      alert('New passwords do not match!');
       return;
     }
-    alert("Password changed successfully!");
-    setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const response = await fetch(`${API_URL}/teacher/${teacherId}/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          currentPassword: passwordForm.currentPassword,
+          newPassword: passwordForm.newPassword,
+        }),
+      });
+
+      if (response.ok) {
+        alert('Password changed successfully!');
+        setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      } else {
+        alert('Failed to change password');
+      }
+    } catch (error) {
+      console.error('Error changing password:', error);
+      alert('Error changing password');
+    }
   };
 
-  const handleToggle2FA = () => {
-    setSettings({ ...settings, twoFactorEnabled: !settings.twoFactorEnabled });
+  const handleToggle2FA = async () => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const newValue = !settings.twoFactorEnabled;
+      
+      const response = await fetch(`${API_URL}/teacher/${teacherId}/toggle-2fa`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ enabled: newValue }),
+      });
+
+      if (response.ok) {
+        setSettings({ ...settings, twoFactorEnabled: newValue });
+        alert(`2FA ${newValue ? 'enabled' : 'disabled'} successfully!`);
+      } else {
+        alert('Failed to toggle 2FA');
+      }
+    } catch (error) {
+      console.error('Error toggling 2FA:', error);
+      alert('Error toggling 2FA');
+    }
   };
 
   return (
@@ -264,13 +365,13 @@ export default function SettingsPage() {
 
                     <div>
                       <label className="flex text-sm font-medium text-gray-700 mb-2 items-center gap-2">
-                        <Phone size={16} className="text-[#292C6D]" />
-                        Phone Number
+                        <User size={16} className="text-[#292C6D]" />
+                        Full Name
                       </label>
                       <input
-                        type="tel"
-                        value={settings.phone}
-                        onChange={(e) => setSettings({ ...settings, phone: e.target.value })}
+                        type="text"
+                        value={settings.fullName}
+                        onChange={(e) => setSettings({ ...settings, fullName: e.target.value })}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
                       />
                     </div>
@@ -279,50 +380,73 @@ export default function SettingsPage() {
                   <div>
                     <label className="flex text-sm font-medium text-gray-700 mb-2 items-center gap-2">
                       <MapPin size={16} className="text-[#292C6D]" />
-                      Address
+                      Location
                     </label>
                     <input
                       type="text"
-                      value={settings.address}
-                      onChange={(e) => setSettings({ ...settings, address: e.target.value })}
+                      value={settings.location}
+                      onChange={(e) => setSettings({ ...settings, location: e.target.value })}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
+                      placeholder="e.g., Hanoi, Vietnam"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Bio</label>
+                    <textarea
+                      value={settings.bio}
+                      onChange={(e) => setSettings({ ...settings, bio: e.target.value })}
+                      rows={3}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
+                      placeholder="Tell us about yourself..."
                     />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
-                      <select
-                        value={settings.gender}
-                        onChange={(e) => setSettings({ ...settings, gender: e.target.value as "male" | "female" | "other" })}
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Education</label>
+                      <input
+                        type="text"
+                        value={settings.education}
+                        onChange={(e) => setSettings({ ...settings, education: e.target.value })}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
-                      >
-                        <option value="male">Male</option>
-                        <option value="female">Female</option>
-                        <option value="other">Other</option>
-                      </select>
+                        placeholder="e.g., PhD in Computer Science"
+                      />
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Years of Experience</label>
                       <input
                         type="number"
-                        value={settings.yearOfWorking}
-                        onChange={(e) => setSettings({ ...settings, yearOfWorking: parseInt(e.target.value) })}
+                        value={settings.experience}
+                        onChange={(e) => setSettings({ ...settings, experience: parseInt(e.target.value) || 0 })}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
                       />
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Credentials / Substantiate</label>
-                    <textarea
-                      value={settings.substantiate}
-                      onChange={(e) => setSettings({ ...settings, substantiate: e.target.value })}
-                      rows={3}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
-                      placeholder="e.g., PhD in Computer Science, 10 years teaching experience..."
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Website</label>
+                      <input
+                        type="url"
+                        value={settings.website}
+                        onChange={(e) => setSettings({ ...settings, website: e.target.value })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
+                        placeholder="https://..."
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">LinkedIn</label>
+                      <input
+                        type="url"
+                        value={settings.linkedin}
+                        onChange={(e) => setSettings({ ...settings, linkedin: e.target.value })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
+                        placeholder="https://linkedin.com/in/..."
+                      />
+                    </div>
                   </div>
 
                   <button

@@ -21,26 +21,45 @@ import { useFollow } from "@/hooks/useFollow";
 import { useAuth } from "@/hooks/useAuth";
 import toast, { Toaster } from 'react-hot-toast';
 
-// Mock recordings data
-import { mockRecordings } from "@/utils/data/teacher/mockRecordings";
-
 interface TeacherProfile {
   id: string;
   name: string;
+  fullName: string;
+  email: string;
   username: string;
   avatar: string;
   bio: string;
+  location: string | null;
   subscribers: number;
   totalVideos: number;
   rating: number;
   createAt: string;
+  twoFactorEnabled: boolean;
+  teacherProfile: {
+    education: string | null;
+    experience: string | null;
+    website: string | null;
+    linkedin: string | null;
+    subjects: string[];
+  };
+  // Legacy fields
   address: string | null;
   substantiate: string | null;
-  yearOfWorking: number | null;
+  yearOfWorking: string | null;
   subjects: string[];
   website: string | null;
   linkedin: string | null;
-  youtube: string | null;
+}
+
+interface VideoData {
+  id: string;
+  title: string;
+  description: string | null;
+  thumbnail: string;
+  views: number;
+  duration: string;
+  date: string;
+  teacherId: string;
 }
 
 export default function PublicTeacherProfilePage() {
@@ -54,6 +73,8 @@ export default function PublicTeacherProfilePage() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSubscribed, setIsSubscribed] = useState(false);
+  const [videos, setVideos] = useState<VideoData[]>([]);
+  const [loadingVideos, setLoadingVideos] = useState(true);
 
   // Fetch teacher profile
   useEffect(() => {
@@ -82,12 +103,33 @@ export default function PublicTeacherProfilePage() {
       fetchTeacherProfile();
     }
   }, [teacherId]);
-  
-  // Get recent videos from recordings
-  const recentVideos = mockRecordings
-    .filter(r => r.teacherId === teacherId)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 6);
+
+  // Fetch teacher videos
+  useEffect(() => {
+    const fetchVideos = async () => {
+      try {
+        setLoadingVideos(true);
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/teacher/${teacherId}/videos?limit=6`
+        );
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch videos');
+        }
+
+        const data = await response.json();
+        setVideos(data);
+      } catch (err) {
+        console.error('Error fetching videos:', err);
+      } finally {
+        setLoadingVideos(false);
+      }
+    };
+
+    if (teacherId) {
+      fetchVideos();
+    }
+  }, [teacherId]);
 
   useEffect(() => {
     // Check if user is following this teacher
@@ -376,9 +418,14 @@ export default function PublicTeacherProfilePage() {
             <h2 className="text-xl font-semibold text-gray-900">Recent Videos</h2>
           </div>
           
-          {recentVideos.length > 0 ? (
+          {loadingVideos ? (
+            <div className="text-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-[#292C6D] mx-auto mb-3" />
+              <p className="text-gray-600">Loading videos...</p>
+            </div>
+          ) : videos.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {recentVideos.map((video) => (
+              {videos.map((video) => (
                 <div
                   key={video.id}
                   onClick={() => handleVideoClick(video.id)}

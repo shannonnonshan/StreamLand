@@ -11,12 +11,10 @@ export interface ScheduleEvent {
   endTime: string; // ISO datetime
   isPublic?: boolean;
   color?: string;
-  location?: string;
   description?: string;
   notifyBefore?: number; // minutes
   teacherId: string;
   tags?: string[];
-  maxParticipants?: number;
   livestreamId?: string;
 }
 
@@ -40,13 +38,18 @@ export default function ScheduleEventModal({
   const [eventColor, setEventColor] = useState("#EC255A");
   const [eventStartTime, setEventStartTime] = useState("");
   const [eventEndTime, setEventEndTime] = useState("");
-  const [eventLocation, setEventLocation] = useState("");
   const [eventDescription, setEventDescription] = useState("");
   const [eventNotification, setEventNotification] = useState("15");
-  const [maxParticipants, setMaxParticipants] = useState("");
   const [isPublic, setIsPublic] = useState(true);
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState("");
+  
+  // Suggested tags for quick selection
+  const suggestedTags = [
+    "IELTS", "TOEFL", "Grammar", "Speaking", "Writing", "Listening", "Reading",
+    "Business English", "Pronunciation", "Vocabulary", "Conversation", "Academic Writing",
+    "Exam Prep", "Beginner", "Intermediate", "Advanced", "Q&A", "Workshop", "Tutorial"
+  ];
   
   useEffect(() => {
     if (defaultDate) {
@@ -94,12 +97,10 @@ export default function ScheduleEventModal({
       endTime: endDateTime,
       isPublic,
       color: eventColor,
-      location: eventLocation,
       description: eventDescription,
       notifyBefore: Number(eventNotification),
       teacherId,
       tags,
-      maxParticipants: maxParticipants ? Number(maxParticipants) : undefined,
     };
     onSave(newEvent);
     onClose();
@@ -156,17 +157,6 @@ export default function ScheduleEventModal({
           />
         </div>
 
-        {/* Location */}
-        <div className="mb-4">
-          <input
-            type="text"
-            placeholder="Location (optional)"
-            value={eventLocation}
-            onChange={(e) => setEventLocation(e.target.value)}
-            className="border text-[#161853] text-sm font-bold w-full p-2 rounded"
-          />
-        </div>
-
         {/* Visibility */}
         <div className="mb-4">
           <div className="flex items-center gap-2">
@@ -205,17 +195,6 @@ export default function ScheduleEventModal({
               className="border font-bold text-sm rounded h-9 w-9 p-1"
             />
           </div>
-
-          <div className="flex items-center gap-2">
-            <UserRound className="text-[#161853]" size={22} />
-            <input
-              type="number"
-              value={maxParticipants}
-              onChange={(e) => setMaxParticipants(e.target.value)}
-              placeholder="Max"
-              className="border text-[#161853] text-sm font-bold p-2 rounded h-9 w-20"
-            />
-          </div>
         </div>
 
         {/* Tag input */}
@@ -224,9 +203,10 @@ export default function ScheduleEventModal({
             <Tag className="text-[#161853]" size={22} />
             <input
               type="text"
-              placeholder="Add tag"
+              placeholder="Add tag or select below"
               value={newTag}
               onChange={(e) => setNewTag(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleAddTag()}
               className="border text-[#161853] text-sm font-bold w-full p-2 rounded"
             />
             <button
@@ -236,6 +216,33 @@ export default function ScheduleEventModal({
               Add
             </button>
           </div>
+          
+          {/* Suggested tags */}
+          <div className="mb-3">
+            <p className="text-xs text-gray-500 mb-1">Suggested tags:</p>
+            <div className="flex flex-wrap gap-1">
+              {suggestedTags.map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => {
+                    if (!tags.includes(tag)) {
+                      setTags([...tags, tag]);
+                    }
+                  }}
+                  disabled={tags.includes(tag)}
+                  className={`text-xs px-2 py-1 rounded border transition ${
+                    tags.includes(tag)
+                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                      : 'bg-white text-[#161853] hover:bg-[#F9DC7D] border-gray-300'
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Selected tags */}
           <div className="flex flex-wrap gap-2">
             {tags.map((t, i) => (
               <span

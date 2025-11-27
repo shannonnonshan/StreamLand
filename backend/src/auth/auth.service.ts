@@ -98,6 +98,9 @@ export class AuthService {
     // Find user
     const user = await this.prisma.postgres.user.findUnique({
       where: { email },
+      include: {
+        teacherProfile: true,
+      },
     });
 
     if (!user) {
@@ -107,6 +110,23 @@ export class AuthService {
     // Check if user is verified
     if (!user.isVerified) {
       throw new UnauthorizedException('Please verify your email first');
+    }
+
+    // Check if teacher is approved (for TEACHER role only)
+    if (user.role === 'TEACHER' && user.teacherProfile) {
+      if (!user.teacherProfile.isApproved) {
+        throw new UnauthorizedException(
+          'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).'
+        );
+      }
+      
+      // Check if teacher was rejected
+      if (user.teacherProfile.rejectedAt) {
+        const reason = user.teacherProfile.rejectionReason || 'No reason provided';
+        throw new UnauthorizedException(
+          `Your teacher account was rejected. Reason: ${reason}. Please contact support.`
+        );
+      }
     }
 
     // Verify password

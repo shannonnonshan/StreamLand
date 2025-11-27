@@ -53,24 +53,23 @@ export default function MonthCalendarPage({
 
   const handleSaveEvent = async (newEvent: ScheduleEvent) => {
     try {
-      const startDateTime = `${eventDate}T${newEvent.startTime}:00`;
-      const endDateTime = `${eventDate}T${newEvent.endTime}:00`;
-      
-      const schedule = await createSchedule({
+      // newEvent.startTime and endTime are already ISO strings from modal
+      const schedule = await createSchedule(teacherId, {
         title: newEvent.title,
-        startTime: startDateTime,
-        endTime: endDateTime,
-        isPublic: newEvent.isPublic,
+        startTime: newEvent.startTime,
+        endTime: newEvent.endTime,
+        isPublic: newEvent.isPublic ?? true,
         color: newEvent.color,
-        location: newEvent.location,
         notifyBefore: newEvent.notifyBefore,
+        tags: newEvent.tags,
       });
 
       const calendarEvent = formatScheduleForCalendar(schedule);
       setEvents([...events, calendarEvent]);
     } catch (error) {
       console.error('Failed to create schedule:', error);
-      alert('Failed to create schedule');
+      const message = error instanceof Error ? error.message : 'Failed to create schedule';
+      alert(message);
     }
   };
 

@@ -251,8 +251,20 @@ export default function LivestreamViewerPage() {
     };
   }, []);
 
+  // Only auto-scroll when receiving new messages from others, not when sending
+  const prevMessagesLengthRef = useRef(chatMessages.length);
+  
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Only scroll if new message is not from current user
+    const newMessagesAdded = chatMessages.length > prevMessagesLengthRef.current;
+    if (newMessagesAdded) {
+      const latestMessage = chatMessages[chatMessages.length - 1];
+      // Auto-scroll only for messages from others
+      if (latestMessage && latestMessage.username !== 'Student') {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+    prevMessagesLengthRef.current = chatMessages.length;
   }, [chatMessages]);
 
   const sendChatMessage = () => {
@@ -277,6 +289,7 @@ export default function LivestreamViewerPage() {
       });
       
       setChatMessage('');
+      // Removed auto-scroll after sending to keep page position
     });
   };
 

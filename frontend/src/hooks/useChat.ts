@@ -3,7 +3,7 @@ import io from 'socket.io-client';
 
 type SocketType = ReturnType<typeof io>;
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export interface ChatMessage {
   id: string;

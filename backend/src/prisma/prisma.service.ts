@@ -17,7 +17,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.postgres = new PostgresClient({
       datasources: {
         db: {
-          url: process.env.DIRECT_URL,
+          url: process.env.DATABASE_URL + '&connection_limit=20&pool_timeout=30',
         },
       },
       log: ['error', 'warn'],

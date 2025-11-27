@@ -52,6 +52,12 @@ model TeacherProfile {
   experience Int? // Years of experience
   education  String?
 
+  // Approval status
+  isApproved    Boolean @default(false)
+  approvedAt    DateTime?
+  rejectedAt    DateTime?
+  rejectionReason String?
+
   // Stats
   totalStudents Int   @default(0)
   rating        Float @default(0)
@@ -59,7 +65,6 @@ model TeacherProfile {
   // Social
   website  String?
   linkedin String?
-  youtube  String?
 
   // Followers
   followers FollowedTeacher[]
@@ -227,7 +232,6 @@ model Schedule {
   
   // Metadata
   color             String? // For calendar display
-  maxParticipants   Int?
   tags              String[]
   
   createdAt         DateTime       @default(now())

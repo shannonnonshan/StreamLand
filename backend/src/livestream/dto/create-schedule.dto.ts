@@ -35,11 +35,6 @@ export class CreateScheduleDto {
   location?: string;
 
   @IsOptional()
-  @IsInt()
-  @Min(1)
-  maxParticipants?: number;
-
-  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   tags?: string[];

@@ -133,7 +133,6 @@ async function seedSchedules() {
       hour: 14,
       duration: 60,
       notifyBefore: 30,
-      maxParticipants: 50,
       isPublic: true,
     },
     {
@@ -146,7 +145,6 @@ async function seedSchedules() {
       hour: 16,
       duration: 90,
       notifyBefore: 15,
-      maxParticipants: 30,
       isPublic: false, // Subscribers only
     },
     {
@@ -159,7 +157,6 @@ async function seedSchedules() {
       hour: 10,
       duration: 75,
       notifyBefore: 20,
-      maxParticipants: 40,
       isPublic: true,
     },
     {
@@ -172,7 +169,6 @@ async function seedSchedules() {
       hour: 15,
       duration: 60,
       notifyBefore: 30,
-      maxParticipants: 35,
       isPublic: false, // Subscribers only
     },
   ];
@@ -217,7 +213,6 @@ async function seedSchedules() {
             color: template.color,
             tags: template.tags,
             notifyBefore: template.notifyBefore,
-            maxParticipants: template.maxParticipants,
           },
         });
 

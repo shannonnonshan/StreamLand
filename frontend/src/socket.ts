@@ -1,8 +1,10 @@
 import io from 'socket.io-client';
 
-const URL = process.env.NODE_ENV === 'production' ? undefined : 'http://localhost:4000';
+const URL = process.env.NODE_ENV === 'production' 
+  ? undefined 
+  : (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000');
 
-const socket = io(URL || 'http://localhost:4000', {
+const socket = io(URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000', {
   reconnection: true,
   reconnectionDelay: 1000,
   reconnectionAttempts: 10,

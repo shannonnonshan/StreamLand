@@ -3,6 +3,7 @@
 import React from "react";
 import dynamic from "next/dynamic";
 import { ApexOptions } from "apexcharts";
+import { useTeacherDashboard } from "@/hooks/useTeacherDashboard";
 
 const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -11,14 +12,16 @@ interface AudienceProps {
 }
 
 export default function Audience({ filter }: AudienceProps) {
+  const { stats, loading, error } = useTeacherDashboard();
+  
   const series = [
     {
       name: "Monthly Viewers",
-      data: [1200, 3200, 4500, 3800, 6200, 5400, 7200, 6900, 8200, 7600, 8800, 9400],
+      data: stats?.monthlyViews || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     },
     {
       name: "Subscribers",
-      data: [400, 800, 1200, 1600, 2000, 2600, 3100, 3500, 4200, 4600, 5100, 6000],
+      data: stats?.monthlySubscribers || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     },
   ];
 
@@ -62,13 +65,45 @@ export default function Audience({ filter }: AudienceProps) {
     legend: { show: false },
   };
 
+  if (loading) {
+    return (
+      <div className="w-full p-3 flex items-center justify-center min-h-[400px]">
+        <div className="text-gray-500">Loading audience data...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="w-full p-3 flex items-center justify-center min-h-[400px]">
+        <div className="text-red-500">Error: {error}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full p-3 text-black">
+    {/* Audience Stats Cards */}
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="bg-white p-4 rounded-xl shadow">
+        <div className="text-sm text-gray-600 mb-1">Total Subscribers</div>
+        <div className="text-2xl font-bold text-gray-900">{stats?.totalStudents || 0}</div>
+      </div>
+      <div className="bg-white p-4 rounded-xl shadow">
+        <div className="text-sm text-gray-600 mb-1">Total Watch Time</div>
+        <div className="text-2xl font-bold text-gray-900">{stats?.totalWatchTimeHours || 0}h</div>
+      </div>
+      <div className="bg-white p-4 rounded-xl shadow">
+        <div className="text-sm text-gray-600 mb-1">Teacher Rating</div>
+        <div className="text-2xl font-bold text-gray-900">{stats?.rating.toFixed(1) || '0.0'} ⭐</div>
+      </div>
+    </div>
+
     <div className="mx-auto p-6 bg-white rounded-xl shadow">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
         <h2 className="text-xl font-semibold text-gray-800">
-          Audience
+          Audience Growth
         </h2>
         <p className="text-sm text-gray-600">
           Current filter: <span className="font-medium">{filter}</span>

@@ -137,7 +137,6 @@ const UPCOMING_SCHEDULES = [
     hour: 14,
     duration: 90,
     notifyBefore: 30,
-    maxParticipants: 30,
     isPublic: true,
   },
   {
@@ -150,7 +149,6 @@ const UPCOMING_SCHEDULES = [
     hour: 16,
     duration: 60,
     notifyBefore: 15,
-    maxParticipants: 25,
     isPublic: false,
   },
   {
@@ -163,7 +161,6 @@ const UPCOMING_SCHEDULES = [
     hour: 10,
     duration: 75,
     notifyBefore: 20,
-    maxParticipants: 40,
     isPublic: true,
   },
   {
@@ -176,7 +173,6 @@ const UPCOMING_SCHEDULES = [
     hour: 15,
     duration: 90,
     notifyBefore: 30,
-    maxParticipants: 35,
     isPublic: false,
   },
   {
@@ -189,7 +185,6 @@ const UPCOMING_SCHEDULES = [
     hour: 11,
     duration: 60,
     notifyBefore: 15,
-    maxParticipants: 30,
     isPublic: true,
   },
   {
@@ -202,7 +197,6 @@ const UPCOMING_SCHEDULES = [
     hour: 18,
     duration: 90,
     notifyBefore: 30,
-    maxParticipants: 50,
     isPublic: true,
   },
   {
@@ -215,7 +209,6 @@ const UPCOMING_SCHEDULES = [
     hour: 13,
     duration: 120,
     notifyBefore: 60,
-    maxParticipants: 25,
     isPublic: false,
   },
   {
@@ -228,7 +221,6 @@ const UPCOMING_SCHEDULES = [
     hour: 17,
     duration: 60,
     notifyBefore: 15,
-    maxParticipants: 20,
     isPublic: false,
   },
   {
@@ -241,7 +233,6 @@ const UPCOMING_SCHEDULES = [
     hour: 14,
     duration: 90,
     notifyBefore: 30,
-    maxParticipants: 30,
     isPublic: true,
   },
   {
@@ -254,7 +245,6 @@ const UPCOMING_SCHEDULES = [
     hour: 16,
     duration: 75,
     notifyBefore: 20,
-    maxParticipants: 20,
     isPublic: false,
   },
 ];
@@ -445,7 +435,6 @@ async function seedTeacherData() {
           color: template.color,
           tags: template.tags,
           notifyBefore: template.notifyBefore,
-          maxParticipants: template.maxParticipants,
         },
       });
 

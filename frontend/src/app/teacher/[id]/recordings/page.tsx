@@ -1,24 +1,52 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { mockRecordings } from "@/utils/data/teacher/mockRecordings";
 import { Play, Calendar, Clock, Search, Filter, Grid3x3, List } from "lucide-react";
+import { getRecordedLivestreams, LiveStream, groupRecordingsByMonth } from "@/lib/api/teacher";
 
 export default function RecordingsPage() {
   const params = useParams();
   const router = useRouter();
-  const teacherId = params?.id || "1";
+  const teacherId = params?.id as string || "1";
 
   const [filter, setFilter] = useState<"7days" | "1month" | "custom">("7days");
   const [customFrom, setCustomFrom] = useState("2025-01");
   const [customTo, setCustomTo] = useState("2025-10");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
+  const [recordings, setRecordings] = useState<LiveStream[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const months = Array.from(new Set(mockRecordings.map(r => r.month))).sort((a, b) => b.localeCompare(a));
-  const [selectedMonth, setSelectedMonth] = useState(months[0]);
+  const recordingsByMonth = groupRecordingsByMonth(recordings);
+  const months = Object.keys(recordingsByMonth).sort((a, b) => b.localeCompare(a));
+  const [selectedMonth, setSelectedMonth] = useState(months[0] || "");
+
+  // Fetch recordings from backend
+  useEffect(() => {
+    const fetchRecordings = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const data = await getRecordedLivestreams(teacherId);
+        setRecordings(data);
+        if (data.length > 0) {
+          const grouped = groupRecordingsByMonth(data);
+          const monthKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+          setSelectedMonth(monthKeys[0]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch recordings:', err);
+        setError('Failed to load recordings');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRecordings();
+  }, [teacherId]);
 
   // Lọc tháng hiển thị theo filter
   const monthsToShow = filter === "custom"
@@ -26,9 +54,24 @@ export default function RecordingsPage() {
     : months.slice(0, 6);
 
   // Filter recordings by search query
-  const currentMonthRecordings = mockRecordings
-    .filter(r => r.month === selectedMonth)
+  const currentMonthRecordings = (recordingsByMonth[selectedMonth] || [])
     .filter(r => r.title.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-full">
+        <div className="text-gray-500">Loading recordings...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex justify-center items-center h-full">
+        <div className="text-red-500">{error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-gradient-to-br from-gray-50 to-gray-100 p-6">
@@ -126,7 +169,7 @@ export default function RecordingsPage() {
           </h3>
           <ul className="space-y-1">
             {monthsToShow.map(month => {
-              const monthRecordings = mockRecordings.filter(r => r.month === month);
+              const monthRecordings = recordingsByMonth[month] || [];
               return (
                 <li key={month}>
                   <button
@@ -174,7 +217,7 @@ export default function RecordingsPage() {
                 >
                   <div className="relative aspect-video overflow-hidden">
                     <Image
-                      src={rec.thumbnail}
+                      src={rec.thumbnail || "/logo.png"}
                       alt={rec.title}
                       width={400}
                       height={225}
@@ -193,12 +236,13 @@ export default function RecordingsPage() {
                     <div className="flex items-center gap-4 text-sm text-gray-500">
                       <span className="flex items-center gap-1">
                         <Calendar size={14} />
-                        {rec.date}
+                        {new Date(rec.endedAt || rec.createdAt).toLocaleDateString()}
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock size={14} />
-                        45:30
+                        {Math.floor(rec.duration / 60)}:{String(rec.duration % 60).padStart(2, '0')}
                       </span>
+                      <span>{rec.totalViews} views</span>
                     </div>
                   </div>
                 </div>
@@ -215,7 +259,7 @@ export default function RecordingsPage() {
                   <div className="flex gap-4 p-4">
                     <div className="relative w-48 h-28 flex-shrink-0 rounded-lg overflow-hidden">
                       <Image
-                        src={rec.thumbnail}
+                        src={rec.thumbnail || "/logo.png"}
                         alt={rec.title}
                         width={192}
                         height={112}
@@ -232,12 +276,13 @@ export default function RecordingsPage() {
                       <div className="flex items-center gap-4 text-sm text-gray-500">
                         <span className="flex items-center gap-1">
                           <Calendar size={14} />
-                          {rec.date}
+                          {new Date(rec.endedAt || rec.createdAt).toLocaleDateString()}
                         </span>
                         <span className="flex items-center gap-1">
                           <Clock size={14} />
-                          45:30
+                          {Math.floor(rec.duration / 60)}:{String(rec.duration % 60).padStart(2, '0')}
                         </span>
+                        <span>{rec.totalViews} views</span>
                       </div>
                     </div>
                   </div>

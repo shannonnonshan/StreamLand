@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { ICE_SERVERS } from "@/utils/ice";
 import socket from "@/socket";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 import {
   Mic,
   MicOff,
@@ -43,6 +45,7 @@ interface LivestreamInfo {
 
 export default function BroadcasterPage() {
   const params = useParams<{ id?: string; livestreamID?: string }>();
+  const router = useRouter();
 
   const teacherID = params?.id ?? "1";
   const livestreamID = params?.livestreamID ?? "1";
@@ -50,6 +53,8 @@ export default function BroadcasterPage() {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const peersRef = useRef<Record<string, RTCPeerConnection>>({});
   const localStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
 
   const [isLive, setIsLive] = useState(false);
   const [watcherCount, setWatcherCount] = useState(0);
@@ -68,6 +73,14 @@ export default function BroadcasterPage() {
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [saveRecording, setSaveRecording] = useState(false);
   const [isEndingStream, setIsEndingStream] = useState(false);
+  const [uploadPreview, setUploadPreview] = useState<{
+    file: File;
+    url: string;
+    type: 'pdf' | 'image' | 'video' | 'doc' | 'ppt';
+    originalName: string;
+    size: number;
+  } | null>(null);
+  const [newFileName, setNewFileName] = useState('');
   const [chatMessages, setChatMessages] = useState<Array<{
     id: string;
     username: string;
@@ -80,23 +93,40 @@ export default function BroadcasterPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  const fetchTeacherDocuments = useCallback(async () => {
+    try {
+      // TODO: Replace with actual API call when backend is ready
+      // const response = await fetch(`/api/teachers/${teacherID}/documents`);
+      // const data = await response.json();
+      // setDocuments(data);
+      
+      // No documents initially - user needs to upload
+      setDocuments([]);
+    } catch (error) {
+      console.error('Error fetching documents:', error);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTeacherDocuments();
     
     const fetchLivestreamInfo = async () => {
       try {
-        const response = await fetch(`http://localhost:4000/livestream/${livestreamID}`);
+        const response = await fetch(`${API_URL}/livestream/${livestreamID}`, {
+          // Add cache control for better performance
+          cache: 'no-store',
+          next: { revalidate: 0 }
+        });
         if (response.ok) {
           const data = await response.json();
           
           // Check if livestream has ended
           if (data.status === 'ENDED') {
-            // If recording was saved, redirect to recording page
+            // Use router.push for client-side navigation (faster)
             if (data.isRecorded && data.recordingUrl) {
-              window.location.href = `/teacher/${teacherID}/recordings/${livestreamID}`;
+              router.push(`/teacher/${teacherID}/recordings/${livestreamID}`);
             } else {
-              // No recording, redirect to home
-              window.location.href = `/teacher/${teacherID}`;
+              router.push(`/teacher/${teacherID}`);
             }
             return;
           }
@@ -111,26 +141,12 @@ export default function BroadcasterPage() {
         }
       } catch (error) {
         // Error fetching livestream info
-
+        console.error('Error fetching livestream info:', error);
       }
     };
     
     fetchLivestreamInfo();
-  }, [teacherID, livestreamID]);
-
-  const fetchTeacherDocuments = async () => {
-    try {
-      // TODO: Replace with actual API call when backend is ready
-      // const response = await fetch(`/api/teachers/${teacherID}/documents`);
-      // const data = await response.json();
-      // setDocuments(data);
-      
-      // No documents initially - user needs to upload
-      setDocuments([]);
-    } catch (error) {
-      console.error('Error fetching documents:', error);
-    }
-  };
+  }, [teacherID, livestreamID, router, fetchTeacherDocuments]);
 
   useEffect(() => {
     socket.on("watcher", handleWatcher);
@@ -171,6 +187,21 @@ export default function BroadcasterPage() {
 
   async function startLive() {
     try {
+      // Update livestream status to LIVE in database
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const startResponse = await fetch(`${API_URL}/livestream/${livestreamID}/start`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!startResponse.ok) {
+        const error = await startResponse.json();
+        throw new Error(error.message || 'Failed to start livestream');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
@@ -178,6 +209,32 @@ export default function BroadcasterPage() {
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
+      }
+
+      // Start recording in browser (save to memory)
+      // Will only upload to R2 if user chooses to save
+      try {
+        const mediaRecorder = new MediaRecorder(stream, {
+          mimeType: 'video/webm;codecs=vp8,opus',
+          videoBitsPerSecond: 2500000, // 2.5 Mbps
+        });
+
+        // Store video chunks in memory
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            recordedChunksRef.current.push(event.data);
+          }
+        };
+
+        mediaRecorder.onerror = (error) => {
+          console.error('[Broadcaster] MediaRecorder error:', error);
+        };
+
+        // Record continuously (will save all chunks when stopped)
+        mediaRecorder.start(10000); // 10s chunks for better memory management
+        mediaRecorderRef.current = mediaRecorder;
+      } catch (error) {
+        console.warn('[Broadcaster] MediaRecorder not supported:', error);
       }
 
       // Ensure socket is connected before emitting
@@ -222,10 +279,56 @@ export default function BroadcasterPage() {
     setIsEndingStream(true);
     
     try {
-      // Update livestream status in database
-      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      // Stop MediaRecorder first to finalize recording
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+        
+        // Wait a bit for final chunks to be processed
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      // Upload recording if user chose to save
+      if (saveRecording && recordedChunksRef.current.length > 0) {
+        console.log(`[Broadcaster] Uploading recording (${recordedChunksRef.current.length} chunks)...`);
+        
+        // Combine all chunks into one blob
+        const recordingBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        
+        // Convert to base64 for upload
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve) => {
+          reader.onloadend = () => {
+            const base64data = reader.result as string;
+            resolve(base64data.split(',')[1]); // Remove data URL prefix
+          };
+          reader.readAsDataURL(recordingBlob);
+        });
+        
+        const videoBase64 = await base64Promise;
+        
+        // Upload to backend
+        const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+        const uploadResponse = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            video: videoBase64,
+          }),
+        });
+        
+        if (!uploadResponse.ok) {
+          console.error('Failed to upload recording');
+        } else {
+          console.log('[Broadcaster] Recording uploaded successfully');
+        }
+      }
       
-      const response = await fetch(`http://localhost:4000/livestream/${livestreamID}/end`, {
+      // Update livestream status
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const response = await fetch(`${API_URL}/livestream/${livestreamID}/end`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -253,6 +356,10 @@ export default function BroadcasterPage() {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
         localStreamRef.current = null;
       }
+
+      // Clear recorded chunks
+      recordedChunksRef.current = [];
+      mediaRecorderRef.current = null;
 
       setIsLive(false);
       setWatcherCount(0);
@@ -436,60 +543,90 @@ export default function BroadcasterPage() {
     }
   }
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
-    if (!files) return;
+    if (!files || files.length === 0) return;
 
-    Array.from(files).forEach(async (file) => {
-      const fileType = file.type.startsWith('image/') ? 'image' : 
-                       file.type.startsWith('video/') ? 'video' : 
-                       file.type.includes('pdf') ? 'pdf' :
-                       file.type.includes('document') || file.type.includes('word') ? 'doc' :
-                       file.type.includes('presentation') || file.type.includes('powerpoint') ? 'ppt' : 'doc';
-      
-      const fileUrl = URL.createObjectURL(file);
-      
-      // TODO: Upload to backend when API is ready
-      // const formData = new FormData();
-      // formData.append('file', file);
-      // formData.append('teacherId', teacherID);
-      // formData.append('livestreamId', livestreamID);
-      // 
-      // try {
-      //   const response = await fetch('/api/upload/document', {
-      //     method: 'POST',
-      //     body: formData,
-      //   });
-      //   const data = await response.json();
-      //   
-      //   const newDoc: DocumentFile = {
-      //     id: data.id,
-      //     name: file.name,
-      //     type: fileType as any,
-      //     url: data.url,
-      //     uploadedAt: new Date().toISOString(),
-      //     size: file.size
-      //   };
-      //   setDocuments(prev => [...prev, newDoc]);
-      // } catch (error) {
-      //   console.error('Upload failed:', error);
-      // }
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+    if (!token) {
+      alert('Please login to upload documents');
+      return;
+    }
 
-      // Mock: Add to local state for now
-      const newDoc: DocumentFile = {
-        id: Date.now() + Math.random(),
-        name: file.name,
+    const file = files[0]; // Handle one file at a time
+    const fileType = file.type.startsWith('image/') ? 'image' : 
+                     file.type.startsWith('video/') ? 'video' : 
+                     file.type.includes('pdf') ? 'pdf' :
+                     file.type.includes('document') || file.type.includes('word') ? 'doc' :
+                     file.type.includes('presentation') || file.type.includes('powerpoint') ? 'ppt' : 'doc';
+    
+    try {
+      // Upload to R2 first
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(`${API_URL}/teacher/${teacherID}/upload-document`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+      
+      const data = await response.json();
+      
+      // Show preview with rename option
+      setUploadPreview({
+        file,
+        url: data.url, // R2 public URL for preview
         type: fileType as 'pdf' | 'image' | 'video' | 'doc' | 'ppt',
-        url: fileUrl,
-        uploadedAt: new Date().toISOString(),
-        size: file.size
-      };
-      setDocuments(prev => [...prev, newDoc]);
-    });
+        originalName: file.name,
+        size: data.size || file.size,
+      });
+      setNewFileName(file.name.replace(/\.[^/.]+$/, '')); // Filename without extension
+      
+    } catch (error) {
+      console.error('Upload failed:', error);
+      alert('Failed to upload document. Please try again.');
+    }
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  const confirmUpload = () => {
+    if (!uploadPreview) return;
+    
+    const fileExtension = uploadPreview.originalName.split('.').pop() || '';
+    const finalName = newFileName.trim() 
+      ? `${newFileName}.${fileExtension}` 
+      : uploadPreview.originalName;
+    
+    const newDoc: DocumentFile = {
+      id: Date.now() + Math.random(),
+      name: finalName,
+      type: uploadPreview.type,
+      url: uploadPreview.url,
+      uploadedAt: new Date().toISOString(),
+      size: uploadPreview.size
+    };
+    
+    setDocuments(prev => [...prev, newDoc]);
+    console.log('[Broadcaster] Document added:', newDoc);
+    
+    // Reset
+    setUploadPreview(null);
+    setNewFileName('');
+  };
+
+  const cancelUpload = () => {
+    setUploadPreview(null);
+    setNewFileName('');
   };
 
   const handleUploadClick = () => {
@@ -597,24 +734,24 @@ export default function BroadcasterPage() {
 
       {/* Livestream Info Display */}
       {livestreamInfo && (
-        <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md text-white p-4 rounded-lg shadow-lg max-w-md z-10">
-          <h2 className="text-xl font-bold mb-2">{livestreamInfo.title}</h2>
-          <div className="flex items-center gap-2 mb-2 text-sm">
-            <span className="px-2 py-1 bg-blue-600 rounded-full text-xs font-semibold">
+        <div className="absolute top-4 left-4 bg-black/70 backdrop-blur-md text-white p-3 rounded-xl shadow-lg max-w-sm z-10">
+          <h2 className="text-lg font-bold mb-1.5 line-clamp-1">{livestreamInfo.title}</h2>
+          <div className="flex items-center gap-1.5 flex-wrap text-sm mb-2">
+            <span className="px-2 py-0.5 bg-blue-600 rounded-full text-xs font-semibold">
               {livestreamInfo.category}
             </span>
-            {livestreamInfo.isPublic ? (
-              <span className="px-2 py-1 bg-green-600 rounded-full text-xs font-semibold">Public</span>
-            ) : (
-              <span className="px-2 py-1 bg-gray-600 rounded-full text-xs font-semibold">Private</span>
+            {livestreamInfo.isPublic && (
+              <span className="px-2 py-0.5 bg-green-600 rounded-full text-xs font-semibold">Public</span>
             )}
             {livestreamInfo.allowComments && (
-              <span className="px-2 py-1 bg-purple-600 rounded-full text-xs font-semibold">💬 Comments On</span>
+              <span className="px-2 py-0.5 bg-purple-600 rounded-full text-xs font-semibold">💬 On</span>
             )}
           </div>
-          {livestreamInfo.description && (
-            <p className="text-sm text-white/80 line-clamp-2">{livestreamInfo.description}</p>
-          )}
+          <div className="flex items-center gap-2 text-xs text-white/90">
+            <span className="flex items-center gap-1">
+              👥 <span className="font-semibold">{watcherCount}</span> watching
+            </span>
+          </div>
         </div>
       )}
 
@@ -766,23 +903,6 @@ export default function BroadcasterPage() {
                 </label>
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                <div className="flex gap-2">
-                  <div className="text-blue-600 mt-0.5">ℹ️</div>
-                  <div className="text-sm text-blue-800">
-                    <p className="font-semibold mb-1">What happens next:</p>
-                    <ul className="list-disc list-inside space-y-1 text-blue-700">
-                      <li>All students will be disconnected</li>
-                      <li>Livestream status will be updated to &quot;Ended&quot;</li>
-                      {saveRecording ? (
-                        <li>Recording will be processed and saved (may take a few minutes)</li>
-                      ) : (
-                        <li>Stream will not be saved</li>
-                      )}
-                    </ul>
-                  </div>
-                </div>
-              </div>
               
               <div className="flex gap-3">
                 <button
@@ -805,6 +925,130 @@ export default function BroadcasterPage() {
                   ) : (
                     'End Livestream'
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Preview & Rename Dialog */}
+      {uploadPreview && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-gray-900">Preview & Rename Document</h2>
+                <button
+                  onClick={cancelUpload}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              {/* Preview Section */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">Preview</label>
+                <div className="border-2 border-gray-200 rounded-lg p-4 bg-gray-50">
+                  {uploadPreview.type === 'image' && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img 
+                      src={uploadPreview.url} 
+                      alt="Preview" 
+                      className="max-h-64 mx-auto rounded"
+                    />
+                  )}
+                  {uploadPreview.type === 'pdf' && (
+                    <div className="flex flex-col items-center gap-3">
+                      <FileText className="w-16 h-16 text-red-500" />
+                      <a 
+                        href={uploadPreview.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline text-sm"
+                      >
+                        Open PDF in new tab
+                      </a>
+                    </div>
+                  )}
+                  {uploadPreview.type === 'video' && (
+                    <video 
+                      src={uploadPreview.url} 
+                      controls 
+                      className="max-h-64 mx-auto rounded"
+                    />
+                  )}
+                  {(uploadPreview.type === 'doc' || uploadPreview.type === 'ppt') && (
+                    <div className="flex flex-col items-center gap-3">
+                      {uploadPreview.type === 'doc' ? (
+                        <FileText className="w-16 h-16 text-blue-500" />
+                      ) : (
+                        <FileText className="w-16 h-16 text-orange-500" />
+                      )}
+                      <a 
+                        href={uploadPreview.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline text-sm"
+                      >
+                        Open document in new tab
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* File Info */}
+              <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-600">Original name:</span>
+                    <p className="font-medium text-gray-900 break-all">{uploadPreview.originalName}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Size:</span>
+                    <p className="font-medium text-gray-900">
+                      {(uploadPreview.size / 1024).toFixed(2)} KB
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Rename Input */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Document Name
+                </label>
+                <input
+                  type="text"
+                  value={newFileName}
+                  onChange={(e) => setNewFileName(e.target.value)}
+                  placeholder="Enter document name (without extension)"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <p className="mt-2 text-sm text-gray-500">
+                  Final name: <span className="font-medium text-gray-900">
+                    {newFileName.trim() || uploadPreview.originalName.replace(/\\.[^/.]+$/, '')}.{uploadPreview.originalName.split('.').pop()}
+                  </span>
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={cancelUpload}
+                  className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmUpload}
+                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+                >
+                  Add to Documents
                 </button>
               </div>
             </div>

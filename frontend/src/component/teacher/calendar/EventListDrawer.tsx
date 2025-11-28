@@ -5,7 +5,7 @@ import { CalendarEvent } from "@/utils/data/teacher/calendar";
 import { XIcon, ChevronRightIcon } from "lucide-react";
 import EventDrawer from "./EventDrawer";
 import { raleway } from "@/utils/front";
-import pastelise  from "@/utils/colorise"; // giả sử bạn có hàm pastelise()
+import pastelise  from "@/utils/colorise"; // assuming you have pastelise() function
 
 interface EventListDrawerProps {
   date: Date | null;

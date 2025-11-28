@@ -9,7 +9,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
-import { UseGuards } from '@nestjs/common';
+import { UseGuards, Logger } from '@nestjs/common';
 import { WsJwtGuard } from '../auth/guards/ws-jwt.guard';
 import { MessageType } from '@prisma/mongodb-client';
 
@@ -23,16 +23,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
-  private userSockets: Map<string, string> = new Map(); // userId -> socketId
+  private readonly logger = new Logger(ChatGateway.name);
+  private userSockets: Map<string, string> = new Map();
 
   constructor(private readonly chatService: ChatService) {}
 
   handleConnection(client: Socket) {
-    console.log(`Client connected: ${client.id}`);
+    this.logger.debug(`Client connected: ${client.id}`);
   }
 
   handleDisconnect(client: Socket) {
-    console.log(`Client disconnected: ${client.id}`);
+    this.logger.debug(`Client disconnected: ${client.id}`);
     // Remove user from online users
     for (const [userId, socketId] of this.userSockets.entries()) {
       if (socketId === client.id) {
@@ -49,7 +50,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
   ) {
     this.userSockets.set(data.userId, client.id);
-    console.log(`User ${data.userId} registered with socket ${client.id}`);
+    this.logger.log(`User ${data.userId} registered with socket ${client.id}`);
     return { success: true };
   }
 

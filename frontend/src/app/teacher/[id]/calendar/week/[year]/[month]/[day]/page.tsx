@@ -3,9 +3,10 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import { raleway } from "@/utils/front";
 import { useParams } from "next/navigation";
 import { addDays, startOfWeek, format, isBefore, endOfDay } from "date-fns";
-import { CalendarEvent, sampleEvents } from "@/utils/data/teacher/calendar";
+import { CalendarEvent } from "@/utils/data/teacher/calendar";
 import pastelise from "@/utils/colorise";
 import EventDrawer from "@/component/teacher/calendar/EventDrawer";
+import { getTeacherSchedules, formatScheduleForCalendar } from "@/lib/api/teacher";
 
 export default function WeekCalendar() {
   const params = useParams();
@@ -27,6 +28,21 @@ export default function WeekCalendar() {
 
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+
+  // Fetch events from backend
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const schedules = await getTeacherSchedules(teacherId);
+        const formattedEvents = schedules.map(formatScheduleForCalendar);
+        setEvents(formattedEvents);
+      } catch (error) {
+        console.error('Failed to fetch schedules:', error);
+      }
+    };
+    fetchEvents();
+  }, [teacherId]);
 
   const openDrawer = (ev: CalendarEvent) => {
     setSelectedEvent(ev);
@@ -87,8 +103,8 @@ export default function WeekCalendar() {
   const lastMonth = format(lastDay, "MMMM yyyy");
   const headerTitle = firstMonth === lastMonth ? firstMonth : `${firstMonth} - ${lastMonth}`;
 
-  // 🔹 chỉ lấy event có teacherId = id
-  const filteredEvents = sampleEvents.filter((ev) => ev.teacherId === teacherId);
+  // Filter events for this teacher
+  const filteredEvents = events.filter((ev) => ev.teacherId === teacherId);
 
   return (
     <section className={`relative bg-white overflow-hidden ${raleway.className}`}>

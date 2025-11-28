@@ -13,60 +13,94 @@ model User {
   email            String          @unique
   password         String
   fullName         String
-  role             Role            @default(STUDENT)
-  isVerified       Boolean         @default(false)
-  twoFactorEnabled Boolean         @default(false)
-  googleId         String?         @unique
-  githubId         String?         @unique
-  otp              String?
-  otpExpiry        DateTime?
-  avatar           String?
-  bio              String?
-  location         String?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  livestreams      LiveStream[]
-  studentProfile   StudentProfile?
-  teacherProfile   TeacherProfile?
+  role             Role    @default(STUDENT)
+  isVerified       Boolean @default(false)
+  twoFactorEnabled Boolean @default(false)
+
+  // Social login IDs
+  googleId String? @unique
+  githubId String? @unique
+
+  // OTP fields
+  otp       String?
+  otpExpiry DateTime?
+
+  // Profile details
+  avatar   String?
+  bio      String?
+  location String?
+
+  // Relations
+  teacherProfile TeacherProfile?
+  studentProfile StudentProfile?
+  livestreams    LiveStream[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("users")
 }
 
 model TeacherProfile {
-  id            String            @id @default(uuid())
-  userId        String            @unique
-  cvUrl         String?
-  subjects      String[]
-  experience    Int?
-  education     String?
-  totalStudents Int               @default(0)
-  rating        Float             @default(0)
-  website       String?
-  linkedin      String?
-  youtube       String?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  followers     FollowedTeacher[]
-  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Teacher details
+  cvUrl      String? // URL to uploaded CV
+  subjects   String[] // ["English", "Math", "Physics"]
+  experience Int? // Years of experience
+  education  String?
+
+  // Approval status
+  isApproved    Boolean @default(false)
+  approvedAt    DateTime?
+  rejectedAt    DateTime?
+  rejectionReason String?
+
+  // Stats
+  totalStudents Int   @default(0)
+  rating        Float @default(0)
+
+  // Social
+  website  String?
+  linkedin String?
+
+  // Followers
+  followers FollowedTeacher[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("teacher_profiles")
 }
 
 model StudentProfile {
-  id                     String            @id @default(uuid())
-  userId                 String            @unique
-  grade                  String?
-  school                 String?
-  interests              String[]
-  studyHours             Int               @default(0)
-  studyStreak            Int               @default(0)
-  learningGoals          String[]
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
-  followedTeachers       FollowedTeacher[]
-  receivedFriendRequests FriendList[]      @relation("ReceivedFriendRequests")
-  sentFriendRequests     FriendList[]      @relation("SentFriendRequests")
-  user                   User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Student details
+  grade     String?
+  school    String?
+  interests String[] // ["Programming", "English", "Math"]
+
+  // Stats
+  studyHours   Int @default(0)
+  studyStreak  Int @default(0)
+
+  // Preferences
+  learningGoals String[]
+
+  // Friends
+  sentFriendRequests     FriendList[] @relation("SentFriendRequests")
+  receivedFriendRequests FriendList[] @relation("ReceivedFriendRequests")
+
+  // Following teachers
+  followedTeachers FollowedTeacher[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("student_profiles")
 }
@@ -101,32 +135,33 @@ model FollowedTeacher {
 }
 
 model LiveStream {
-  id             String           @id @default(uuid())
-  teacherId      String
-  title          String
-  description    String?
-  thumbnail      String?
-  status         LiveStreamStatus @default(SCHEDULED)
-  recordingUrl   String?
-  scheduledAt    DateTime?
-  startedAt      DateTime?
-  endedAt        DateTime?
-  currentViewers Int              @default(0)
-  totalViews     Int              @default(0)
-  peakViewers    Int              @default(0)
-  duration       Int              @default(0)
-  isRecorded     Boolean          @default(true)
-  isPublic       Boolean          @default(true)
-  allowComments  Boolean          @default(true)
-  allowQuestions Boolean          @default(true)
-  maxViewers     Int?
-  chatMode       ChatMode         @default(EVERYONE)
-  analyticsId    String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  category       String?
-  users          User             @relation(fields: [teacherId], references: [id])
-  tags           Tag[]
+  id                String           @id @default(uuid())
+  teacherId         String
+  teacher           User             @relation(fields: [teacherId], references: [id])
+  title             String
+  description       String?
+  category          String?
+  thumbnail         String?
+  status            LiveStreamStatus @default(SCHEDULED)
+  recordingUrl      String?          // R2 public URL for recorded video
+  scheduledAt       DateTime?
+  startedAt         DateTime?
+  endedAt           DateTime?
+  currentViewers    Int              @default(0)
+  totalViews        Int              @default(0)
+  peakViewers       Int              @default(0)
+  duration          Int              @default(0)
+  isRecorded        Boolean          @default(true)
+  isPublic          Boolean          @default(true)
+  allowComments     Boolean          @default(true)
+  allowQuestions    Boolean          @default(true)
+  maxViewers        Int?
+  chatMode          ChatMode         @default(EVERYONE)
+  analyticsId       String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  tags              Tag[]
+  schedule          Schedule?
 
   @@index([teacherId, status])
   @@index([scheduledAt])
@@ -136,20 +171,20 @@ model LiveStream {
 
 model Document {
   id          String   @id @default(uuid())
+  teacherId   String   // Owner of the document
   title       String
   description String?
-  fileUrl     String
-  fileType    String
-  fileSize    Int
-  mimeType    String
+  fileUrl     String   // R2 public URL
+  fileName    String   // Original filename
+  fileType    String   // pdf, image, video, doc, ppt
+  fileSize    Int      // Size in bytes
+  mimeType    String   // MIME type
+  thumbnail   String?  // Preview image for videos/PDFs
   uploadedAt  DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  fileName    String
-  teacherId   String
-  thumbnail   String?
 
-  @@index([fileType])
   @@index([teacherId])
+  @@index([fileType])
   @@map("documents")
 }
 
@@ -168,22 +203,40 @@ model Tag {
 }
 
 model Schedule {
-  id           String       @id @default(uuid())
-  teacherId    String
-  title        String
-  description  String?
-  type         ScheduleType
-  startTime    DateTime
-  endTime      DateTime
-  isRecurring  Boolean      @default(false)
-  recurrence   String?
-  livestreamId String?
-  notifyBefore Int          @default(15)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id                String         @id @default(uuid())
+  teacherId         String
+  title             String
+  startTime         DateTime
+  endTime           DateTime
+  
+  // Livestream association
+  livestreamId      String?        @unique
+  liveStream        LiveStream?    @relation(fields: [livestreamId], references: [id], onDelete: SetNull)
+  
+  // Visibility settings
+  isPublic          Boolean        @default(true) // Public or subscribers only
+  
+  // Reminder settings
+  notifyBefore      Int            @default(15) // minutes before start
+  reminderSent      Boolean        @default(false)
+  reminderSentAt    DateTime?
+  
+  // Status tracking
+  status            ScheduleStatus @default(SCHEDULED)
+  cancelReason      String?
+  cancelledAt       DateTime?
+  
+  // Metadata
+  color             String? // For calendar display
+  tags              String[]
+  
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   @@index([teacherId, startTime])
-  @@index([type])
+  @@index([livestreamId])
+  @@index([status])
+  @@index([isPublic])
   @@map("schedules")
 }
 
@@ -236,11 +289,12 @@ enum ChatMode {
   DISABLED
 }
 
-enum ScheduleType {
-  LIVESTREAM
-  MEETING
-  OFFICE_HOURS
-  OTHER
+enum ScheduleStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
 }
 
 enum SubscriptionTier {

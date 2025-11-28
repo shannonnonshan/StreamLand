@@ -13,10 +13,11 @@ import {
   Settings as SettingsIcon,
   Radio,
   Headset,
+  ArrowUp,
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
-import ScheduleEventModal, { ScheduleEvent } from "@/component/teacher/calendar/ScheduleEventModal";
+import ScheduleEventModal from "@/component/teacher/calendar/ScheduleEventModal";
 import Sidebar from "@/component/Sidebar";
 import AuthButton from "@/component/AuthButton";
 import { useAuth } from "@/hooks/useAuth";
@@ -40,7 +41,24 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const [authCheckDone, setAuthCheckDone] = useState(false);
   const [showStartLiveModal, setShowStartLiveModal] = useState(false);
   const [pendingLivestreamId, setPendingLivestreamId] = useState<string | null>(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const { user, isAuthenticated, loading } = useAuth();
+
+  // Scroll to top button
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollPercentage = (window.scrollY / document.documentElement.scrollHeight) * 100;
+      setShowScrollTop(scrollPercentage > 20);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Check authentication and role
   useEffect(() => {
@@ -53,6 +71,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         setAuthCheckDone(true);
       } else if (user?.role !== 'TEACHER') {
         // Wrong role - logout and redirect to correct dashboard
+        setIsRedirecting(true);
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('user');
@@ -68,6 +87,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         }
       } else if (routeId && user?.id && routeId !== user.id) {
         // ID in URL doesn't match authenticated user - redirect to correct URL
+        setIsRedirecting(true);
         router.replace(`/teacher/${user.id}${pathname.replace(`/teacher/${routeId}`, '')}`);
         setAuthCheckDone(true);
       } else {
@@ -122,7 +142,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         throw new Error('Invalid authentication token. Please login again.');
       }
 
-      const response = await fetch('http://localhost:4000/livestream/create', {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const response = await fetch(`${API_URL}/livestream/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -151,6 +172,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
       // Close modal and navigate to livestream page
       setShowStartLiveModal(false);
+      setIsRedirecting(true);
       router.push(`/teacher/${id}/livestream/${pendingLivestreamId}`);
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to create livestream');
@@ -158,7 +180,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     }
   };
   
-  const handleSave = (_event: ScheduleEvent) => {
+  const handleSave = () => {
     // Schedule event saved
   };
   
@@ -172,6 +194,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   ];
 
   const handleChatClick = () => {
+    setIsRedirecting(true);
     router.push(`/teacher/${id}/chat-with-admin`);
   };
 
@@ -182,13 +205,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     isActive: (pathname: string) => pathname.includes("/chat-with-admin"),
   };
 
-  // Show loading state while checking auth
-  if (loading || !authCheckDone) {
+  // Show loading state while checking auth or redirecting
+  if (loading || !authCheckDone || isRedirecting) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F9F9F9]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#EC255A] mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+          <p className="text-gray-600">{isRedirecting ? 'Redirecting...' : 'Loading...'}</p>
         </div>
       </div>
     );
@@ -303,7 +326,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         >
           <div className="flex min-h-screen flex-col bg-[#F9F9F9]">
           {/* Top Navigation */}
-          <nav className=" bg-[#F9F9F9] shadow-2xs pl-[8%] px-10 py-4 flex justify-between items-center fixed top-0 left-0 right-0 z-10">
+          <nav className=" bg-[#F9F9F9] shadow-2xs pl-[8%] px-10 py-4 flex justify-between items-center">
             {/* Logo */}
             <div className="flex items-center">
               <a href={`/teacher/${id}`}>
@@ -373,7 +396,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </ul>
           </nav>
 
-          <div className="flex flex-row flex-1 mt-16">
+          <div className="flex flex-row flex-1">
             {/* Shared Sidebar Component */}
             <Sidebar 
               userId={id}
@@ -388,6 +411,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               {children}
             </main>
           </div>
+
+          {/* Scroll to Top Button */}
+          {showScrollTop && (
+            <button
+              onClick={scrollToTop}
+              className="fixed bottom-8 right-8 bg-[#EC255A] text-white p-3 rounded-full shadow-lg hover:bg-red-600 transition-all duration-300 z-50"
+              aria-label="Scroll to top"
+            >
+              <ArrowUp size={24} />
+            </button>
+          )}
         </div>
         </div>
       </>

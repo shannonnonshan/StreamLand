@@ -2,14 +2,13 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Paperclip, Send, X, ArrowLeft, MessageCircle } from "lucide-react";
+import { Send, ArrowLeft, MessageCircle } from "lucide-react";
 import Image from "next/image";
 import { raleway } from "@/utils/front";
 
 type ChatMessage = {
   id: number;
   text?: string;
-  images?: string[];
   sender: "admin" | "me";
   time: string;
 };
@@ -17,81 +16,109 @@ type ChatMessage = {
 export default function ChatWithAdminPage() {
   const params = useParams();
   const router = useRouter();
-  const chatId = params.id || "unknown";
+  const teacherId = params.id as string;
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [message, setMessage] = useState("");
-  const [images, setImages] = useState<File[]>([]);
-  const [previews, setPreviews] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Fetch messages from backend
+  useEffect(() => {
+    const fetchMessages = async () => {
+      try {
+        const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+        
+        const response = await fetch(`${API_URL}/teacher/${teacherId}/admin-conversation`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          interface MessageResponse {
+            id: string;
+            content: string;
+            senderId: string;
+            createdAt: string;
+          }
+          const formattedMessages = data.map((msg: MessageResponse) => ({
+            id: msg.id,
+            text: msg.content,
+            sender: msg.senderId === 'ADMIN' ? 'admin' : 'me',
+            time: new Date(msg.createdAt).toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit'
+            }),
+          }));
+          setMessages(formattedMessages.reverse()); // Reverse to show oldest first
+        }
+      } catch (error) {
+        console.error('Error fetching messages:', error);
+      }
+    };
+
+    if (teacherId) {
+      fetchMessages();
+      // Poll for new messages every 5 seconds
+      const interval = setInterval(fetchMessages, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [teacherId]);
 
   // Auto scroll to bottom when new message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Upload nhiều ảnh
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const files = Array.from(e.target.files);
-      setImages((prev) => [...prev, ...files]);
-      const newPreviews = files.map((file) => URL.createObjectURL(file));
-      setPreviews((prev) => [...prev, ...newPreviews]);
-    }
-  };
-
-  // Xóa ảnh khỏi preview
-  const removeImage = (index: number) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
-    setPreviews((prev) => prev.filter((_, i) => i !== index));
-  };
-  function formatDateTime(date: Date) {
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0"); // tháng bắt đầu từ 0
-  const year = date.getFullYear();
-  return `${hours}:${minutes}, ${day}/${month}/${year}`;
-}
-
 // Gửi tin nhắn
-const handleSend = () => {
-  if (!message && previews.length === 0) return;
-
-  const now = new Date();
-  const time = formatDateTime(now);
-
-  const newMsg: ChatMessage = {
-    id: Date.now(),
-    text: message || undefined,
-    images: previews.length > 0 ? [...previews] : undefined,
-    sender: "me",
-    time,
-  };
-
-  setMessages((prev) => [...prev, newMsg]);
-  setMessage("");
-  setImages([]);
-  setPreviews([]);
-
-  // Fake admin auto reply sau 1.5 giây
-  setTimeout(() => {
-    const replyTime = formatDateTime(new Date());
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Date.now() + 1,
-        text: "The admin will respond to you shortly.",
-        sender: "admin",
-        time: replyTime,
+const handleSend = async () => {
+  if (!message.trim()) return;
+  
+  setLoading(true);
+  try {
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    
+    const response = await fetch(`${API_URL}/teacher/${teacherId}/message-admin`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
       },
-    ]);
-  }, 1500);
+      body: JSON.stringify({ content: message.trim() }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      // Use the actual message from server with MongoDB _id
+      const newMsg: ChatMessage = {
+        id: data.id || data._id,
+        text: data.content,
+        sender: "me",
+        time: new Date(data.createdAt).toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+      };
+      setMessages((prev) => [...prev, newMsg]);
+      setMessage("");
+    } else {
+      alert('Failed to send message');
+    }
+  } catch (error) {
+    console.error('Error sending message:', error);
+    alert('Failed to send message');
+  } finally {
+    setLoading(false);
+  }
 };
 
 
   // Nhấn Enter để gửi
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -144,20 +171,6 @@ const handleSend = () => {
                   }`}
                 >
                   {msg.text && <p className="leading-relaxed">{msg.text}</p>}
-                  {msg.images && (
-                    <div className="grid grid-cols-2 gap-2 mt-3">
-                      {msg.images.map((src, i) => (
-                        <div key={i} className="relative w-32 h-32 rounded-lg overflow-hidden">
-                          <Image
-                            src={src}
-                            alt="uploaded"
-                            fill
-                            className="object-cover"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
                   <span
                     className={`block text-xs mt-2 ${
                       msg.sender === "me"
@@ -174,30 +187,11 @@ const handleSend = () => {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Preview ảnh trước khi gửi */}
-        {previews.length > 0 && (
-          <div className="flex flex-wrap gap-3 p-4 bg-white border-t">
-            {previews.map((src, i) => (
-              <div key={i} className="relative w-24 h-24 rounded-lg overflow-hidden border-2 border-gray-200">
-                <Image
-                  src={src}
-                  alt={`preview-${i}`}
-                  fill
-                  className="object-cover"
-                />
-                <button
-                  onClick={() => removeImage(i)}
-                  className="absolute -top-2 -right-2 bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center hover:bg-red-600 shadow-lg transition-colors"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+
 
         {/* Input + Upload + Send */}
         <div className="flex items-center gap-3 p-4 bg-white border-t">
+          {/* Temporarily disabled - image upload to R2 not implemented yet
           <label className="cursor-pointer text-gray-400 hover:text-[#292C6D] transition-colors">
             <Paperclip size={24} />
             <input
@@ -208,20 +202,26 @@ const handleSend = () => {
               onChange={handleUpload}
             />
           </label>
+          */}
           <input
             type="text"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
+            onKeyPress={handleKeyPress}
+            disabled={loading}
             placeholder="Type your message..."
-            className="flex-1 border border-gray-300 rounded-full px-5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900 placeholder-gray-400"
+            className="flex-1 border border-gray-300 rounded-full px-5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900 placeholder-gray-400 disabled:opacity-50"
           />
           <button
             onClick={handleSend}
-            disabled={!message && previews.length === 0}
+            disabled={loading || !message.trim()}
             className="bg-[#292C6D] text-white p-3 rounded-full hover:bg-[#1f2350] transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
           >
-            <Send size={20} />
+            {loading ? (
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+            ) : (
+              <Send size={20} />
+            )}
           </button>
         </div>
       </div>

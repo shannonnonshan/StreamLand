@@ -13,6 +13,7 @@ import { LivestreamModule } from './livestream/livestream.module';
 import { ChatModule } from './chat/chat.module';
 import { NotificationModule } from './notification/notification.module';
 import { R2StorageModule } from './r2-storage/r2-storage.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { R2StorageModule } from './r2-storage/r2-storage.module';
     ChatModule,
     R2StorageModule,
     NotificationModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],

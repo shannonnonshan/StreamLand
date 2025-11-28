@@ -1,7 +1,7 @@
 // components/EventDrawer.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { CalendarEvent } from "@/utils/data/teacher/calendar";
 import pastelize from "@/utils/colorise";
 import { raleway } from "@/utils/front";
@@ -21,6 +21,7 @@ export default function EventDrawer({
   onUpdate,
 }: EventDrawerProps) {
   const [openUpdate, setOpenUpdate] = useState(false);
+  const [organizerName, setOrganizerName] = useState("System");
 
   // khởi tạo state, fallback rỗng nếu event null
   const [eventTitle, setEventTitle] = useState(event?.title || "");
@@ -32,6 +33,21 @@ export default function EventDrawer({
   >(event?.audience as "public" | "subscribers" || "public");
   const [eventColor, setEventColor] = useState(event?.color || "#000000");
   const [eventDescription, setEventDescription] = useState(event?.description || "");
+
+  // Get user info from localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const userStr = localStorage.getItem('user');
+      if (userStr) {
+        try {
+          const user = JSON.parse(userStr);
+          setOrganizerName(user.name || user.email || 'Teacher');
+        } catch (e) {
+          console.error('Failed to parse user:', e);
+        }
+      }
+    }
+  }, []);
 
   if (!isOpen || !event) return null; // hook đã gọi hết rồi, giờ mới return
 
@@ -116,10 +132,28 @@ export default function EventDrawer({
         </div>
       )}
 
+      {/* Livestream Link */}
+      {event.livestreamId && (
+        <div className="mb-3">
+          <a
+            href={`/teacher/${event.teacherId}/livestream/${event.livestreamId}`}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[#292C6D] text-white text-sm font-semibold rounded-lg hover:bg-[#1f2350] transition-colors"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+              <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+            </svg>
+            Join Livestream
+          </a>
+        </div>
+      )}
+
       {/* Organizer */}
       <div className="flex items-center gap-2 text-sm text-gray-700 mb-6">
         <UserRound size={18} />
-        <span>Organizer: <strong>System</strong></span>
+        <span>Organizer: <strong>{organizerName}</strong></span>
       </div>
 
       {/* Update button */}

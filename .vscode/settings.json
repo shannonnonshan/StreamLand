@@ -1,3 +1,20 @@
 {
-    "prisma.pinToPrisma6": true
+    "prisma.pinToPrisma6": true,
+    "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/.next/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/.turbo/**": true
+  },
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/.next": true,
+    "**/dist": true
+  },
+  "eslint.enable": false,
+  "eslint.run": "onSave",
+  "eslint.format.enable": false,
+  "prettier.enable": false,
+  "editor.formatOnSave": false
 }

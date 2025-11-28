@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { CalendarEvent, sampleEvents } from "@/utils/data/teacher/calendar";
+import { useState, useEffect } from "react";
+import { CalendarEvent } from "@/utils/data/teacher/calendar";
 import EventListDrawer from "@/component/teacher/calendar/EventListDrawer";
+import { getTeacherSchedules, formatScheduleForCalendar } from "@/lib/api/teacher";
 
 const monthNames = [
   "January","February","March","April","May","June",
@@ -31,10 +32,25 @@ export default function YearCalendarClient({
   const [year, setYear] = useState(initialYear);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
 
-  // Lọc event theo ngày + teacherId
+  // Fetch events from backend
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const schedules = await getTeacherSchedules(teacherId);
+        const formattedEvents = schedules.map(formatScheduleForCalendar);
+        setEvents(formattedEvents);
+      } catch (error) {
+        console.error('Failed to fetch schedules:', error);
+      }
+    };
+    fetchEvents();
+  }, [teacherId]);
+
+  // Filter events by date and teacherId
   const eventsByDate = (date: Date) =>
-    sampleEvents.filter((ev: CalendarEvent) => {
+    events.filter((ev: CalendarEvent) => {
       const d = new Date(ev.date);
       return (
         ev.teacherId === teacherId &&

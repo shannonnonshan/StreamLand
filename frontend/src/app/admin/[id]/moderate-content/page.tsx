@@ -1,9 +1,9 @@
 "use client"
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { Check, X, Trash2, Search, ChevronUp, ChevronDown, Filter } from 'lucide-react'
 
 interface ReportedContent {
-  id: number
+  id: string
   title: string
   author: string
   type: string
@@ -13,32 +13,9 @@ interface ReportedContent {
   status: 'pending' | 'approved' | 'rejected' | 'removed'
 }
 
-// Mock data - replace with actual API calls
-const mockReportedContent: ReportedContent[] = [
-  {
-    id: 1,
-    title: "Live Stream Session XYZ",
-    author: "Teacher John",
-    type: "livestream",
-    reportReason: "Inappropriate content",
-    reportedBy: "User123",
-    dateReported: "2025-10-26",
-    status: "pending",
-  },
-  {
-    id: 2,
-    title: "Recording ABC",
-    author: "Teacher Jane",
-    type: "recording",
-    reportReason: "Copyright violation",
-    reportedBy: "User456",
-    dateReported: "2025-10-25",
-    status: "pending",
-  },
-]
-
 export default function ContentModerationPage() {
-  const [reportedContent, setReportedContent] = useState<ReportedContent[]>(mockReportedContent)
+  const [reportedContent, setReportedContent] = useState<ReportedContent[]>([])
+  const [loading, setLoading] = useState(true)
   const [selectedContent, setSelectedContent] = useState<ReportedContent | null>(null)
   const [rejectReason, setRejectReason] = useState("")
   const [showModal, setShowModal] = useState(false)
@@ -47,6 +24,43 @@ export default function ContentModerationPage() {
     key: keyof ReportedContent
     direction: 'asc' | 'desc'
   }>({ key: 'dateReported', direction: 'desc' })
+
+  // Fetch livestreams from backend
+  useEffect(() => {
+    const fetchLivestreams = async () => {
+      try {
+        const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+        const response = await fetch(`${API_URL}/admin/livestreams?limit=100`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const mapped: ReportedContent[] = data.livestreams.map((ls: any) => ({
+            id: ls.id,
+            title: ls.title,
+            author: ls.teacher?.fullName || 'Unknown',
+            type: 'livestream',
+            reportReason: 'Pending review',
+            reportedBy: 'System',
+            dateReported: new Date(ls.createdAt).toLocaleDateString(),
+            status: ls.status === 'ENDED' ? 'approved' : 'pending',
+          }));
+          setReportedContent(mapped);
+        }
+      } catch (error) {
+        console.error('Error fetching livestreams:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchLivestreams();
+  }, []);
 
   // Filter and sort content
   const filteredAndSortedContent = useMemo(() => {
@@ -102,6 +116,14 @@ export default function ContentModerationPage() {
       )
     )
     setShowModal(false)
+  }
+
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-screen">
+        <div className="text-xl">Loading content...</div>
+      </div>
+    );
   }
 
   return (

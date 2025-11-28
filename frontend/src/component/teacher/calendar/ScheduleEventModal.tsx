@@ -2,20 +2,20 @@
 
 import { raleway } from "@/utils/front";
 import { useState } from "react";
-import { Bell, CalendarDays, Clock, Palette, UserRound, XIcon, Tag } from "lucide-react";
+import { Bell, Clock, Palette, UserRound, XIcon, Tag } from "lucide-react";
 import { useEffect } from "react";
 export interface ScheduleEvent {
   id?: string;
   title: string;
-  date: string;
-  start: string;
-  end?: string;
-  color: string;
-  audience: "public" | "subscribers";
+  startTime: string; // ISO datetime
+  endTime: string; // ISO datetime
+  isPublic?: boolean;
+  color?: string;
   description?: string;
-  notification: number;
+  notifyBefore?: number; // minutes
   teacherId: string;
   tags?: string[];
+  livestreamId?: string;
 }
 
 interface ScheduleEventModalProps {
@@ -38,11 +38,18 @@ export default function ScheduleEventModal({
   const [eventColor, setEventColor] = useState("#EC255A");
   const [eventStartTime, setEventStartTime] = useState("");
   const [eventEndTime, setEventEndTime] = useState("");
-  const [eventAudience, setEventAudience] = useState<"public" | "subscribers">("public");
   const [eventDescription, setEventDescription] = useState("");
-  const [eventNotification, setEventNotification] = useState("10");
+  const [eventNotification, setEventNotification] = useState("15");
+  const [isPublic, setIsPublic] = useState(true);
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState("");
+  
+  // Suggested tags for quick selection
+  const suggestedTags = [
+    "IELTS", "TOEFL", "Grammar", "Speaking", "Writing", "Listening", "Reading",
+    "Business English", "Pronunciation", "Vocabulary", "Conversation", "Academic Writing",
+    "Exam Prep", "Beginner", "Intermediate", "Advanced", "Q&A", "Workshop", "Tutorial"
+  ];
   
   useEffect(() => {
     if (defaultDate) {
@@ -78,17 +85,20 @@ export default function ScheduleEventModal({
   };
 
   const handleSave = () => {
-    if (!eventTitle || !eventStartTime) return;
+    if (!eventTitle || !eventStartTime || !eventEndTime) return;
+    
+    // Combine date and time into ISO datetime
+    const startDateTime = new Date(`${eventDate}T${eventStartTime}`).toISOString();
+    const endDateTime = new Date(`${eventDate}T${eventEndTime}`).toISOString();
+    
     const newEvent: ScheduleEvent = {
-      id: Date.now().toString(),
       title: eventTitle,
-      date: eventDate,
-      start: eventStartTime,
-      end: eventEndTime,
+      startTime: startDateTime,
+      endTime: endDateTime,
+      isPublic,
       color: eventColor,
-      audience: eventAudience,
       description: eventDescription,
-      notification: Number(eventNotification),
+      notifyBefore: Number(eventNotification),
       teacherId,
       tags,
     };
@@ -134,11 +144,35 @@ export default function ScheduleEventModal({
             type="time"
             value={eventStartTime}
             onChange={(e) => setEventStartTime(e.target.value)}
+            placeholder="Start time"
+            className="border text-[#161853] text-sm font-bold w-full p-2 rounded"
+          />
+          <span className="text-[#161853] font-bold">to</span>
+          <input
+            type="time"
+            value={eventEndTime}
+            onChange={(e) => setEventEndTime(e.target.value)}
+            placeholder="End time"
             className="border text-[#161853] text-sm font-bold w-full p-2 rounded"
           />
         </div>
 
-        {/* Notification, Color, Audience */}
+        {/* Visibility */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2">
+            <UserRound className="text-[#161853]" size={22} />
+            <select
+              value={isPublic ? "public" : "subscribers"}
+              onChange={(e) => setIsPublic(e.target.value === "public")}
+              className="border text-[#161853] h-9 text-sm font-bold w-full p-2 rounded"
+            >
+              <option value="public">Public - Everyone can see</option>
+              <option value="subscribers">Subscribers Only - Only followers</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Notification, Color, Max Participants */}
         <div className="flex flex-row items-center gap-4 mb-4">
           <div className="flex items-center gap-2">
             <Bell className="text-[#161853]" size={22} />
@@ -146,8 +180,10 @@ export default function ScheduleEventModal({
               type="number"
               value={eventNotification}
               onChange={(e) => setEventNotification(e.target.value)}
-              className="border text-[#161853] text-sm font-bold p-2 rounded h-9 w-20"
+              placeholder="Notify minutes"
+              className="border text-[#161853] text-sm font-bold p-2 rounded h-9 w-24"
             />
+            <span className="text-[#161853] text-xs">min</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -159,18 +195,6 @@ export default function ScheduleEventModal({
               className="border font-bold text-sm rounded h-9 w-9 p-1"
             />
           </div>
-
-          <div className="flex items-center gap-2 w-full">
-            <UserRound className="text-[#161853]" size={22} />
-            <select
-              value={eventAudience}
-              onChange={(e) => setEventAudience(e.target.value as "public" | "subscribers")}
-              className="border text-[#161853] h-9 text-sm font-bold w-full p-2 rounded"
-            >
-              <option value="subscribers">Subscribers</option>
-              <option value="public">Public</option>
-            </select>
-          </div>
         </div>
 
         {/* Tag input */}
@@ -179,9 +203,10 @@ export default function ScheduleEventModal({
             <Tag className="text-[#161853]" size={22} />
             <input
               type="text"
-              placeholder="Add tag"
+              placeholder="Add tag or select below"
               value={newTag}
               onChange={(e) => setNewTag(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleAddTag()}
               className="border text-[#161853] text-sm font-bold w-full p-2 rounded"
             />
             <button
@@ -191,6 +216,33 @@ export default function ScheduleEventModal({
               Add
             </button>
           </div>
+          
+          {/* Suggested tags */}
+          <div className="mb-3">
+            <p className="text-xs text-gray-500 mb-1">Suggested tags:</p>
+            <div className="flex flex-wrap gap-1">
+              {suggestedTags.map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => {
+                    if (!tags.includes(tag)) {
+                      setTags([...tags, tag]);
+                    }
+                  }}
+                  disabled={tags.includes(tag)}
+                  className={`text-xs px-2 py-1 rounded border transition ${
+                    tags.includes(tag)
+                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                      : 'bg-white text-[#161853] hover:bg-[#F9DC7D] border-gray-300'
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Selected tags */}
           <div className="flex flex-wrap gap-2">
             {tags.map((t, i) => (
               <span

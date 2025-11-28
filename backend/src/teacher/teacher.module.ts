@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { TeacherController } from './teacher.controller';
 import { TeacherService } from './teacher.service';
 import { PrismaModule } from '../prisma/prisma.module';
+import { R2StorageModule } from '../r2-storage/r2-storage.module';
+import { ChatModule } from '../chat/chat.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, R2StorageModule, ChatModule],
   controllers: [TeacherController],
   providers: [TeacherService],
   exports: [TeacherService],

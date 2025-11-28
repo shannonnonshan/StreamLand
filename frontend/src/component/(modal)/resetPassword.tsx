@@ -10,16 +10,15 @@ import {
   EyeSlashIcon
 } from '@heroicons/react/24/outline';
 
-const PrimaryColor = '161853'; // Xanh Đậm
-const SecondaryColor = 'EC255A'; // Đỏ/Hồng
+const PrimaryColor = '161853';
+const SecondaryColor = 'EC255A'; 
 
 type ResetPasswordModalProps = {
   isOpen: boolean;
   closeModal: () => void;
   openLoginModal: () => void;
-  email?: string; // Email đã xác thực từ quá trình OTP
-};
-
+  email?: string; 
+}
 type NotificationType = 'success' | 'error' | 'info' | null;
 
 export default function ResetPasswordModal({ 

@@ -29,6 +29,8 @@ export default function AuthCallback() {
           // Redirect based on role
           if (user.role === 'TEACHER') {
             router.push(`/teacher/${user.id}`);
+          } else if (user.role === 'ADMIN') {
+            router.push('/admin/dashboard');
           } else {
             router.push('/student/dashboard');
           }
@@ -46,8 +48,8 @@ export default function AuthCallback() {
     <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="text-center bg-white p-8 rounded-2xl shadow-lg">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <h2 className="text-xl font-semibold mb-2 text-gray-800">Đang xác thực...</h2>
-        <p className="text-gray-600">Vui lòng đợi trong giây lát.</p>
+        <h2 className="text-xl font-semibold mb-2 text-gray-800">Authenticating...</h2>
+        <p className="text-gray-600">Please wait a moment.</p>
       </div>
     </div>
   );

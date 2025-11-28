@@ -2,8 +2,25 @@
 
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
-import { mockRecordings, Recording } from "@/utils/data/teacher/mockRecordings";
 import { ArrowLeft, Calendar, Clock, Download, Share2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { getLivestreamById } from "@/lib/api/teacher";
+
+interface LiveStream {
+  id: string;
+  teacherId: string;
+  title: string;
+  description?: string;
+  category?: string;
+  thumbnail?: string;
+  recordingUrl?: string;
+  status: string;
+  totalViews: number;
+  duration: number;
+  createdAt: string;
+  startedAt?: string;
+  endedAt?: string;
+}
 
 export default function RecordingDetailPage() {
   const params = useParams();
@@ -11,9 +28,57 @@ export default function RecordingDetailPage() {
   const teacherId = params?.id as string;
   const recordingID = params?.recordingID as string;
 
-  const recording: Recording | undefined = mockRecordings.find(r => r.id === recordingID);
+  const [recording, setRecording] = useState<LiveStream | null>(null);
+  const [relatedRecordings, setRelatedRecordings] = useState<LiveStream[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
 
-  if (!recording) {
+  useEffect(() => {
+    const fetchRecording = async () => {
+      try {
+        setIsLoading(true);
+        const data = await getLivestreamById(recordingID);
+        setRecording(data);
+        
+        // Fetch related recordings (same teacher, different livestream)
+        const { getRecordedLivestreams } = await import('@/lib/api/teacher');
+        const allRecordings = await getRecordedLivestreams(teacherId);
+        setRelatedRecordings(allRecordings.filter(r => r.id !== recordingID).slice(0, 4));
+      } catch (err) {
+        console.error('Failed to fetch recording:', err);
+        setError('Failed to load recording');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRecording();
+  }, [recordingID, teacherId]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#292C6D] mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading recording...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isNavigating) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#292C6D] mx-auto mb-4"></div>
+          <p className="text-gray-600">Redirecting...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !recording) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
         <div className="bg-white rounded-xl shadow-lg p-8 max-w-md text-center">
@@ -21,9 +86,12 @@ export default function RecordingDetailPage() {
             <span className="text-3xl">🎥</span>
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Recording not found</h2>
-          <p className="text-gray-600 mb-6">The recording you are looking for does not exist or has been removed.</p>
+          <p className="text-gray-600 mb-6">{error || 'The recording you are looking for does not exist or has been removed.'}</p>
           <button
-            onClick={() => router.back()}
+            onClick={() => {
+              setIsNavigating(true);
+              router.back();
+            }}
             className="bg-[#292C6D] text-white px-6 py-2 rounded-lg hover:bg-[#1f2350] transition-colors"
           >
             Go Back
@@ -38,7 +106,10 @@ export default function RecordingDetailPage() {
       <div className="max-w-7xl mx-auto">
         {/* Back Button */}
         <button
-          onClick={() => router.back()}
+          onClick={() => {
+            setIsNavigating(true);
+            router.back();
+          }}
           className="flex items-center gap-2 text-gray-600 hover:text-[#292C6D] mb-6 transition-colors"
         >
           <ArrowLeft size={20} />
@@ -51,10 +122,10 @@ export default function RecordingDetailPage() {
             {/* Video Player */}
             <div className="bg-black rounded-xl overflow-hidden shadow-2xl">
               <video
-                src={recording.videopath || "/logo.png"}
+                src={recording.recordingUrl}
                 controls
                 className="w-full aspect-video object-cover"
-                poster={recording.thumbnail}
+                poster={recording.thumbnail || "/logo.png"}
               />
             </div>
 
@@ -65,11 +136,14 @@ export default function RecordingDetailPage() {
               <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-6">
                 <div className="flex items-center gap-2">
                   <Calendar size={16} className="text-[#292C6D]" />
-                  <span>{recording.date}</span>
+                  <span>{new Date(recording.endedAt || recording.createdAt).toLocaleDateString()}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock size={16} className="text-[#292C6D]" />
-                  <span>Recording from {recording.month}</span>
+                  <span>{Math.floor(recording.duration / 60)}:{String(recording.duration % 60).padStart(2, '0')}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span>{recording.totalViews} views</span>
                 </div>
               </div>
 
@@ -90,9 +164,15 @@ export default function RecordingDetailPage() {
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Description</h2>
               <p className="text-gray-600 leading-relaxed">
-                This recording contains valuable content from the livestream session. 
-                Students can review the material at their own pace and revisit important concepts covered during the live session.
+                {recording.description || 'This recording contains valuable content from the livestream session. Students can review the material at their own pace and revisit important concepts covered during the live session.'}
               </p>
+              {recording.category && (
+                <div className="mt-4">
+                  <span className="inline-block px-3 py-1 bg-[#292C6D] text-white text-sm rounded-full">
+                    {recording.category}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -104,11 +184,15 @@ export default function RecordingDetailPage() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600">Date</span>
-                  <span className="font-semibold text-gray-900">{recording.date}</span>
+                  <span className="font-semibold text-gray-900">{new Date(recording.endedAt || recording.createdAt).toLocaleDateString()}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Month</span>
-                  <span className="font-semibold text-gray-900">{recording.month}</span>
+                  <span className="text-gray-600">Duration</span>
+                  <span className="font-semibold text-gray-900">{Math.floor(recording.duration / 60)}:{String(recording.duration % 60).padStart(2, '0')}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">Views</span>
+                  <span className="font-semibold text-gray-900">{recording.totalViews}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600">Recording ID</span>
@@ -121,29 +205,36 @@ export default function RecordingDetailPage() {
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h3 className="font-semibold text-gray-900 mb-4">Related Recordings</h3>
               <div className="space-y-3">
-                {mockRecordings.slice(0, 4).filter(r => r.id !== recordingID).map((rec) => (
-                  <div
-                    key={rec.id}
-                    className="flex gap-3 cursor-pointer group"
-                    onClick={() => router.push(`/teacher/${teacherId}/recordings/detail/${rec.id}`)}
-                  >
-                    <div className="relative w-32 h-20 flex-shrink-0 rounded-lg overflow-hidden">
-                      <Image
-                        src={rec.thumbnail}
-                        alt={rec.title}
-                        width={128}
-                        height={80}
-                        className="w-full h-full object-cover"
-                      />
+                {relatedRecordings.length > 0 ? (
+                  relatedRecordings.map((rec) => (
+                    <div
+                      key={rec.id}
+                      className="flex gap-3 cursor-pointer group"
+                      onClick={() => {
+                        setIsNavigating(true);
+                        router.push(`/teacher/${teacherId}/recordings/detail/${rec.id}`);
+                      }}
+                    >
+                      <div className="relative w-32 h-20 flex-shrink-0 rounded-lg overflow-hidden">
+                        <Image
+                          src={rec.thumbnail || "/logo.png"}
+                          alt={rec.title}
+                          width={128}
+                          height={80}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-sm text-gray-900 line-clamp-2 group-hover:text-[#292C6D] transition-colors">
+                          {rec.title}
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-1">{new Date(rec.endedAt || rec.createdAt).toLocaleDateString()}</p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-sm text-gray-900 line-clamp-2 group-hover:text-[#292C6D] transition-colors">
-                        {rec.title}
-                      </h4>
-                      <p className="text-xs text-gray-500 mt-1">{rec.date}</p>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p className="text-gray-500 text-sm">No related recordings found</p>
+                )}
               </div>
             </div>
           </div>

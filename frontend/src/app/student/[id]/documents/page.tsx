@@ -253,7 +253,7 @@ export default function DocumentsPage() {
   
   // Xóa tài liệu
   const deleteDocument = (id: string) => {
-    if (confirm('Bạn có chắc chắn muốn xóa tài liệu này?')) {
+    if (confirm('Are you sure you want to delete this document?')) {
       setDocuments(prevDocs => prevDocs.filter(doc => doc.id !== id));
     }
   };
@@ -287,7 +287,7 @@ export default function DocumentsPage() {
   const deleteSelectedDocuments = () => {
     if (selectedDocuments.length === 0) return;
     
-    if (confirm(`Bạn có chắc chắn muốn xóa ${selectedDocuments.length} tài liệu đã chọn?`)) {
+    if (confirm(`Are you sure you want to delete ${selectedDocuments.length} selected documents?`)) {
       setDocuments(prevDocs => 
         prevDocs.filter(doc => !selectedDocuments.includes(doc.id))
       );
@@ -357,7 +357,7 @@ export default function DocumentsPage() {
   // Render UI
   return (
     <div className="min-h-screen bg-gray-50 p-6">
-      <h1 className="text-2xl font-bold text-[#161853] mb-6">Tài liệu của tôi</h1>
+      <h1 className="text-2xl font-bold text-[#161853] mb-6">My Documents</h1>
       
       {/* Toolbar */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">

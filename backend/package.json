@@ -18,7 +18,12 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "seed": "ts-node prisma/postgres/seed.ts"
+    "seed": "ts-node prisma/postgres/seed.ts",
+    "seed:videos": "ts-node prisma/postgres/seed-videos.ts",
+    "seed:documents": "ts-node prisma/postgres/seed-documents.ts",
+    "seed:teacher": "ts-node prisma/postgres/seed-teacher.ts",
+    "db:generate": "npx prisma generate && npx prisma generate --schema=./prisma/mongodb/schema.prisma",
+    "db:push": "npx prisma db push && npx prisma db push --schema=./prisma/mongodb/schema.prisma"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.937.0",
@@ -61,7 +66,8 @@
     "@swc/core": "^1.10.7",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",
-    "@types/node": "^22.10.7",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.19.1",
     "@types/passport-github2": "^1.2.9",
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/passport-jwt": "^4.0.1",

@@ -1,141 +1,270 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { documents, DocumentItem, ETypeDocument } from "@/utils/data/teacher/documents";
 import Image from "next/image";
-import { ArrowDownToLine } from "lucide-react";
+import { ArrowDownToLine, Upload } from "lucide-react";
+import { getTeacherDocuments, uploadDocument, Document, mapDocumentTypeToFileType } from "@/lib/api/teacher";
+import { formatDate, formatDateTime } from "@/utils/dateFormat";
 
 export default function DocumentsTypePage() {
-  // Lấy params từ hook useParams() thay vì props
   const params = useParams();
-  const type = params?.type;
-  const teacherId = params?.id;
+  const type = params?.type as string;
+  const teacherId = params?.id as string;
 
-  const docTypeMap: Record<string, ETypeDocument> = {
-    file: ETypeDocument.FILE,
-    image: ETypeDocument.IMAGE,
-    video: ETypeDocument.VIDEO,
+  const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch documents from backend
+  useEffect(() => {
+    if (!teacherId || !type) return;
+    
+    const fetchDocuments = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const fileType = mapDocumentTypeToFileType(type);
+        console.log('Fetching documents:', { teacherId, type, fileType });
+        const data = await getTeacherDocuments(teacherId, fileType);
+        console.log('Documents received:', data);
+        setDocuments(data);
+      } catch (err) {
+        console.error('Failed to fetch documents:', err);
+        setError('Failed to load documents');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDocuments();
+  }, [teacherId, type]);
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploading(true);
+
+    try {
+      const uploadedDocs: Document[] = [];
+      for (const file of Array.from(files)) {
+        const data = await uploadDocument(teacherId, file);
+        uploadedDocs.push(data);
+      }
+      
+      // Add new documents to list
+      setDocuments([...uploadedDocs, ...documents]);
+      alert('Documents uploaded successfully!');
+    } catch (error) {
+      console.error('Upload failed:', error);
+      alert('Failed to upload documents. Please try again.');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
-  const docType =
-    typeof type === "string" ? docTypeMap[type.toLowerCase()] : undefined;
-  const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
+  if (isLoading) {
+    return (
+      <div className="p-4 flex justify-center items-center min-h-[400px]">
+        <div className="text-gray-500">Loading documents...</div>
+      </div>
+    );
+  }
 
-  if (!docType) return <div>Invalid document type</div>;
-
-  const filteredDocs = documents.filter((d) => d.type === docType);
+  if (error) {
+    return (
+      <div className="p-4 flex justify-center items-center min-h-[400px]">
+        <div className="text-red-500">{error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4">
+      {/* Upload Button */}
+      <div className="mb-4 flex justify-end">
+        <label className="bg-[#EC255A] text-white px-4 py-2 rounded-lg hover:bg-red-600 cursor-pointer inline-flex items-center gap-2">
+          <Upload size={20} />
+          <span>{isUploading ? 'Uploading...' : 'Upload Documents'}</span>
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileUpload}
+            disabled={isUploading}
+          />
+        </label>
+      </div>
+
       {/* Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-black">
-        {filteredDocs.map((doc) => (
+        {documents.map((doc) => (
           <div
             key={doc.id}
-            className="bg-white shadow p-3 cursor-pointer hover:shadow-md transition"
+            className="bg-white shadow p-3 cursor-pointer hover:shadow-md transition rounded-lg"
             onClick={() => setSelectedDoc(doc)}
           >
-            
-              <div className="h-35 w-full relative rounded overflow-hidden">
-                <div className="w-full flex rounded-lg justify-center mt-2">
+            <div className="h-32 w-full relative rounded overflow-hidden bg-gray-100 flex items-center justify-center">
+              {doc.fileType === 'image' ? (
                 <Image
-                    src={doc.thumbnail || "/logo.png"}
-                    alt={doc.title}
-                    width={110}    // hoặc tuỳ bạn
-                    height={100}
-                    style={{ objectFit: "contain" }}
+                  src={doc.fileUrl}
+                  alt={doc.title}
+                  fill
+                  style={{ objectFit: "cover" }}
+                  className="rounded"
                 />
+              ) : doc.fileType === 'pdf' ? (
+                <div className="flex flex-col items-center justify-center text-red-500">
+                  <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" />
+                  </svg>
+                  <span className="text-xs font-semibold mt-1">PDF</span>
                 </div>
-              </div>
-           
-            <p className="mt-2 text-sm font-semibold truncate">{doc.title}</p>
+              ) : doc.fileType === 'video' ? (
+                <div className="flex flex-col items-center justify-center text-blue-500">
+                  <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
+                  </svg>
+                  <span className="text-xs font-semibold mt-1">VIDEO</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center text-gray-400">
+                  <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-xs font-semibold mt-1">FILE</span>
+                </div>
+              )}
+            </div>
+            <p className="mt-2 text-sm font-semibold truncate" title={doc.title}>{doc.title}</p>
             <p className="text-xs text-gray-500">
-              {new Date(doc.uploadedDate).toLocaleDateString()}
+              {formatDate(doc.uploadedAt)}
             </p>
           </div>
         ))}
       </div>
 
-      {/* Modal */}
+      {/* Drawer Preview */}
       {selectedDoc && (
-        <div
-          className="fixed inset-0 text-black bg-black/50 flex items-center justify-center z-50"
-          onClick={() => setSelectedDoc(null)}
-        >
+        <>
+          {/* Backdrop */}
           <div
-            className="bg-white p-4 rounded-lg w-2/3 max-w-lg relative"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              className="absolute top-2 right-2 text-gray-500 hover:text-black"
-              onClick={() => setSelectedDoc(null)}
-            >
-              ✕
-            </button>
-
-            <h3 className="font-bold text-lg mb-2">{selectedDoc.title}</h3>
-            <p className="text-sm text-gray-500 mb-2">
-              Uploaded: {new Date(selectedDoc.uploadedDate).toLocaleString()}
-            </p>
-
-            {selectedDoc.type === ETypeDocument.FILE && (
-              <div className="flex flex-col gap-2">
-                <p className="text-sm">
-                  Course: <span className="font-semibold">{selectedDoc.course.name}</span>
-                </p>
-                <div className="flex gap-1 flex-wrap">
-                  {selectedDoc.tag.map((t) => (
-                    <span
-                      key={t.id}
-                      className="text-xs bg-gray-100 border rounded px-2 py-0.5"
-                    >
-                      #{t.name}
-                    </span>
-                  ))}
+            className="fixed inset-0 bg-black/30 z-40 transition-opacity"
+            onClick={() => setSelectedDoc(null)}
+          />
+          
+          {/* Drawer */}
+          <div className="fixed right-0 top-0 h-full w-full max-w-2xl bg-white shadow-2xl z-50 overflow-y-auto animate-slide-in">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-start justify-between mb-6">
+                <div className="flex-1">
+                  <h3 className="font-bold text-xl text-black mb-1">{selectedDoc.title}</h3>
+                  <p className="text-sm text-gray-500">
+                    Uploaded: {formatDateTime(selectedDoc.uploadedAt)}
+                  </p>
                 </div>
-                <p className="mt-2 text-xs text-gray-500">
-                  Preview only. To download, click below.
-                </p>
+                <button
+                  className="ml-4 text-gray-400 hover:text-gray-600 transition"
+                  onClick={() => setSelectedDoc(null)}
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
-            )}
 
-            {selectedDoc.type === ETypeDocument.IMAGE && (
-              <div className="w-full h-[400px] relative mt-2">
-                <div className="w-full flex justify-center mt-2">
-                <Image
-                    src={selectedDoc.thumbnail || "/logo.png"}
-                    alt={selectedDoc.title}
-                    width={400}    // hoặc tuỳ bạn
-                    height={350}
-                    style={{ objectFit: "contain" }}
-                />
+              {/* Description */}
+              {selectedDoc.description && (
+                <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                  <p className="text-sm text-black">{selectedDoc.description}</p>
+                </div>
+              )}
+
+              {/* File Info */}
+              <div className="mb-6 grid grid-cols-2 gap-4 text-black">
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">File Name</p>
+                  <p className="text-sm font-semibold truncate">{selectedDoc.fileName}</p>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Type</p>
+                  <p className="text-sm font-semibold uppercase">{selectedDoc.fileType}</p>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Size</p>
+                  <p className="text-sm font-semibold">{(selectedDoc.fileSize / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">MIME Type</p>
+                  <p className="text-sm font-semibold truncate">{selectedDoc.mimeType}</p>
                 </div>
               </div>
-            )}
 
-            {selectedDoc.type === ETypeDocument.VIDEO && (
-              <video
-                src={selectedDoc.thumbnail || ""} // chỉ dùng video thật
-                poster="/logo.png"
-                className="mt-2 w-full rounded"
-                controls
-              />
-            )}
+              {/* Preview */}
+              <div className="mb-6">
+                <h4 className="text-sm font-semibold text-black mb-3">Preview</h4>
+                
+                {selectedDoc.fileType === 'image' && (
+                  <div className="w-full rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
+                    <Image
+                      src={selectedDoc.fileUrl}
+                      alt={selectedDoc.title}
+                      width={800}
+                      height={600}
+                      style={{ objectFit: "contain" }}
+                      className="max-h-[500px]"
+                    />
+                  </div>
+                )}
 
-            <a
-              href={
-                selectedDoc.type === ETypeDocument.FILE
-                  ? "/files/" + selectedDoc.title
-                  : selectedDoc.thumbnail || "/logo.png"
-              }
-              download
-              className="mt-4 inline-block px-4 py-2 bg-[#EC255A] text-white rounded hover:bg-[#EC255A]/90 transition"
-            >
-              <ArrowDownToLine/>
-            </a>
+                {selectedDoc.fileType === 'video' && (
+                  <video
+                    src={selectedDoc.fileUrl}
+                    className="w-full rounded-lg"
+                    controls
+                  />
+                )}
+
+                {selectedDoc.fileType === 'pdf' && (
+                  <div className="w-full h-[600px] rounded-lg overflow-hidden border">
+                    <iframe
+                      src={selectedDoc.fileUrl}
+                      className="w-full h-full"
+                      title={selectedDoc.title}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3">
+                <a
+                  href={selectedDoc.fileUrl}
+                  download={selectedDoc.fileName}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-[#EC255A] text-white rounded-lg hover:bg-[#EC255A]/90 transition font-semibold"
+                >
+                  <ArrowDownToLine size={20} />
+                  Download
+                </a>
+                <a
+                  href={selectedDoc.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 text-black rounded-lg hover:bg-gray-200 transition font-semibold"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                  Open
+                </a>
+              </div>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

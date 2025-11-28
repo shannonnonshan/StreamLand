@@ -17,7 +17,7 @@ export class ChatService {
       data: {
         senderId: data.senderId,
         receiverId: data.receiverId,
-        content: data.content,
+        content: data.content || '', // Ensure content is never undefined
         type: data.type || MessageType.TEXT,
         attachments: data.attachments || [],
       },

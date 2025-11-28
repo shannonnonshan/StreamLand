@@ -226,7 +226,6 @@ export default function DocumentDetailPage() {
     }, 300);
   }, [params.id, router]);
   
-  // Xác định icon cho loại file
   const getFileIcon = (type: string) => {
     switch(type) {
       case 'pdf':
@@ -307,7 +306,7 @@ export default function DocumentDetailPage() {
       <div className="flex items-center text-sm text-gray-500 mb-4">
         <Link href="/student/documents" className="hover:text-[#161853] flex items-center">
           <ChevronLeftIcon className="h-4 w-4 mr-1" />
-          Tài liệu của tôi
+          My Documents
         </Link>
         <ChevronRightIcon className="h-4 w-4 mx-1" />
         <span className="truncate max-w-md">{document.title}</span>
@@ -533,7 +532,7 @@ export default function DocumentDetailPage() {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="w-full h-[300px] p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#161853] focus:border-transparent resize-none"
-                placeholder="Nhập ghi chú của bạn về tài liệu này..."
+                placeholder="Enter your notes about this document..."
               />
               <div className="flex justify-end mt-4">
                 <button

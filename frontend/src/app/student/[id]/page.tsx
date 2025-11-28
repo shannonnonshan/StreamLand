@@ -1,5 +1,6 @@
-import { redirect } from 'next/navigation';
+import { redirect, useParams } from 'next/navigation';
 
 export default function StudentRoot() {
-  redirect('/student/dashboard');
+  const { id } = useParams();
+  redirect(`/student/${id}/dashboard`);
 }

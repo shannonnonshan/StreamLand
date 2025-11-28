@@ -862,41 +862,47 @@ export class StudentService {
       throw new NotFoundException('Student profile not found');
     }
 
-    // Get all followed teachers
+    // Get all followed teachers with their User IDs
     const followedTeachers = await this.prisma.postgres.followedTeacher.findMany({
       where: { studentId: user.studentProfile.id },
-      select: { teacherId: true },
+      include: {
+        teacher: {
+          select: {
+            userId: true,
+            id: true,
+          },
+        },
+      },
     });
 
-    // Get teacher IDs
-    const teacherIds = followedTeachers.map(ft => ft.teacherId);
+    // Get User IDs (not TeacherProfile IDs!)
+    const teacherUserIds = followedTeachers.map(ft => ft.teacher.userId);
+    console.log('🔍 Following teacher User IDs:', teacherUserIds);
 
-    if (teacherIds.length === 0) {
+    if (teacherUserIds.length === 0) {
+      console.log('⚠️ No followed teachers found');
       return [];
     }
 
     // Get active livestreams from these teachers
     const livestreams = await this.prisma.postgres.liveStream.findMany({
       where: {
-        teacherId: { in: teacherIds },
+        teacherId: { in: teacherUserIds },
         status: 'LIVE',
       },
       orderBy: {
         createdAt: 'desc',
       },
     });
+    console.log('📺 Found LIVE livestreams:', livestreams.length);
 
-    // Get teacher details
-    const teachers = await this.prisma.postgres.teacherProfile.findMany({
-      where: { id: { in: teacherIds } },
-      include: {
-        user: {
-          select: {
-            id: true,
-            fullName: true,
-            avatar: true,
-          },
-        },
+    // Get teacher details by User IDs
+    const teachers = await this.prisma.postgres.user.findMany({
+      where: { id: { in: teacherUserIds } },
+      select: {
+        id: true,
+        fullName: true,
+        avatar: true,
       },
     });
 
@@ -909,15 +915,110 @@ export class StudentService {
         id: livestream.id,
         title: livestream.title,
         teacher: {
-          id: teacher?.user.id || '',
-          fullName: teacher?.user.fullName || 'Unknown',
-          avatar: teacher?.user.avatar || null,
+          id: teacher?.id || '',
+          fullName: teacher?.fullName || 'Unknown',
+          avatar: teacher?.avatar || null,
         },
         viewCount: livestream.totalViews,
         thumbnailUrl: livestream.thumbnail || null,
         isLive: true,
       };
     });
+  }
+
+  // Get videos (ended livestreams with recordings) from followed teachers
+  async getFollowedVideos(userId: string) {
+    // Get user's student profile
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true },
+    });
+
+    if (!user || !user.studentProfile) {
+      throw new NotFoundException('Student profile not found');
+    }
+
+    // Get all followed teachers with their User IDs
+    const followedTeachers = await this.prisma.postgres.followedTeacher.findMany({
+      where: { studentId: user.studentProfile.id },
+      include: {
+        teacher: {
+          select: {
+            userId: true,
+            id: true,
+          },
+        },
+      },
+    });
+
+    // Get User IDs (not TeacherProfile IDs!)
+    const teacherUserIds = followedTeachers.map(ft => ft.teacher.userId);
+    console.log('🔍 Following teacher User IDs for videos:', teacherUserIds);
+
+    if (teacherUserIds.length === 0) {
+      console.log('⚠️ No followed teachers found for videos');
+      return [];
+    }
+
+    // Get ended livestreams with recordings from these teachers
+    const videos = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        teacherId: { in: teacherUserIds },
+        status: 'ENDED',
+        recordingUrl: { not: null },
+      },
+      orderBy: [
+        { endedAt: 'desc' },
+        { totalViews: 'desc' },
+      ],
+      take: 50, // Limit to 50 recent videos
+    });
+    console.log('🎬 Found ENDED videos:', videos.length);
+
+    // Get teacher details by User IDs
+    const teachers = await this.prisma.postgres.user.findMany({
+      where: { id: { in: teacherUserIds } },
+      select: {
+        id: true,
+        fullName: true,
+        avatar: true,
+      },
+    });
+
+    const teacherMap = new Map(teachers.map(t => [t.id, t]));
+
+    // Format response
+    return videos.map(video => {
+      const teacher = teacherMap.get(video.teacherId);
+      return {
+        id: video.id,
+        title: video.title,
+        teacher: {
+          id: teacher?.id || '',
+          fullName: teacher?.fullName || 'Unknown',
+          avatar: teacher?.avatar || null,
+        },
+        viewCount: video.totalViews,
+        thumbnailUrl: video.thumbnail || null,
+        duration: this.calculateDuration(video.startedAt, video.endedAt),
+        uploadedAt: video.endedAt,
+      };
+    });
+  }
+
+  // Helper method to calculate video duration
+  private calculateDuration(startedAt: Date | null, endedAt: Date | null): string {
+    if (!startedAt || !endedAt) return '0:00';
+
+    const durationMs = endedAt.getTime() - startedAt.getTime();
+    const hours = Math.floor(durationMs / 3600000);
+    const minutes = Math.floor((durationMs % 3600000) / 60000);
+    const seconds = Math.floor((durationMs % 60000) / 1000);
+
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   }
 
   // Check if student is following a teacher
@@ -979,4 +1080,130 @@ export class StudentService {
       experience: teacher.teacherProfile?.experience || null,
     }));
   }
+
+  // Track watch activity and update streak
+  async trackWatchActivity(userId: string, contentType: 'livestream' | 'video', contentId: string) {
+    // Get student profile
+    const student = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true },
+    });
+
+    if (!student || !student.studentProfile) {
+      throw new ForbiddenException('Only students can track watch activity');
+    }
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const lastActivity = student.studentProfile.lastActivityDate;
+
+    let newStreak = student.studentProfile.studyStreak;
+    let shouldUpdate = false;
+
+    if (!lastActivity) {
+      // First activity ever
+      newStreak = 1;
+      shouldUpdate = true;
+    } else {
+      const lastActivityAsDate = new Date(lastActivity);
+      const lastActivityDate = new Date(
+        lastActivityAsDate.getFullYear(),
+        lastActivityAsDate.getMonth(),
+        lastActivityAsDate.getDate()
+      );
+      
+      const diffTime = today.getTime() - lastActivityDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 0) {
+        // Same day, no update needed
+        shouldUpdate = false;
+      } else if (diffDays === 1) {
+        // Next day, increment streak
+        newStreak = student.studentProfile.studyStreak + 1;
+        shouldUpdate = true;
+      } else if (diffDays > 1) {
+        // Streak broken, reset to 1
+        newStreak = 1;
+        shouldUpdate = true;
+      }
+    }
+
+    if (shouldUpdate) {
+      await this.prisma.postgres.studentProfile.update({
+        where: { id: student.studentProfile.id },
+        data: {
+          studyStreak: newStreak,
+          lastActivityDate: now,
+        },
+      });
+    }
+
+    // Record watch history in MongoDB
+    await this.prisma.mongo.watchHistory.create({
+      data: {
+        userId,
+        livestreamId: contentId,
+        watchedAt: now,
+        duration: 0,
+        completed: false,
+        progress: 0,
+        lastPosition: 0,
+      },
+    });
+
+    return {
+      streak: newStreak,
+      updated: shouldUpdate,
+    };
+  }
+
+  // Get student stats
+  async getStudentStats(userId: string) {
+    const student = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { 
+        studentProfile: {
+          include: {
+            followedTeachers: true,
+            sentFriendRequests: {
+              where: { status: FriendStatus.ACCEPTED },
+            },
+            receivedFriendRequests: {
+              where: { status: FriendStatus.ACCEPTED },
+            },
+          },
+        },
+      },
+    });
+
+    if (!student || !student.studentProfile) {
+      throw new NotFoundException('Student not found');
+    }
+
+    // Count friends (both directions)
+    const friendsCount = 
+      student.studentProfile.sentFriendRequests.length +
+      student.studentProfile.receivedFriendRequests.length;
+
+    // Count watch history and documents from MongoDB
+    const [watchHistory, documents] = await Promise.all([
+      this.prisma.mongo.watchHistory.count({
+        where: { userId },
+      }),
+      this.prisma.mongo.notebook.count({
+        where: { userId },
+      }),
+    ]);
+
+    return {
+      following: student.studentProfile.followedTeachers.length,
+      friends: friendsCount,
+      courses: watchHistory, // Using watch history as course count
+      documents: documents,
+      studyHours: student.studentProfile.studyHours,
+      streak: student.studentProfile.studyStreak,
+    };
+  }
 }
+

@@ -7,29 +7,40 @@ import { useRouter } from 'next/navigation';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-// Mock Data
-const topLivestreams = [
-  { id: 1, title: 'IELTS Speaking Prep', teacher: 'Mr. David Nguyen', views: '2.5k', viewCount: 2500, image: '/images/cat.png', isLive: true },
-  { id: 2, title: 'Calculus I - Chapter 3', teacher: 'Ms. Lan Anh', views: '1.2k', viewCount: 1200, image: '', isLive: true },
-  { id: 3, title: 'Hóa học Hữu cơ', teacher: 'Cô Thảo', views: '800', viewCount: 800, image: '', isLive: false },
-  { id: 4, title: 'English Grammar', teacher: 'Mr. John', views: '500', viewCount: 500, image: '', isLive: false },
-  { id: 5, title: 'Physics for Beginners', teacher: 'Mr. Minh Tuan', views: '1.8k', viewCount: 1800, image: '/images/cat.png', isLive: true },
-  { id: 6, title: 'Advanced Literature', teacher: 'Ms. Phuong Linh', views: '950', viewCount: 950, image: '', isLive: true },
-  { id: 7, title: 'Biology 101', teacher: 'Mr. Hoang Nam', views: '750', viewCount: 750, image: '', isLive: false },
-  { id: 8, title: 'World History', teacher: 'Ms. Thu Ha', views: '680', viewCount: 680, image: '', isLive: true },
-  { id: 9, title: 'Computer Science', teacher: 'Mr. Quang Duy', views: '1.5k', viewCount: 1500, image: '/images/cat.png', isLive: true },
-  { id: 10, title: 'Art & Design', teacher: 'Ms. Mai Huong', views: '420', viewCount: 420, image: '', isLive: false },
-].sort((a, b) => b.viewCount - a.viewCount); // Sắp xếp theo số lượt xem giảm dần
+interface LivestreamData {
+  id: string;
+  title: string;
+  teacher: {
+    id: string;
+    fullName: string;
+    avatar?: string;
+  };
+  viewCount: number;
+  currentViewers?: number;
+  thumbnailUrl?: string;
+  isLive: boolean;
+  status: string;
+  category?: string;
+}
 
-const topTrending = [
-  { id: 1, title: 'English Listening Practice - Cambridge 8', teacher: 'Mr. David Kien', views: '29 views', time: '1 hour ago' },
-  { id: 2, title: 'Toán Cao Cấp 101', teacher: 'Mr. Chien Dinh', views: '29 views', time: '1 month ago' },
-  { id: 3, title: 'Lập trình Python cơ bản', teacher: 'Ms. Diep Huynh', views: '29 views', time: '3 months ago' },
-];
+interface VideoData {
+  id: string;
+  title: string;
+  teacher: {
+    id: string;
+    fullName: string;
+    avatar?: string;
+  };
+  viewCount: number;
+  thumbnailUrl?: string;
+  duration?: number;
+  uploadedAt: string;
+}
 
 // --- Sub-Component: Livestream Card ---
-function LivestreamCard({ stream, index }: { stream: { id: number; title: string; teacher: string; views: string; viewCount: number; image: string; isLive: boolean }, index: number }) {
+function LivestreamCard({ stream, index }: { stream: LivestreamData; index: number }) {
   const [isHovered, setIsHovered] = useState(false);
   const isTopThree = index < 3; // Chỉ hiển thị nhãn Top cho 3 stream đầu tiên
   const router = useRouter();
@@ -51,14 +62,11 @@ function LivestreamCard({ stream, index }: { stream: { id: number; title: string
         {/* Image/Placeholder */}
         <div className="relative bg-gray-200 overflow-hidden h-48">
             {/* Sử dụng một placeholder nếu không có ảnh, hoặc dùng ảnh thật */}
-            {stream.image ? (
-                // If you have images, use Next Image component
-                // <Image src={stream.image} layout="fill" objectFit="cover" alt={stream.title} />
+            {stream.thumbnailUrl ? (
                 <div 
                   className={`absolute inset-0 bg-cover bg-center transform transition-transform duration-500 ${isHovered ? 'scale-110' : 'scale-100'}`} 
-                  style={{ backgroundImage: `url(${stream.image})` }}
+                  style={{ backgroundImage: `url(${stream.thumbnailUrl})` }}
                 >
-                    {/* Placeholder for the Cat image */}
                 </div>
             ) : (
                 <div className="flex items-center justify-center h-full text-gray-400 transition-all duration-300">
@@ -83,18 +91,29 @@ function LivestreamCard({ stream, index }: { stream: { id: number; title: string
             <div className={`absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent text-white`}>
                 <p className="font-semibold text-sm truncate">{stream.title}</p>
                 <div className="flex items-center text-xs mt-1">
-                    <div className="h-5 w-5 rounded-full bg-[#161853]/70 mr-2 border border-white"></div>
-                    <span className="font-medium">{stream.teacher}</span>
+                    {stream.teacher.avatar ? (
+                      <img src={stream.teacher.avatar} alt={stream.teacher.fullName} className="h-5 w-5 rounded-full mr-2 border border-white object-cover" />
+                    ) : (
+                      <div className="h-5 w-5 rounded-full bg-[#161853]/70 mr-2 border border-white flex items-center justify-center">
+                        <span className="text-[10px]">{stream.teacher.fullName.charAt(0)}</span>
+                      </div>
+                    )}
+                    <span className="font-medium">{stream.teacher.fullName}</span>
                 </div>
             </div>
         </div>
         
         {/* Metrics row */}
         <div className="p-3 flex justify-between items-center">
-            <div className="flex items-center">
+            <div className="flex items-center space-x-2">
                 <span className={`text-xs font-medium text-[#${PrimaryColor}]`}>
-                    {stream.views} views
+                    {stream.viewCount.toLocaleString()} views
                 </span>
+                {stream.isLive && stream.currentViewers !== undefined && (
+                  <span className={`text-xs font-medium text-[#${SecondaryColor}]`}>
+                    • {stream.currentViewers} watching
+                  </span>
+                )}
             </div>
             <div className="flex items-center space-x-2">
                 <HeartIcon className={`h-4 w-4 ${isHovered ? `text-[#${SecondaryColor}]` : `text-[#${PrimaryColor}]`} transition-colors duration-300`} />
@@ -106,7 +125,7 @@ function LivestreamCard({ stream, index }: { stream: { id: number; title: string
 }
 
 // --- Sub-Component: Trending Card ---
-function TrendingCard({ item }: { item: { id: number; title: string; teacher: string; views: string; time: string } }) {
+function TrendingCard({ item }: { item: VideoData }) {
     const [isHovered, setIsHovered] = useState(false);
     const router = useRouter();
 
@@ -129,11 +148,13 @@ function TrendingCard({ item }: { item: { id: number; title: string; teacher: st
             <div className="p-3">
                 <p className={`text-sm font-semibold text-[#${PrimaryColor}] transition-colors duration-300 line-clamp-2`}>{item.title}</p>
                 <p className="text-xs text-gray-600 mt-1">
-                    <span className={`${isHovered ? 'font-medium' : ''} transition-all duration-300`}>{item.teacher}</span>
+                    <span className={`${isHovered ? 'font-medium' : ''} transition-all duration-300`}>{item.teacher.fullName}</span>
                     <span className="mx-1">•</span>
-                    <span className={`text-[#${PrimaryColor}] ${isHovered ? 'font-bold' : 'font-medium'} transition-all duration-300`}>{item.views}</span>
+                    <span className={`text-[#${PrimaryColor}] ${isHovered ? 'font-bold' : 'font-medium'} transition-all duration-300`}>
+                      {item.viewCount.toLocaleString()} views
+                    </span>
                     <span className="mx-1">•</span>
-                    {item.time}
+                    {new Date(item.uploadedAt).toLocaleDateString()}
                 </p>
             </div>
         </div>
@@ -145,13 +166,57 @@ function TrendingCard({ item }: { item: { id: number; title: string; teacher: st
 export default function StudentDashboard() {
   // State for controlling animations
   const [isLoaded, setIsLoaded] = useState(false);
+  const [topLivestreams, setTopLivestreams] = useState<LivestreamData[]>([]);
+  const [topTrending, setTopTrending] = useState<VideoData[]>([]);
+  const [isLoadingLivestreams, setIsLoadingLivestreams] = useState(true);
+  const [isLoadingVideos, setIsLoadingVideos] = useState(true);
   
   // State để lưu tham chiếu đến container livestream
   const livestreamContainerRef = useRef<HTMLDivElement>(null);
 
-  // Run animation after component mounts
+  // Fetch top livestreams
+  const fetchTopLivestreams = async () => {
+    try {
+      const response = await fetch(`${API_URL}/livestream/top/livestreams`);
+      if (response.ok) {
+        const data = await response.json();
+        setTopLivestreams(data);
+      }
+    } catch (error) {
+      console.error('Error fetching top livestreams:', error);
+    } finally {
+      setIsLoadingLivestreams(false);
+    }
+  };
+
+  // Fetch trending videos
+  const fetchTrendingVideos = async () => {
+    try {
+      const response = await fetch(`${API_URL}/livestream/trending/videos`);
+      if (response.ok) {
+        const data = await response.json();
+        setTopTrending(data);
+      }
+    } catch (error) {
+      console.error('Error fetching trending videos:', error);
+    } finally {
+      setIsLoadingVideos(false);
+    }
+  };
+
+  // Run animation and fetch data after component mounts
   useEffect(() => {
     setIsLoaded(true);
+    fetchTopLivestreams();
+    fetchTrendingVideos();
+
+    // Auto-refresh every 30 seconds for real-time updates
+    const intervalId = setInterval(() => {
+      fetchTopLivestreams();
+      fetchTrendingVideos();
+    }, 30000);
+
+    return () => clearInterval(intervalId);
   }, []);
   
   const fadeInUp = {
@@ -193,7 +258,7 @@ export default function StudentDashboard() {
           variants={fadeInUp}
           className={`text-3xl font-extrabold text-[#${PrimaryColor}] mb-8 mt-4`}
         >
-            Chào mừng, Học sinh!
+            Welcome, Student!
         </motion.h1>
 
         {/* --- Phần 1: Top Livestream --- */}
@@ -224,6 +289,15 @@ export default function StudentDashboard() {
             </div>
           </div>
           
+          {isLoadingLivestreams ? (
+            <div className="flex justify-center items-center h-64">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#161853]"></div>
+            </div>
+          ) : topLivestreams.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <p>No livestreams available at the moment</p>
+            </div>
+          ) : (
           <div 
             ref={livestreamContainerRef} 
             className="flex flex-row space-x-4 overflow-x-auto pb-4 snap-x snap-mandatory scroll-smooth scrollbar-none cursor-grab active:cursor-grabbing"
@@ -267,6 +341,7 @@ export default function StudentDashboard() {
               </motion.div>
             ))}
           </div>
+          )}
         </motion.section>
 
         {/* --- Phần 2: Top Trending --- */}
@@ -276,6 +351,15 @@ export default function StudentDashboard() {
         >
           <h2 className={`text-xl font-bold text-[#${PrimaryColor}] mb-4`}>Top Trending</h2>
           
+          {isLoadingVideos ? (
+            <div className="flex justify-center items-center h-64">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#161853]"></div>
+            </div>
+          ) : topTrending.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <p>No trending videos available</p>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 md:gap-6">
             {topTrending.map((item, index) => (
               <motion.div
@@ -289,6 +373,7 @@ export default function StudentDashboard() {
               </motion.div>
             ))}
           </div>
+          )}
         </motion.section>
 
       </div>

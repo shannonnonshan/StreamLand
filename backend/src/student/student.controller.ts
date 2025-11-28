@@ -134,10 +134,41 @@ export class StudentController {
     return this.studentService.getFollowedLivestreams(req.user.sub);
   }
 
+  // Get videos (ended livestreams with recordings) from followed teachers
+  @Get('followed-videos')
+  async getFollowedVideos(@Request() req: { user: { sub: string } }) {
+    return this.studentService.getFollowedVideos(req.user.sub);
+  }
+
   // Get all teachers (for search functionality - public endpoint)
   @Public()
   @Get('teachers/all')
   async getAllTeachers() {
     return this.studentService.getAllTeachers();
+  }
+
+  // Track watch activity (livestream or video)
+  @Post('track-activity')
+  async trackWatchActivity(
+    @Request() req: { user: { sub: string } },
+    @Body() body: { contentType: 'livestream' | 'video'; contentId: string },
+  ) {
+    return this.studentService.trackWatchActivity(
+      req.user.sub,
+      body.contentType,
+      body.contentId,
+    );
+  }
+
+  // Get student statistics
+  @Get('stats')
+  async getStudentStats(@Request() req: { user: { sub: string } }) {
+    return this.studentService.getStudentStats(req.user.sub);
+  }
+
+  // Get stats for a specific student (by userId)
+  @Get('stats/:userId')
+  async getStudentStatsByUserId(@Param('userId') userId: string) {
+    return this.studentService.getStudentStats(userId);
   }
 }

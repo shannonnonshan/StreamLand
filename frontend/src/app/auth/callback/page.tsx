@@ -32,7 +32,7 @@ export default function AuthCallback() {
           } else if (user.role === 'ADMIN') {
             router.push('/admin/dashboard');
           } else {
-            router.push('/student/dashboard');
+            router.push(`/student/${user.id}/dashboard`);
           }
         })
         .catch(() => {

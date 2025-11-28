@@ -88,7 +88,7 @@ model StudentProfile {
   // Stats
   studyHours   Int @default(0)
   studyStreak  Int @default(0)
-
+  lastActivityDate DateTime?
   // Preferences
   learningGoals String[]
 
@@ -116,9 +116,6 @@ model FriendList {
   requester  StudentProfile @relation("SentFriendRequests", fields: [requestId], references: [id], onDelete: Cascade)
 
   @@unique([requestId, receiverId])
-  @@index([requestId, status])
-  @@index([receiverId, status])
-  @@index([status])
   @@map("friend_lists")
 }
 

@@ -46,8 +46,6 @@ function LivestreamCard({ stream, index }: { stream: LivestreamData; index: numb
   const router = useRouter();
 
   const handleClick = () => {
-    // Navigate to livestream viewer page
-    // teacherID sẽ là teacher-{id}, livestreamID sẽ là stream.id
     router.push(`/student/livestream/${stream.id}`);
   };
 

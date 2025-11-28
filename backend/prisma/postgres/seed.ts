@@ -106,7 +106,6 @@ async function main() {
             education: teacherData.education,
             rating: teacherData.rating,
             totalStudents: teacherData.totalStudents,
-            totalCourses: teacherData.totalCourses,
           },
         },
       },

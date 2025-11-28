@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, use, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { 
   MagnifyingGlassIcon, 
@@ -47,6 +48,8 @@ export default function MessagePage({
   const { id } = use(params);
   const { user } = useAuth();
   const userId = user?.id || id;
+  const searchParams = useSearchParams();
+  const targetUserId = searchParams.get('userId'); // Get userId from URL query
 
   // Add styles for animation
   useEffect(() => {
@@ -190,6 +193,16 @@ export default function MessagePage({
     });
   }, [contacts, conversations, onlineUsers]);
 
+  // Auto-select contact from URL parameter
+  useEffect(() => {
+    if (targetUserId && mergedContacts.length > 0 && !selectedContact) {
+      const targetContact = mergedContacts.find(c => c.id === targetUserId);
+      if (targetContact) {
+        setSelectedContact(targetContact);
+      }
+    }
+  }, [targetUserId, mergedContacts, selectedContact]);
+
   // Fetch conversation messages
   useEffect(() => {
     const fetchMessages = async () => {
@@ -217,14 +230,18 @@ export default function MessagePage({
             markAsRead(msg.id);
           });
 
-          // Reset unread count for this contact
-          setContacts((prev) =>
-            prev.map((contact) =>
-              contact.id === selectedContact.id
-                ? { ...contact, unreadCount: 0 }
-                : contact
-            )
-          );
+          // Reset unread count in conversations Map
+          setConversations((prev) => {
+            const newMap = new Map(prev);
+            const existing = newMap.get(selectedContact.id);
+            if (existing) {
+              newMap.set(selectedContact.id, {
+                ...existing,
+                unreadCount: 0,
+              });
+            }
+            return newMap;
+          });
         }
       } catch (error) {
         console.error('Error fetching messages:', error);
@@ -251,32 +268,36 @@ export default function MessagePage({
         }
       }
 
-      // Update contact's last message and unread count, move to top
+      // Update conversations Map with new lastMessage
+      const partnerId = message.senderId === userId ? message.receiverId : message.senderId;
+      setConversations((prev) => {
+        const newMap = new Map(prev);
+        const existing = newMap.get(partnerId);
+        const shouldIncrement = selectedContact?.id !== partnerId;
+        newMap.set(partnerId, {
+          lastMessage: message,
+          unreadCount: shouldIncrement ? (existing?.unreadCount || 0) + 1 : (existing?.unreadCount || 0),
+        });
+        return newMap;
+      });
+
+      // Move contact to top
       setContacts((prev) => {
-        const updated = prev.map((contact) => {
-          if (contact.id === message.senderId) {
-            // Increment unread only if not viewing this conversation
-            const shouldIncrement = selectedContact?.id !== message.senderId;
-            return {
-              ...contact,
-              lastMessage: message,
-              unreadCount: shouldIncrement ? contact.unreadCount + 1 : contact.unreadCount,
-            };
-          }
-          return contact;
-        });
-        // Sort to move updated conversation to top
-        return updated.sort((a, b) => {
-          if (!a.lastMessage && !b.lastMessage) return 0;
-          if (!a.lastMessage) return 1;
-          if (!b.lastMessage) return -1;
-          return new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime();
-        });
+        const contactIndex = prev.findIndex(c => c.id === partnerId);
+        if (contactIndex === -1) return prev;
+        
+        const updatedContact = prev[contactIndex];
+        const reordered = [
+          updatedContact,
+          ...prev.slice(0, contactIndex),
+          ...prev.slice(contactIndex + 1)
+        ];
+        return reordered;
       });
     });
 
     return cleanup;
-  }, [onNewMessage, selectedContact, markAsRead]);
+  }, [onNewMessage, selectedContact, markAsRead, userId]);
 
   // Listen for sent messages
   useEffect(() => {
@@ -287,20 +308,28 @@ export default function MessagePage({
       ) {
         setMessages((prev) => [...prev, message]);
 
-        // Update contact's last message when we send, move to top
-        setContacts((prev) => {
-          const updated = prev.map((contact) =>
-            contact.id === message.receiverId
-              ? { ...contact, lastMessage: message }
-              : contact
-          );
-          // Sort to move updated conversation to top
-          return updated.sort((a, b) => {
-            if (!a.lastMessage && !b.lastMessage) return 0;
-            if (!a.lastMessage) return 1;
-            if (!b.lastMessage) return -1;
-            return new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime();
+        // Update conversations Map with new lastMessage
+        setConversations((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(message.receiverId, {
+            lastMessage: message,
+            unreadCount: prev.get(message.receiverId)?.unreadCount || 0,
           });
+          return newMap;
+        });
+
+        // Move contact to top
+        setContacts((prev) => {
+          const contactIndex = prev.findIndex(c => c.id === message.receiverId);
+          if (contactIndex === -1) return prev;
+          
+          const updatedContact = prev[contactIndex];
+          const reordered = [
+            updatedContact,
+            ...prev.slice(0, contactIndex),
+            ...prev.slice(contactIndex + 1)
+          ];
+          return reordered;
         });
       }
     });

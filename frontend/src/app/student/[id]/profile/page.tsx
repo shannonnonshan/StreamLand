@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   UserPlusIcon,
@@ -178,6 +178,27 @@ export default function StudentProfilePage() {
   
   const isOwnProfile = currentUser?.id === id;
 
+  const checkFriendshipStatus = useCallback(async () => {
+    if (isOwnProfile) return;
+    
+    try {
+      const token = localStorage.getItem('accessToken');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      
+      const friendshipResponse = await fetch(`${API_URL}/student/friendship-status/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (friendshipResponse.ok) {
+        const friendshipData = await friendshipResponse.json();
+        setFriendshipStatus(friendshipData.status || 'NONE');
+        setFriendshipId(friendshipData.friendshipId || null);
+      }
+    } catch (error) {
+      console.error('Error checking friendship status:', error);
+    }
+  }, [isOwnProfile, id]);
+
   const loadProfile = async () => {
     try {
       setIsLoading(true);
@@ -265,6 +286,26 @@ export default function StudentProfilePage() {
 
   useEffect(() => {
     loadProfile();
+    
+    // Listen for friend request acceptance
+    const handleFriendRequestAccepted = () => {
+      checkFriendshipStatus();
+    };
+    
+    // Listen for visibility change to refetch when page becomes visible
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        checkFriendshipStatus();
+      }
+    };
+    
+    window.addEventListener('friendRequestAccepted', handleFriendRequestAccepted);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      window.removeEventListener('friendRequestAccepted', handleFriendRequestAccepted);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   
@@ -388,7 +429,11 @@ export default function StudentProfilePage() {
   };
   
   const handleMessage = () => {
-    router.push('/student/message');
+    // Get current student ID from URL
+    const currentPath = window.location.pathname;
+    const match = currentPath.match(/\/student\/([^\/]+)\//);
+    const studentId = match ? match[1] : 'guest';
+    router.push(`/student/${studentId}/message?userId=${id}`);
   };
 
   return (
@@ -537,7 +582,7 @@ export default function StudentProfilePage() {
                       )}
                       <button
                         onClick={handleMessage}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-[#${SecondaryColor}] hover:bg-[#d41f4d] text-white font-semibold text-sm transition-all shadow-md hover:shadow-lg`}
+                        className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#${SecondaryColor}] hover:bg-[#d41f4d] text-white font-semibold text-xs transition-all shadow-sm hover:shadow-md`}
                       >
                         <ChatBubbleLeftRightIcon className="h-4 w-4" />
                         Message

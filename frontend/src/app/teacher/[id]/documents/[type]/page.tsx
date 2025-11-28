@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
-import { ArrowDownToLine, Upload } from "lucide-react";
-import { getTeacherDocuments, uploadDocument, Document, mapDocumentTypeToFileType } from "@/lib/api/teacher";
+import { ArrowDownToLine, Upload, Trash2 } from "lucide-react";
+import { getTeacherDocuments, uploadDocument, deleteDocument, Document, mapDocumentTypeToFileType } from "@/lib/api/teacher";
 import { formatDate, formatDateTime } from "@/utils/dateFormat";
 
 export default function DocumentsTypePage() {
@@ -17,6 +17,9 @@ export default function DocumentsTypePage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
 
   // Fetch documents from backend
   useEffect(() => {
@@ -66,6 +69,36 @@ export default function DocumentsTypePage() {
     }
   };
 
+  const handleDeleteClick = (doc: Document, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDocumentToDelete(doc);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!documentToDelete) return;
+
+    setIsDeleting(true);
+    try {
+      await deleteDocument(teacherId, documentToDelete.id);
+      setDocuments(documents.filter(doc => doc.id !== documentToDelete.id));
+      
+      // Close preview if the deleted document was selected
+      if (selectedDoc?.id === documentToDelete.id) {
+        setSelectedDoc(null);
+      }
+      
+      alert('Document deleted successfully!');
+    } catch (error) {
+      console.error('Delete failed:', error);
+      alert('Failed to delete document. Please try again.');
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+      setDocumentToDelete(null);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="p-4 flex justify-center items-center min-h-[400px]">
@@ -104,9 +137,17 @@ export default function DocumentsTypePage() {
         {documents.map((doc) => (
           <div
             key={doc.id}
-            className="bg-white shadow p-3 cursor-pointer hover:shadow-md transition rounded-lg"
+            className="bg-white shadow p-3 cursor-pointer hover:shadow-md transition rounded-lg relative group"
             onClick={() => setSelectedDoc(doc)}
           >
+            {/* Delete Button */}
+            <button
+              onClick={(e) => handleDeleteClick(doc, e)}
+              className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
+              title="Delete document"
+            >
+              <Trash2 size={14} />
+            </button>
             <div className="h-32 w-full relative rounded overflow-hidden bg-gray-100 flex items-center justify-center">
               {doc.fileType === 'image' ? (
                 <Image
@@ -261,10 +302,73 @@ export default function DocumentsTypePage() {
                   </svg>
                   Open
                 </a>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteClick(selectedDoc, e);
+                  }}
+                  className="flex items-center justify-center gap-2 px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition font-semibold"
+                >
+                  <Trash2 size={20} />
+                  Delete
+                </button>
               </div>
             </div>
           </div>
         </>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && documentToDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <Trash2 className="text-red-600" size={24} />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Delete Document?</h3>
+                <p className="text-sm text-gray-500">This action cannot be undone</p>
+              </div>
+            </div>
+
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-600 mb-1">Document:</p>
+              <p className="font-semibold text-gray-900">{documentToDelete.title}</p>
+              <p className="text-xs text-gray-500 mt-1">{documentToDelete.fileName}</p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDocumentToDelete(null);
+                }}
+                disabled={isDeleting}
+                className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={isDeleting}
+                className="flex-1 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={18} />
+                    Delete
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

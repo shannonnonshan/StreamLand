@@ -11,14 +11,25 @@ export class TeacherService {
 
   // Get teacher videos/livestreams
   async getTeacherVideos(teacherId: string, limit: number = 20) {
-    const videos = await this.prisma.postgres.liveStream.findMany({
+    const livestreams = await this.prisma.postgres.liveStream.findMany({
       where: {
         teacherId,
-        status: 'ENDED', // Only get ended livestreams (recorded videos)
+        isPublic: true,
+        OR: [
+          { status: 'LIVE' },
+          { status: 'SCHEDULED' },
+          { 
+            status: 'ENDED',
+            recordingUrl: { not: null } // Only show ended streams with recordings
+          },
+        ],
       },
-      orderBy: {
-        endedAt: 'desc',
-      },
+      orderBy: [
+        { status: 'asc' }, // LIVE first, then SCHEDULED, then ENDED
+        { startedAt: 'desc' },
+        { scheduledAt: 'desc' },
+        { endedAt: 'desc' },
+      ],
       take: limit,
       select: {
         id: true,
@@ -26,21 +37,30 @@ export class TeacherService {
         description: true,
         thumbnail: true,
         totalViews: true,
-        peakViewers: true,
+        currentViewers: true,
         duration: true,
+        status: true,
+        recordingUrl: true,
+        startedAt: true,
+        scheduledAt: true,
         endedAt: true,
         createdAt: true,
       },
     });
 
-    return videos.map(video => ({
-      id: video.id,
-      title: video.title,
-      description: video.description,
-      thumbnail: video.thumbnail || '/image/default-thumbnail.jpg',
-      views: video.totalViews || 0,
-      duration: this.formatDuration(video.duration),
-      date: video.endedAt || video.createdAt,
+    return livestreams.map(stream => ({
+      id: stream.id,
+      title: stream.title,
+      description: stream.description,
+      thumbnail: stream.thumbnail || '/image/default-thumbnail.jpg',
+      views: stream.totalViews || 0,
+      currentViewers: stream.currentViewers || 0,
+      duration: this.formatDuration(stream.duration),
+      status: stream.status,
+      recordingUrl: stream.recordingUrl,
+      startedAt: stream.startedAt,
+      scheduledStartTime: stream.scheduledAt,
+      date: stream.endedAt || stream.startedAt || stream.scheduledAt || stream.createdAt,
       teacherId,
     }));
   }

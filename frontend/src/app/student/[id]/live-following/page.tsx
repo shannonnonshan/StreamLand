@@ -120,7 +120,7 @@ function VideoCard({ video }: { video: Livestream | Video }) {
     if (isLive) {
       router.push(`/student/livestream/${video.id}`);
     } else {
-      router.push(`/student/video/${video.teacher.id}/${video.id}`);
+      router.push(`/student/video/${video.id}`);
     }
   };
 

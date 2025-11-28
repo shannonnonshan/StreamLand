@@ -20,24 +20,24 @@ import {
   BookmarkIcon as BookmarkSolidIcon 
 } from '@heroicons/react/24/solid';
 
-// Các màu chủ đạo của ứng dụng
-// const PrimaryColor = '161853'; // Xanh Đậm 
-// const SecondaryColor = 'EC255A'; // Đỏ/Hồng
+// Application primary colors
+// const PrimaryColor = '161853'; // Dark Blue
+// const SecondaryColor = 'EC255A'; // Red/Pink
 
-// Giả lập dữ liệu tài liệu
+// Document data type
 type Document = {
   id: string;
   title: string;
   filename: string;
   type: 'pdf' | 'doc' | 'ppt' | 'xls' | 'img' | 'other';
-  size: string; // kích thước file (MB/KB)
-  uploadDate: string; // Ngày tải lên
-  lastModified: string; // Ngày chỉnh sửa cuối
-  pinnedAt: string | null; // Đánh dấu ghim
-  tags: string[]; // Thẻ phân loại
-  folder: string | null; // Thư mục chứa
-  previewUrl?: string; // URL cho xem trước
-  downloadUrl: string; // URL để tải xuống
+  size: string; // File size (MB/KB)
+  uploadDate: string; // Upload date
+  lastModified: string; // Last modified date
+  pinnedAt: string | null; // Pinned marker
+  tags: string[]; // Classification tags
+  folder: string | null; // Containing folder
+  previewUrl?: string; // URL for preview
+  downloadUrl: string; // URL for download
 };
 
 // Dữ liệu giả
@@ -370,7 +370,7 @@ export default function DocumentsPage() {
             <input
               type="text"
               className="block w-full rounded-lg border-0 py-2.5 pl-10 pr-3 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-[#161853] sm:text-sm"
-              placeholder="Tìm kiếm tài liệu..."
+              placeholder="Search documents..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -848,7 +848,7 @@ export default function DocumentsPage() {
                     handleCreateFolder();
                   }
                 }}
-                placeholder="Nhập tên thư mục..."
+                placeholder="Enter folder name..."
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#161853] focus:border-transparent"
                 autoFocus
               />

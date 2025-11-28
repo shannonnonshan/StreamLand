@@ -877,7 +877,6 @@ export class StudentService {
 
     // Get User IDs (not TeacherProfile IDs!)
     const teacherUserIds = followedTeachers.map(ft => ft.teacher.userId);
-    console.log('🔍 Following teacher User IDs:', teacherUserIds);
 
     if (teacherUserIds.length === 0) {
       console.log('⚠️ No followed teachers found');
@@ -894,7 +893,6 @@ export class StudentService {
         createdAt: 'desc',
       },
     });
-    console.log('📺 Found LIVE livestreams:', livestreams.length);
 
     // Get teacher details by User IDs
     const teachers = await this.prisma.postgres.user.findMany({
@@ -953,7 +951,6 @@ export class StudentService {
 
     // Get User IDs (not TeacherProfile IDs!)
     const teacherUserIds = followedTeachers.map(ft => ft.teacher.userId);
-    console.log('🔍 Following teacher User IDs for videos:', teacherUserIds);
 
     if (teacherUserIds.length === 0) {
       console.log('⚠️ No followed teachers found for videos');
@@ -973,7 +970,6 @@ export class StudentService {
       ],
       take: 50, // Limit to 50 recent videos
     });
-    console.log('🎬 Found ENDED videos:', videos.length);
 
     // Get teacher details by User IDs
     const teachers = await this.prisma.postgres.user.findMany({

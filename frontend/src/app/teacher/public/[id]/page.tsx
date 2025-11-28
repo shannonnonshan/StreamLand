@@ -57,7 +57,12 @@ interface VideoData {
   description: string | null;
   thumbnail: string;
   views: number;
+  currentViewers?: number;
   duration: string;
+  status: 'LIVE' | 'SCHEDULED' | 'ENDED';
+  recordingUrl?: string | null;
+  startedAt?: string | null;
+  scheduledStartTime?: string | null;
   date: string;
   teacherId: string;
 }
@@ -209,8 +214,30 @@ export default function PublicTeacherProfilePage() {
     alert("Profile link copied to clipboard!");
   };
 
-  const handleVideoClick = (videoId: string) => {
-    router.push(`/viewer/${teacherId}/${videoId}`);
+  const handleVideoClick = (video: VideoData) => {
+    if (video.status === 'LIVE') {
+      // Redirect to live viewer page
+      router.push(`/student/livestream/${video.id}`);
+    } else if (video.status === 'ENDED' && video.recordingUrl) {
+      // Redirect to video player page
+      router.push(`/student/video/${video.id}`);
+    } else if (video.status === 'SCHEDULED') {
+      // Show scheduled time alert
+      const scheduledTime = video.scheduledStartTime 
+        ? new Date(video.scheduledStartTime).toLocaleString('en-US', {
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          })
+        : 'soon';
+      toast.success(`This stream is scheduled for ${scheduledTime}`, {
+        duration: 4000,
+        position: 'top-center',
+      });
+    }
   };
 
   if (loadingProfile) {
@@ -412,23 +439,23 @@ export default function PublicTeacherProfilePage() {
           </div>
         </div>
 
-        {/* Recent Videos Section */}
+        {/* Livestreams & Videos Section */}
         <div className="bg-white rounded-xl shadow-sm p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">Recent Videos</h2>
+            <h2 className="text-xl font-semibold text-gray-900">Livestreams & Videos</h2>
           </div>
           
           {loadingVideos ? (
             <div className="text-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-[#292C6D] mx-auto mb-3" />
-              <p className="text-gray-600">Loading videos...</p>
+              <p className="text-gray-600">Loading content...</p>
             </div>
           ) : videos.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {videos.map((video) => (
                 <div
                   key={video.id}
-                  onClick={() => handleVideoClick(video.id)}
+                  onClick={() => handleVideoClick(video)}
                   className="group cursor-pointer"
                 >
                   {/* Thumbnail */}
@@ -444,10 +471,31 @@ export default function PublicTeacherProfilePage() {
                         <Play className="text-[#292C6D] ml-1" size={24} fill="currentColor" />
                       </div>
                     </div>
-                    {/* Duration Badge */}
-                    <div className="absolute bottom-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
-                      {video.duration}
-                    </div>
+                    
+                    {/* Status Badge */}
+                    {video.status === 'LIVE' && (
+                      <div className="absolute top-2 left-2 flex items-center gap-1 bg-red-600 text-white text-xs font-semibold px-2 py-1 rounded">
+                        <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                        LIVE
+                      </div>
+                    )}
+                    {video.status === 'SCHEDULED' && (
+                      <div className="absolute top-2 left-2 bg-blue-600 text-white text-xs font-semibold px-2 py-1 rounded">
+                        SCHEDULED
+                      </div>
+                    )}
+                    {video.status === 'ENDED' && (
+                      <div className="absolute top-2 left-2 bg-purple-600 text-white text-xs font-semibold px-2 py-1 rounded">
+                        RECORDED
+                      </div>
+                    )}
+
+                    {/* Duration Badge (only for ended videos) */}
+                    {video.status === 'ENDED' && (
+                      <div className="absolute bottom-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
+                        {video.duration}
+                      </div>
+                    )}
                   </div>
 
                   {/* Video Info */}
@@ -456,14 +504,26 @@ export default function PublicTeacherProfilePage() {
                       {video.title}
                     </h3>
                     <p className="text-sm text-gray-600">
-                      {new Date(video.date).toLocaleDateString('en-US', { 
-                        year: 'numeric', 
-                        month: 'long', 
-                        day: 'numeric' 
-                      })}
+                      {video.status === 'SCHEDULED' && video.scheduledStartTime
+                        ? `Scheduled for ${new Date(video.scheduledStartTime).toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit'
+                          })}`
+                        : new Date(video.date).toLocaleDateString('en-US', { 
+                            year: 'numeric', 
+                            month: 'long', 
+                            day: 'numeric' 
+                          })
+                      }
                     </p>
                     <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
-                      <span>{video.views.toLocaleString()} views</span>
+                      {video.status === 'LIVE' ? (
+                        <span className="text-red-600 font-semibold">{video.currentViewers?.toLocaleString() || 0} watching now</span>
+                      ) : (
+                        <span>{video.views.toLocaleString()} views</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -472,7 +532,7 @@ export default function PublicTeacherProfilePage() {
           ) : (
             <div className="text-center py-12">
               <Video className="mx-auto text-gray-400 mb-3" size={48} />
-              <p className="text-gray-600">No videos available yet</p>
+              <p className="text-gray-600">No content available yet</p>
             </div>
           )}
         </div>

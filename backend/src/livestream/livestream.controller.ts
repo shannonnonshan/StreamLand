@@ -82,6 +82,18 @@ export class LivestreamController {
     return await this.livestreamService.getTrendingVideos(20);
   }
 
+  @Get('recorded/all')
+  async getRecordedLivestreams(@Query('limit') limit: string) {
+    const limitNum = limit ? parseInt(limit, 10) : 20;
+    return await this.livestreamService.getRecordedLivestreams(limitNum);
+  }
+
+  @Get('scheduled/upcoming')
+  async getUpcomingScheduledStreams(@Query('limit') limit: string) {
+    const limitNum = limit ? parseInt(limit, 10) : 20;
+    return await this.livestreamService.getUpcomingScheduledStreams(limitNum);
+  }
+
   @Post(':id/increment-view')
   async incrementViewCount(@Param('id') id: string) {
     return await this.livestreamService.incrementViewCount(id);

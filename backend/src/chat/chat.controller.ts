@@ -31,12 +31,8 @@ export class ChatController {
 
   @Get('conversations')
   async getRecentConversations(@Request() req: RequestWithUser) {
-    console.log('🎯 GET /chat/conversations called');
-    console.log('👤 User from request:', req.user);
     const userId = req.user.sub || req.user.id;
-    console.log('🔑 Using userId:', userId);
     const result = await this.chatService.getRecentConversations(userId);
-    console.log('📤 Sending response:', result);
     return result;
   }
 

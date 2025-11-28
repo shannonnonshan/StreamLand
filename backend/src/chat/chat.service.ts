@@ -66,7 +66,6 @@ export class ChatService {
   }
 
   async getRecentConversations(userId: string) {
-    console.log('🔍 getRecentConversations called for userId:', userId);
     
     const messages = await this.prisma.mongo.chatMessage.findMany({
       where: {
@@ -74,11 +73,6 @@ export class ChatService {
       },
       orderBy: { createdAt: 'desc' },
     });
-
-    console.log(`📦 Found ${messages.length} messages for user ${userId}`);
-    if (messages.length > 0) {
-      console.log('📝 Sample message:', messages[0]);
-    }
 
     // Group by conversation partner
     const conversationsMap = new Map<string, {
@@ -105,7 +99,6 @@ export class ChatService {
     }
 
     const result = Array.from(conversationsMap.values());
-    console.log(`✅ Returning ${result.length} conversations:`, result);
     return result;
   }
 

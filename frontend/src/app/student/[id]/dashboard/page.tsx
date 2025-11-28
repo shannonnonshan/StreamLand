@@ -4,6 +4,7 @@ import { PlayCircleIcon, SignalIcon, HeartIcon, ChevronLeftIcon, ChevronRightIco
 import { motion } from 'framer-motion'; // Install framer-motion for smooth animations
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
@@ -12,31 +13,40 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 interface LivestreamData {
   id: string;
   title: string;
+  description?: string;
+  teacherId: string;
   teacher: {
     id: string;
     fullName: string;
     avatar?: string;
   };
-  viewCount: number;
+  totalViews: number;
   currentViewers?: number;
   thumbnailUrl?: string;
-  isLive: boolean;
-  status: string;
+  status: 'LIVE' | 'SCHEDULED' | 'ENDED';
   category?: string;
+  recordingUrl?: string;
+  startedAt?: string;
+  endedAt?: string;
+  scheduledStartTime?: string;
 }
 
 interface VideoData {
   id: string;
   title: string;
+  description?: string;
+  teacherId: string;
   teacher: {
     id: string;
     fullName: string;
     avatar?: string;
   };
-  viewCount: number;
+  totalViews: number;
   thumbnailUrl?: string;
   duration?: number;
-  uploadedAt: string;
+  recordingUrl: string;
+  endedAt: string;
+  status: 'ENDED';
 }
 
 // --- Sub-Component: Livestream Card ---
@@ -46,9 +56,17 @@ function LivestreamCard({ stream, index }: { stream: LivestreamData; index: numb
   const router = useRouter();
 
   const handleClick = () => {
-    // Navigate to livestream viewer page
-    // teacherID sẽ là teacher-{id}, livestreamID sẽ là stream.id
-    router.push(`/student/livestream/${stream.id}`);
+    // Navigate based on status
+    if (stream.status === 'LIVE') {
+      // Go to live viewer page
+      router.push(`/student/livestream/${stream.id}`);
+    } else if (stream.status === 'ENDED' && stream.recordingUrl) {
+      // Go to video player page for recorded stream
+      router.push(`/student/video/${stream.id}`);
+    } else if (stream.status === 'SCHEDULED') {
+      // Could show a "coming soon" modal or details page
+      alert(`This livestream is scheduled for ${new Date(stream.scheduledStartTime!).toLocaleString()}`);
+    }
   };
 
   return (
@@ -70,7 +88,7 @@ function LivestreamCard({ stream, index }: { stream: LivestreamData; index: numb
                 </div>
             ) : (
                 <div className="flex items-center justify-center h-full text-gray-400 transition-all duration-300">
-                    <PlayCircleIcon className={`w-10 h-10 transition-all duration-300 ${isHovered ? `text-[#${stream.isLive ? SecondaryColor : PrimaryColor}] scale-110` : ''}`} />
+                    <PlayCircleIcon className={`w-10 h-10 transition-all duration-300 ${isHovered ? `text-[#${stream.status === 'LIVE' ? SecondaryColor : PrimaryColor}] scale-110` : ''}`} />
                 </div>
             )}
             
@@ -81,10 +99,18 @@ function LivestreamCard({ stream, index }: { stream: LivestreamData; index: numb
                 </div>
             )}
             
-            {/* LIVE Tag */}
-            <div className={`absolute top-3 left-3 flex items-center space-x-1 p-1 rounded-md text-xs font-bold text-white ${stream.isLive ? `bg-[#${SecondaryColor}]` : `bg-[#${PrimaryColor}]`} ${stream.isLive && isHovered ? 'animate-pulse' : ''}`}>
-                <SignalIcon className={`h-3 w-3 ${stream.isLive && isHovered ? 'animate-pulse' : ''}`} />
-                <span>{stream.isLive ? 'LIVE' : 'VOD'}</span>
+            {/* Status Tag */}
+            <div className={`absolute top-3 left-3 flex items-center space-x-1 p-1 rounded-md text-xs font-bold text-white ${
+              stream.status === 'LIVE' ? `bg-[#${SecondaryColor}] ${isHovered ? 'animate-pulse' : ''}` : 
+              stream.status === 'SCHEDULED' ? 'bg-blue-500' : 
+              `bg-[#${PrimaryColor}]`
+            }`}>
+                <SignalIcon className={`h-3 w-3 ${stream.status === 'LIVE' && isHovered ? 'animate-pulse' : ''}`} />
+                <span>
+                  {stream.status === 'LIVE' ? 'LIVE' : 
+                   stream.status === 'SCHEDULED' ? 'SCHEDULED' : 
+                   'RECORDED'}
+                </span>
             </div>
 
             {/* Teacher Info */}
@@ -92,7 +118,7 @@ function LivestreamCard({ stream, index }: { stream: LivestreamData; index: numb
                 <p className="font-semibold text-sm truncate">{stream.title}</p>
                 <div className="flex items-center text-xs mt-1">
                     {stream.teacher.avatar ? (
-                      <img src={stream.teacher.avatar} alt={stream.teacher.fullName} className="h-5 w-5 rounded-full mr-2 border border-white object-cover" />
+                      <Image src={stream.teacher.avatar} alt={stream.teacher.fullName} width={20} height={20} className="h-5 w-5 rounded-full mr-2 border border-white object-cover" />
                     ) : (
                       <div className="h-5 w-5 rounded-full bg-[#161853]/70 mr-2 border border-white flex items-center justify-center">
                         <span className="text-[10px]">{stream.teacher.fullName.charAt(0)}</span>
@@ -107,11 +133,16 @@ function LivestreamCard({ stream, index }: { stream: LivestreamData; index: numb
         <div className="p-3 flex justify-between items-center">
             <div className="flex items-center space-x-2">
                 <span className={`text-xs font-medium text-[#${PrimaryColor}]`}>
-                    {stream.viewCount.toLocaleString()} views
+                    {stream.totalViews.toLocaleString()} views
                 </span>
-                {stream.isLive && stream.currentViewers !== undefined && (
+                {stream.status === 'LIVE' && stream.currentViewers !== undefined && (
                   <span className={`text-xs font-medium text-[#${SecondaryColor}]`}>
                     • {stream.currentViewers} watching
+                  </span>
+                )}
+                {stream.status === 'SCHEDULED' && stream.scheduledStartTime && (
+                  <span className="text-xs font-medium text-blue-600">
+                    • {new Date(stream.scheduledStartTime).toLocaleString()}
                   </span>
                 )}
             </div>
@@ -130,8 +161,8 @@ function TrendingCard({ item }: { item: VideoData }) {
     const router = useRouter();
 
     const handleClick = () => {
-        // Navigate to video viewer page (using id as both teacher and livestream)
-        router.push(`/student/livestream/${item.id}`);
+        // Navigate to video player page for recorded stream
+        router.push(`/student/video/${item.id}`);
     };
     
     return (
@@ -151,10 +182,10 @@ function TrendingCard({ item }: { item: VideoData }) {
                     <span className={`${isHovered ? 'font-medium' : ''} transition-all duration-300`}>{item.teacher.fullName}</span>
                     <span className="mx-1">•</span>
                     <span className={`text-[#${PrimaryColor}] ${isHovered ? 'font-bold' : 'font-medium'} transition-all duration-300`}>
-                      {item.viewCount.toLocaleString()} views
+                      {item.totalViews.toLocaleString()} views
                     </span>
                     <span className="mx-1">•</span>
-                    {new Date(item.uploadedAt).toLocaleDateString()}
+                    {new Date(item.endedAt).toLocaleDateString()}
                 </p>
             </div>
         </div>
@@ -174,14 +205,28 @@ export default function StudentDashboard() {
   // State để lưu tham chiếu đến container livestream
   const livestreamContainerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch top livestreams
+  // Fetch top livestreams (LIVE and SCHEDULED)
   const fetchTopLivestreams = async () => {
     try {
-      const response = await fetch(`${API_URL}/livestream/top/livestreams`);
-      if (response.ok) {
-        const data = await response.json();
-        setTopLivestreams(data);
-      }
+      // Fetch both LIVE and SCHEDULED streams
+      const [liveResponse, scheduledResponse] = await Promise.all([
+        fetch(`${API_URL}/livestream/active/all`), // Get LIVE streams
+        fetch(`${API_URL}/livestream/scheduled/upcoming?limit=10`), // Get SCHEDULED streams
+      ]);
+
+      const liveData = liveResponse.ok ? await liveResponse.json() : [];
+      const scheduledData = scheduledResponse.ok ? await scheduledResponse.json() : [];
+      
+      // Combine and sort by totalViews/priority
+      const combined = [...liveData, ...scheduledData].sort((a, b) => {
+        // Prioritize LIVE streams
+        if (a.status === 'LIVE' && b.status !== 'LIVE') return -1;
+        if (a.status !== 'LIVE' && b.status === 'LIVE') return 1;
+        // Then by views
+        return (b.totalViews || 0) - (a.totalViews || 0);
+      });
+
+      setTopLivestreams(combined);
     } catch (error) {
       console.error('Error fetching top livestreams:', error);
     } finally {
@@ -189,13 +234,19 @@ export default function StudentDashboard() {
     }
   };
 
-  // Fetch trending videos
+  // Fetch trending videos (ENDED with recordingUrl)
   const fetchTrendingVideos = async () => {
     try {
-      const response = await fetch(`${API_URL}/livestream/trending/videos`);
+      // Fetch ended livestreams with recordings
+      const response = await fetch(`${API_URL}/livestream/recorded/all?limit=12`);
+      
       if (response.ok) {
         const data = await response.json();
-        setTopTrending(data);
+        // Filter to only include streams with recordingUrl
+        const recordedStreams = (data as VideoData[]).filter((stream) => 
+          stream.status === 'ENDED' && stream.recordingUrl
+        );
+        setTopTrending(recordedStreams);
       }
     } catch (error) {
       console.error('Error fetching trending videos:', error);

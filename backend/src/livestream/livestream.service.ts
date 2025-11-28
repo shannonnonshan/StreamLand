@@ -674,6 +674,95 @@ export class LivestreamService {
     }));
   }
 
+  // Get recorded livestreams (ENDED with recordingUrl)
+  async getRecordedLivestreams(limit: number = 20) {
+    const videos = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        status: LiveStreamStatus.ENDED,
+        isPublic: true,
+        recordingUrl: { not: null },
+      },
+      include: {
+        teacher: {
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true,
+          },
+        },
+      },
+      orderBy: [
+        { endedAt: 'desc' },
+        { totalViews: 'desc' },
+      ],
+      take: limit,
+    });
+
+    return videos.map((video) => ({
+      id: video.id,
+      title: video.title,
+      description: video.description,
+      teacherId: video.teacherId,
+      teacher: {
+        id: video.teacher.id,
+        fullName: video.teacher.fullName,
+        avatar: video.teacher.avatar,
+      },
+      totalViews: video.totalViews,
+      thumbnailUrl: video.thumbnail,
+      duration: video.duration,
+      recordingUrl: video.recordingUrl,
+      endedAt: video.endedAt,
+      status: video.status,
+      category: video.category,
+    }));
+  }
+
+  // Get upcoming scheduled livestreams
+  async getUpcomingScheduledStreams(limit: number = 20) {
+    const now = new Date();
+    
+    const scheduled = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        status: LiveStreamStatus.SCHEDULED,
+        isPublic: true,
+        scheduledAt: {
+          gte: now, // Only future streams
+        },
+      },
+      include: {
+        teacher: {
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true,
+          },
+        },
+      },
+      orderBy: {
+        scheduledAt: 'asc', // Earliest first
+      },
+      take: limit,
+    });
+
+    return scheduled.map((stream) => ({
+      id: stream.id,
+      title: stream.title,
+      description: stream.description,
+      teacherId: stream.teacherId,
+      teacher: {
+        id: stream.teacher.id,
+        fullName: stream.teacher.fullName,
+        avatar: stream.teacher.avatar,
+      },
+      totalViews: stream.totalViews,
+      thumbnailUrl: stream.thumbnail,
+      status: stream.status,
+      category: stream.category,
+      scheduledStartTime: stream.scheduledAt,
+    }));
+  }
+
   // Increment view count for a livestream
   async incrementViewCount(id: string) {
     return await this.prisma.postgres.liveStream.update({

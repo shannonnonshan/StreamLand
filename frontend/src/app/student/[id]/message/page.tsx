@@ -435,7 +435,7 @@ export default function MessagePage({
         {/* Header */}
         <div className="p-4 border-b border-gray-200">
           <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-4">
-            Tin nhắn
+            Messages
           </h1>
           
           {/* Search */}
@@ -443,7 +443,7 @@ export default function MessagePage({
             <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="Tìm kiếm..."
+              placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -460,7 +460,7 @@ export default function MessagePage({
                   : 'bg-gray-200 text-gray-700'
               }`}
             >
-              Tất cả
+              All
             </button>
             <button
               onClick={() => setChatFilter('unread')}
@@ -470,7 +470,7 @@ export default function MessagePage({
                   : 'bg-gray-200 text-gray-700'
               }`}
             >
-              Chưa đọc
+              Unread
             </button>
             <button
               onClick={() => setChatFilter('teachers')}
@@ -480,7 +480,7 @@ export default function MessagePage({
                   : 'bg-gray-200 text-gray-700'
               }`}
             >
-              Giáo viên
+              Teachers
             </button>
           </div>
 
@@ -492,7 +492,7 @@ export default function MessagePage({
               }`}
             />
             <span className="text-xs text-gray-600">
-              {isConnected ? 'Đã kết nối' : 'Đang kết nối...'}
+              {isConnected ? 'Connected' : 'Connecting...'}
             </span>
           </div>
         </div>
@@ -501,7 +501,7 @@ export default function MessagePage({
         <div className="flex-1 overflow-y-auto">
           {filteredContacts.length === 0 ? (
             <div className="p-4 text-center text-gray-500">
-              Không tìm thấy liên hệ
+              No contacts found
             </div>
           ) : (
             filteredContacts.map((contact, index) => (
@@ -671,7 +671,7 @@ export default function MessagePage({
                 <div className="flex-1 relative">
                   <input
                     type="text"
-                    placeholder="Nhập tin nhắn..."
+                    placeholder="Type a message..."
                     value={newMessage}
                     onChange={handleTyping}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
@@ -711,10 +711,10 @@ export default function MessagePage({
                 </svg>
               </div>
               <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                Chọn một cuộc trò chuyện
+                Select a conversation
               </h3>
               <p className="text-gray-600">
-                Chọn một liên hệ để bắt đầu trò chuyện
+                Choose a contact to start chatting
               </p>
             </div>
           </div>

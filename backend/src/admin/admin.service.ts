@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -256,8 +256,21 @@ export class AdminService {
       this.prisma.postgres.user.findMany({
         where,
         include: {
-          teacherProfile: true,
+          teacherProfile: {
+            include: {
+              followers: {
+                select: {
+                  id: true,
+                },
+              },
+            },
+          },
           studentProfile: true,
+          _count: {
+            select: {
+              livestreams: true,
+            },
+          },
         },
         orderBy: {
           createdAt: 'desc',
@@ -319,5 +332,87 @@ export class AdminService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  // Create new admin
+  async createAdmin(email: string, password: string, fullName: string) {
+    const bcrypt = require('bcrypt');
+    
+    // Check if email already exists
+    const existingUser = await this.prisma.postgres.user.findUnique({
+      where: { email },
+    });
+
+    if (existingUser) {
+      throw new Error('Email already in use');
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create admin user
+    const admin = await this.prisma.postgres.user.create({
+      data: {
+        email,
+        password: hashedPassword,
+        fullName,
+        role: 'ADMIN',
+        isVerified: true, // Auto-verify admin accounts
+      },
+    });
+
+    // Remove password from response
+    const { password: _, ...adminWithoutPassword } = admin;
+    return adminWithoutPassword;
+  }
+
+  // Delete admin (soft delete by setting role to STUDENT or hard delete)
+  async deleteAdmin(adminId: string) {
+    const admin = await this.prisma.postgres.user.findUnique({
+      where: { id: adminId },
+    });
+
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    if (admin.role !== 'ADMIN') {
+      throw new Error('User is not an admin');
+    }
+
+    // Hard delete the admin
+    await this.prisma.postgres.user.delete({
+      where: { id: adminId },
+    });
+
+    return { message: 'Admin deleted successfully' };
+  }
+
+  async changePassword(adminId: string, passwords: { currentPassword: string; newPassword: string }) {
+    const bcrypt = await import('bcrypt');
+    
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { id: adminId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(passwords.currentPassword, user.password);
+    if (!isCurrentPasswordValid) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    // Hash new password
+    const hashedNewPassword = await bcrypt.hash(passwords.newPassword, 10);
+
+    await this.prisma.postgres.user.update({
+      where: { id: adminId },
+      data: { password: hashedNewPassword },
+    });
+
+    return { success: true, message: 'Password changed successfully' };
   }
 }

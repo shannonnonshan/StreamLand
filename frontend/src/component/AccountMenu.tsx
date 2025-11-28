@@ -194,13 +194,15 @@ export default function AccountMenu({ role, basePath, useAnimation = false, show
           </div>
 
           <div className="py-2">
-            <button
-              onClick={handleProfileClick}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
-            >
-              <UserCircle className="h-5 w-5 text-gray-600" />
-              <span className="text-sm text-gray-700">Personal Information</span>
-            </button>
+            {role !== 'admin' && (
+              <button
+                onClick={handleProfileClick}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+              >
+                <UserCircle className="h-5 w-5 text-gray-600" />
+                <span className="text-sm text-gray-700">Personal Information</span>
+              </button>
+            )}
             <button
               onClick={handleSettingsClick}
               className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"

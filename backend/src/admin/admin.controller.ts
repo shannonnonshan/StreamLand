@@ -139,4 +139,40 @@ export class AdminController {
       content: content || '', // Ensure content is never undefined
     });
   }
+
+  // Create new admin
+  @Post('admins')
+  async createAdmin(
+    @Body() body: { email: string; password: string; fullName: string },
+    @Request() req: { user: { sub: string; role: string } }
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can create other admins');
+    }
+    return this.adminService.createAdmin(body.email, body.password, body.fullName);
+  }
+
+  // Delete admin
+  @Patch('admins/:id/delete')
+  async deleteAdmin(
+    @Param('id') adminId: string,
+    @Request() req: { user: { sub: string; role: string } }
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can delete other admins');
+    }
+    return this.adminService.deleteAdmin(adminId);
+  }
+
+  // Change password
+  @Post('change-password')
+  async changePassword(
+    @Body() passwords: { currentPassword: string; newPassword: string },
+    @Request() req: { user: { sub: string; role: string } }
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can change password');
+    }
+    return this.adminService.changePassword(req.user.sub, passwords);
+  }
 }

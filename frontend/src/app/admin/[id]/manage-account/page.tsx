@@ -7,30 +7,16 @@ import { Loader2, X, Info, Eye, EyeOff, ChevronLeft, ChevronRight } from "lucide
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
-enum EGender {
-  MALE = "MALE",
-  FEMALE = "FEMALE",
-  OTHER = "OTHER",
-}
-
 interface AdminFormData {
   name: string;
-  username: string;
   password?: string;
   confirmPassword?: string;
   email: string;
-  address: string;
-  phone: string;
-  gender: EGender;
 }
 interface Admin {
   id: string;
-  username: string;
   name: string;
-  email?: string;
-  address?: string;
-  phone?: string;
-  gender?: EGender;
+  email: string;
   avatar?: string;
   status: "online" | "offline";
 }
@@ -39,11 +25,20 @@ interface Teacher {
   id: string;
   username: string;
   name: string;
+  email: string;
   avatar?: string;
   submitDate: string;
   reviewDate: string;
   details: string;
   status: "waiting" | "require-update" | "approved";
+  education?: string;
+  experience?: number;
+  subjects?: string[];
+  cvUrl?: string;
+  website?: string;
+  linkedin?: string;
+  bio?: string;
+  location?: string;
 }
 
 const defaultLogoUrl = "/logo.png";
@@ -56,8 +51,12 @@ export default function ManageAccount() {
 
   const [dialogMode, setDialogMode] = useState<"create" | "update">("create");
   const [selectedAdmin, setSelectedAdmin] = useState<Admin | null>(null);
+  const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isTeacherDetailsOpen, setIsTeacherDetailsOpen] = useState(false);
+  const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
 
   const [adminPage, setAdminPage] = useState(1);
   const [teacherPage, setTeacherPage] = useState(1);
@@ -70,118 +69,128 @@ export default function ManageAccount() {
   const itemsPerPage = 5;
 
 
-  // --- MOCK FETCH ---
+  // --- FETCH FROM BACKEND ---
   useEffect(() => {
-    setLoadingAdmins(true);
-    setTimeout(() => {
-      setAdmins([
-        { id: "1", username: "admin_anna", name: "Anna Smith", status: "online", gender: EGender.FEMALE },
-        { id: "2", username: "admin_john", name: "John Doe", status: "offline", gender: EGender.MALE },
-        { id: "3", username: "admin_sarah", name: "Sarah Johnson", status: "online", gender: EGender.FEMALE },
-        { id: "4", username: "admin_michael", name: "Michael Brown", status: "offline", gender: EGender.MALE },
-        { id: "5", username: "admin_emma", name: "Emma Davis", status: "online", gender: EGender.FEMALE },
-        { id: "6", username: "admin_james", name: "James Wilson", status: "online", gender: EGender.MALE },
-        { id: "7", username: "admin_lisa", name: "Lisa Anderson", status: "offline", gender: EGender.FEMALE },
-        { id: "8", username: "admin_robert", name: "Robert Taylor", status: "online", gender: EGender.MALE },
-        { id: "9", username: "admin_olivia", name: "Olivia White", status: "offline", gender: EGender.FEMALE },
-        { id: "10", username: "admin_william", name: "William Moore", status: "online", gender: EGender.MALE },
-        { id: "11", username: "admin_sophia", name: "Sophia Martinez", status: "online", gender: EGender.FEMALE },
-        { id: "12", username: "admin_daniel", name: "Daniel Lee", status: "offline", gender: EGender.MALE }
-      ]);
-      setLoadingAdmins(false);
-    }, 400);
+    const fetchData = async () => {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-    setLoadingTeachers(true);
-    setTimeout(() => {
-      setTeachers([
-        {
-          id: "1",
-          username: "teacher_maria",
-          name: "Maria Garcia",
-          submitDate: "2025-10-20",
-          reviewDate: "2025-10-25",
-          details: "5 years experience, Mathematics",
-          status: "waiting",
-        },
-        {
-          id: "2",
-          username: "teacher_david",
-          name: "David Wilson",
-          submitDate: "2025-10-22",
-          reviewDate: "2025-10-25",
-          details: "3 years experience, Physics",
-          status: "approved",
-        },
-        {
-          id: "3",
-          username: "teacher_emily",
-          name: "Emily Johnson",
-          submitDate: "2025-10-23",
-          reviewDate: "2025-10-26",
-          details: "4 years experience, Biology",
-          status: "waiting",
-        },
-        {
-          id: "4",
-          username: "teacher_alex",
-          name: "Alex Thompson",
-          submitDate: "2025-10-21",
-          reviewDate: "2025-10-24",
-          details: "6 years experience, Chemistry",
-          status: "require-update",
-        },
-        {
-          id: "5",
-          username: "teacher_sarah",
-          name: "Sarah Anderson",
-          submitDate: "2025-10-19",
-          reviewDate: "2025-10-23",
-          details: "7 years experience, English",
-          status: "approved",
-        },
-        {
-          id: "6",
-          username: "teacher_michael",
-          name: "Michael Brown",
-          submitDate: "2025-10-24",
-          reviewDate: "2025-10-26",
-          details: "3 years experience, History",
-          status: "waiting",
-        },
-        {
-          id: "7",
-          username: "teacher_jennifer",
-          name: "Jennifer Davis",
-          submitDate: "2025-10-22",
-          reviewDate: "2025-10-25",
-          details: "5 years experience, Art",
-          status: "require-update",
-        },
-        {
-          id: "8",
-          username: "teacher_robert",
-          name: "Robert Wilson",
-          submitDate: "2025-10-21",
-          reviewDate: "2025-10-24",
-          details: "4 years experience, Music",
-          status: "waiting",
+      // Fetch admins
+      setLoadingAdmins(true);
+      try {
+        const response = await fetch(`${API_URL}/admin/users?role=ADMIN&limit=100`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const mappedAdmins = data.users.map((user: any) => ({
+            id: user.id,
+            name: user.fullName,
+            email: user.email,
+            avatar: user.avatar,
+            status: 'offline' as const, // Backend doesn't track online status yet
+          }));
+          setAdmins(mappedAdmins);
         }
-      ]);
-      setLoadingTeachers(false);
-    }, 400);
+      } catch (error) {
+        console.error('Error fetching admins:', error);
+      } finally {
+        setLoadingAdmins(false);
+      }
+
+      // Fetch teachers
+      setLoadingTeachers(true);
+      try {
+        const [pendingResponse, allResponse] = await Promise.all([
+          fetch(`${API_URL}/admin/teachers/pending`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+          }),
+          fetch(`${API_URL}/admin/teachers`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+          }),
+        ]);
+
+        const allTeachers: Teacher[] = [];
+
+        if (pendingResponse.ok) {
+          const pending = await pendingResponse.json();
+          const mapped = pending.map((t: any) => ({
+            id: t.id,
+            username: t.email.split('@')[0] || t.fullName.toLowerCase().replace(' ', '_'),
+            name: t.fullName,
+            email: t.email,
+            avatar: t.avatar,
+            submitDate: new Date(t.createdAt).toLocaleDateString(),
+            reviewDate: '-',
+            details: `${t.education || 'N/A'}, ${t.experience || 'N/A'}`,
+            status: 'waiting' as const,
+            education: t.education,
+            experience: t.experience,
+            subjects: t.subjects,
+            cvUrl: t.cvUrl,
+            website: t.website,
+            linkedin: t.linkedin,
+            bio: t.bio,
+            location: t.location,
+          }));
+          allTeachers.push(...mapped);
+        }
+
+        if (allResponse.ok) {
+          const all = await allResponse.json();
+          const mapped = all.map((t: any) => ({
+            id: t.id,
+            username: t.email.split('@')[0] || t.fullName.toLowerCase().replace(' ', '_'),
+            name: t.fullName,
+            email: t.email,
+            avatar: t.avatar,
+            submitDate: new Date(t.createdAt).toLocaleDateString(),
+            reviewDate: t.teacherProfile?.updatedAt ? new Date(t.teacherProfile.updatedAt).toLocaleDateString() : '-',
+            details: `${t.teacherProfile?.education || 'N/A'}, ${t.teacherProfile?.experience || 'N/A'}`,
+            status: (t.teacherProfile?.isApproved ? 'approved' : t.teacherProfile?.rejectedAt ? 'require-update' : 'waiting') as any,
+            education: t.teacherProfile?.education,
+            experience: t.teacherProfile?.experience,
+            subjects: t.teacherProfile?.subjects,
+            cvUrl: t.teacherProfile?.cvUrl,
+            website: t.teacherProfile?.website,
+            linkedin: t.teacherProfile?.linkedin,
+            bio: t.bio,
+            location: t.location,
+          }));
+          
+          // Merge with pending, avoid duplicates
+          const pendingIds = new Set(allTeachers.map(t => t.id));
+          mapped.forEach((t: Teacher) => {
+            if (!pendingIds.has(t.id)) {
+              allTeachers.push(t);
+            }
+          });
+        }
+
+        setTeachers(allTeachers);
+      } catch (error) {
+        console.error('Error fetching teachers:', error);
+      } finally {
+        setLoadingTeachers(false);
+      }
+    };
+
+    fetchData();
   }, []);
 
   // Filter and sort admins
   const filteredAdmins = admins.filter(admin => {
-    const matchesSearch = admin.username.toLowerCase().includes(adminSearch.toLowerCase()) ||
+    const matchesSearch = admin.email.toLowerCase().includes(adminSearch.toLowerCase()) ||
                          admin.name.toLowerCase().includes(adminSearch.toLowerCase());
     const matchesStatus = adminStatusFilter === 'all' || admin.status === adminStatusFilter;
     return matchesSearch && matchesStatus;
   }).sort((a, b) => {
     if (adminSort === 'asc') {
-      return a.username.localeCompare(b.username);
+      return a.email.localeCompare(b.email);
     } else {
-      return b.username.localeCompare(a.username);
+      return b.email.localeCompare(a.email);
     }
   });
 
@@ -211,18 +220,42 @@ export default function ManageAccount() {
     teacherPage * itemsPerPage
   );
   // --- CRUD HANDLERS ---
-  const handleCreateAdmin = (data: AdminFormData) => {
-    const newAdmin: Admin = {
-      id: Date.now().toString(),
-      username: data.username,
-      name: data.name,
-      email: data.email,
-      address: data.address,
-      phone: data.phone,
-      gender: data.gender,
-      status: "offline",
-    };
-    setAdmins((prev) => [...prev, newAdmin]);
+  const handleCreateAdmin = async (data: AdminFormData) => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+      const response = await fetch(`${API_URL}/admin/admins`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: data.email,
+          password: data.password,
+          fullName: data.name,
+        }),
+      });
+
+      if (response.ok) {
+        const newAdmin = await response.json();
+        const mappedAdmin: Admin = {
+          id: newAdmin.id,
+          name: newAdmin.fullName,
+          email: newAdmin.email,
+          status: "offline",
+          avatar: newAdmin.avatar,
+        };
+        setAdmins((prev) => [...prev, mappedAdmin]);
+      } else {
+        const error = await response.json();
+        alert(error.message || 'Failed to create admin');
+      }
+    } catch (error) {
+      console.error('Error creating admin:', error);
+      alert('Failed to create admin');
+    }
   };
 
   const handleUpdateAdmin = (data: AdminFormData) => {
@@ -232,14 +265,88 @@ export default function ManageAccount() {
     );
   };
 
-  const handleDeleteAdmin = (id: string) => {
-    setAdmins((prev) => prev.filter((a) => a.id !== id));
+  const handleDeleteAdmin = async (id: string) => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+      const response = await fetch(`${API_URL}/admin/admins/${id}/delete`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        setAdmins((prev) => prev.filter((a) => a.id !== id));
+      } else {
+        console.error('Failed to delete admin');
+        alert('Failed to delete admin');
+      }
+    } catch (error) {
+      console.error('Error deleting admin:', error);
+      alert('Failed to delete admin');
+    }
   };
 
-  const handleApproveTeacher = (id: string) => {
-    setTeachers((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status: "approved" } : t))
-    );
+  const handleApproveTeacher = async (id: string) => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+      const response = await fetch(`${API_URL}/admin/teachers/${id}/approve`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        setTeachers((prev) =>
+          prev.map((t) => (t.id === id ? { ...t, status: "approved" } : t))
+        );
+      } else {
+        console.error('Failed to approve teacher');
+      }
+    } catch (error) {
+      console.error('Error approving teacher:', error);
+    }
+  };
+
+  const handleRejectTeacher = async () => {
+    if (!selectedTeacher || !rejectReason.trim()) {
+      alert('Please provide a reason for rejection');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+      const response = await fetch(`${API_URL}/admin/teachers/${selectedTeacher.id}/reject`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reason: rejectReason }),
+      });
+
+      if (response.ok) {
+        setTeachers((prev) =>
+          prev.map((t) => (t.id === selectedTeacher.id ? { ...t, status: "require-update" } : t))
+        );
+        setIsRejectDialogOpen(false);
+        setRejectReason('');
+        setSelectedTeacher(null);
+      } else {
+        console.error('Failed to reject teacher');
+        alert('Failed to reject teacher');
+      }
+    } catch (error) {
+      console.error('Error rejecting teacher:', error);
+      alert('Failed to reject teacher');
+    }
   };
 
   return (
@@ -328,8 +435,8 @@ export default function ManageAccount() {
                           />
                         </div>
                         <div>
-                          <div className="font-medium">{a.username}</div>
-                          <div className="text-sm text-gray-500">{a.name}</div>
+                          <div className="font-medium">{a.name}</div>
+                          <div className="text-sm text-gray-500">{a.email}</div>
                         </div>
                       </div>
                     </td>
@@ -485,7 +592,13 @@ export default function ManageAccount() {
                     <td>{t.submitDate}</td>
                     <td>{t.reviewDate}</td>
                     <td>
-                      <button className="text-blue-500 hover:text-blue-700 text-sm flex items-center gap-1">
+                      <button 
+                        onClick={() => {
+                          setSelectedTeacher(t);
+                          setIsTeacherDetailsOpen(true);
+                        }}
+                        className="text-blue-500 hover:text-blue-700 text-sm flex items-center gap-1"
+                      >
                         <Info className="w-4 h-4" /> details
                       </button>
                     </td>
@@ -505,12 +618,23 @@ export default function ManageAccount() {
                     </td>
                     <td className="text-right">
                       {t.status === "waiting" && (
-                        <button
-                          onClick={() => handleApproveTeacher(t.id)}
-                          className="px-3 py-1.5 bg-[#EC255A] hover:bg-[#d61e4e] text-white rounded-md text-sm"
-                        >
-                          Approve
-                        </button>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => handleApproveTeacher(t.id)}
+                            className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelectedTeacher(t);
+                              setIsRejectDialogOpen(true);
+                            }}
+                            className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-md text-sm"
+                          >
+                            Reject
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -561,6 +685,213 @@ export default function ManageAccount() {
             : handleUpdateAdmin(data);
         }}
       />
+
+      {/* --- TEACHER DETAILS DIALOG --- */}
+      <Dialog.Root open={isTeacherDetailsOpen} onOpenChange={setIsTeacherDetailsOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 w-[90vw] max-w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-lg max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <Dialog.Title className="text-lg font-semibold text-[#161853]">
+                Teacher Profile Details
+              </Dialog.Title>
+              <Dialog.Close className="rounded-full p-1.5 hover:bg-gray-100">
+                <X className="h-4 w-4" />
+              </Dialog.Close>
+            </div>
+
+            {selectedTeacher && (
+              <div className="space-y-4">
+                {/* Teacher Info */}
+                <div className="flex items-center gap-4 pb-4 border-b">
+                  <div className="w-16 h-16 bg-[#161853] rounded-full overflow-hidden flex items-center justify-center">
+                    <Image
+                      src={selectedTeacher.avatar || defaultLogoUrl}
+                      alt={selectedTeacher.name}
+                      width={64}
+                      height={64}
+                      className="object-cover"
+                    />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-lg">{selectedTeacher.name}</h3>
+                    <p className="text-sm text-gray-500">{selectedTeacher.email}</p>
+                    {selectedTeacher.location && (
+                      <p className="text-sm text-gray-500">📍 {selectedTeacher.location}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Bio */}
+                {selectedTeacher.bio && (
+                  <div>
+                    <h4 className="font-medium text-sm text-gray-700 mb-1">Bio</h4>
+                    <p className="text-sm text-gray-600">{selectedTeacher.bio}</p>
+                  </div>
+                )}
+
+                {/* Education */}
+                {selectedTeacher.education && (
+                  <div>
+                    <h4 className="font-medium text-sm text-gray-700 mb-1">Education</h4>
+                    <p className="text-sm text-gray-600">{selectedTeacher.education}</p>
+                  </div>
+                )}
+
+                {/* Experience */}
+                {selectedTeacher.experience && (
+                  <div>
+                    <h4 className="font-medium text-sm text-gray-700 mb-1">Experience</h4>
+                    <p className="text-sm text-gray-600">{selectedTeacher.experience} years</p>
+                  </div>
+                )}
+
+                {/* Subjects */}
+                {selectedTeacher.subjects && selectedTeacher.subjects.length > 0 && (
+                  <div>
+                    <h4 className="font-medium text-sm text-gray-700 mb-2">Subjects</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedTeacher.subjects.map((subject, idx) => (
+                        <span
+                          key={idx}
+                          className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm"
+                        >
+                          {subject}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* CV URL */}
+                {selectedTeacher.cvUrl && (
+                  <div>
+                    <h4 className="font-medium text-sm text-gray-700 mb-1">CV / Resume</h4>
+                    <a
+                      href={selectedTeacher.cvUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-500 hover:text-blue-700 underline flex items-center gap-1"
+                    >
+                      View CV Document
+                    </a>
+                  </div>
+                )}
+
+                {/* Website */}
+                {selectedTeacher.website && (
+                  <div>
+                    <h4 className="font-medium text-sm text-gray-700 mb-1">Website</h4>
+                    <a
+                      href={selectedTeacher.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-500 hover:text-blue-700 underline"
+                    >
+                      {selectedTeacher.website}
+                    </a>
+                  </div>
+                )}
+
+                {/* LinkedIn */}
+                {selectedTeacher.linkedin && (
+                  <div>
+                    <h4 className="font-medium text-sm text-gray-700 mb-1">LinkedIn</h4>
+                    <a
+                      href={selectedTeacher.linkedin}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-500 hover:text-blue-700 underline"
+                    >
+                      {selectedTeacher.linkedin}
+                    </a>
+                  </div>
+                )}
+
+                {/* Dates */}
+                <div className="pt-4 border-t">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <h4 className="font-medium text-gray-700 mb-1">Submit Date</h4>
+                      <p className="text-gray-600">{selectedTeacher.submitDate}</p>
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-gray-700 mb-1">Review Date</h4>
+                      <p className="text-gray-600">{selectedTeacher.reviewDate}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status */}
+                <div>
+                  <h4 className="font-medium text-sm text-gray-700 mb-1">Status</h4>
+                  <span
+                    className={clsx(
+                      "px-3 py-1 rounded-full text-sm capitalize inline-block",
+                      selectedTeacher.status === "waiting"
+                        ? "bg-yellow-100 text-yellow-700"
+                        : selectedTeacher.status === "require-update"
+                        ? "bg-blue-100 text-blue-700"
+                        : "bg-green-100 text-green-700"
+                    )}
+                  >
+                    {selectedTeacher.status.replace("-", " ")}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end mt-6 pt-4 border-t">
+              <Dialog.Close className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-800 border rounded-md hover:bg-gray-50">
+                Close
+              </Dialog.Close>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* --- REJECT TEACHER DIALOG --- */}
+      <Dialog.Root open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 w-[90vw] max-w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-lg">
+            <div className="flex items-center justify-between mb-4">
+              <Dialog.Title className="text-lg font-semibold text-[#161853]">
+                Reject Teacher Application
+              </Dialog.Title>
+              <Dialog.Close className="rounded-full p-1.5 hover:bg-gray-100">
+                <X className="h-4 w-4" />
+              </Dialog.Close>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-4">
+              Please provide a reason for rejecting{" "}
+              <span className="font-medium">{selectedTeacher?.name}</span>'s application.
+              This will help them understand what needs to be improved.
+            </p>
+
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Enter rejection reason (required)..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 min-h-[120px] resize-none"
+            />
+
+            <div className="flex justify-end space-x-2 mt-6">
+              <Dialog.Close className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-800 border rounded-md hover:bg-gray-50">
+                Cancel
+              </Dialog.Close>
+              <button
+                onClick={handleRejectTeacher}
+                disabled={!rejectReason.trim()}
+                className="rounded-md bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                Reject Application
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       {/* --- DELETE CONFIRMATION --- */}
       <Dialog.Root open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
@@ -614,13 +945,9 @@ export function AdminFormDialog({
 }) {
   const [formData, setFormData] = useState<AdminFormData>({
     name: "",
-    username: "",
     password: "",
     confirmPassword: "",
     email: "",
-    address: "",
-    phone: "",
-    gender: EGender.MALE,
   });
 
   const [showPassword, setShowPassword] = useState(false);
@@ -634,24 +961,16 @@ export function AdminFormDialog({
     if (mode === "update" && defaultData) {
       setFormData({
         name: defaultData.name,
-        username: defaultData.username,
         password: "",
         confirmPassword: "",
-        email: defaultData.email || "",
-        address: defaultData.address || "",
-        phone: defaultData.phone || "",
-        gender: defaultData.gender || EGender.MALE,
+        email: defaultData.email,
       });
     } else {
       setFormData({
         name: "",
-        username: "",
         password: "",
         confirmPassword: "",
         email: "",
-        address: "",
-        phone: "",
-        gender: EGender.MALE,
       });
     }
   }, [mode, defaultData]);
@@ -662,12 +981,8 @@ export function AdminFormDialog({
     const errors: Partial<Record<keyof AdminFormData, string>> = {};
 
     if (!formData.name?.trim()) errors.name = "Name is required";
-    if (!formData.username?.trim()) errors.username = "Username is required";
     if (!formData.email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email))
       errors.email = "Valid email is required";
-    if (!formData.address?.trim()) errors.address = "Address is required";
-    if (!formData.phone?.trim()) errors.phone = "Phone number is required";
-    if (!formData.gender) errors.gender = "Gender is required";
 
     if (mode === "create") {
       if (!formData.password?.trim()) {
@@ -723,10 +1038,7 @@ export function AdminFormDialog({
           <form onSubmit={handleSubmit} className="space-y-4">
             {[
               ["name", "Full Name"],
-              ["username", "Username"],
               ["email", "Email"],
-              ["address", "Address"],
-              ["phone", "Phone Number"],
             ].map(([key, label]) => (
               <div key={key}>
                 <label className="block text-sm font-medium text-gray-700">
@@ -833,27 +1145,6 @@ export function AdminFormDialog({
                 </div>
               </>
             )}
-
-            {/* Gender */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Gender
-              </label>
-              <select
-                value={formData.gender}
-                onChange={(e) =>
-                  setFormData((p) => ({
-                    ...p,
-                    gender: e.target.value as EGender,
-                  }))
-                }
-                className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              >
-                <option value={EGender.MALE}>Male</option>
-                <option value={EGender.FEMALE}>Female</option>
-                <option value={EGender.OTHER}>Other</option>
-              </select>
-            </div>
 
             <div className="flex justify-end space-x-2 pt-4">
               <Dialog.Close className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-800">

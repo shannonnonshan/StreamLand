@@ -226,7 +226,6 @@ export default function DocumentDetailPage() {
     }, 300);
   }, [params.id, router]);
   
-  // Xác định icon cho loại file
   const getFileIcon = (type: string) => {
     switch(type) {
       case 'pdf':

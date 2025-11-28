@@ -187,6 +187,21 @@ export default function BroadcasterPage() {
 
   async function startLive() {
     try {
+      // Update livestream status to LIVE in database
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const startResponse = await fetch(`${API_URL}/livestream/${livestreamID}/start`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!startResponse.ok) {
+        const error = await startResponse.json();
+        throw new Error(error.message || 'Failed to start livestream');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,

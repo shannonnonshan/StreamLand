@@ -72,6 +72,26 @@ export class LivestreamController {
     return await this.livestreamService.getActiveLivestreams();
   }
 
+  @Patch(':id/start')
+  @UseGuards(JwtAuthGuard)
+  async startLivestream(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    // Get livestream to verify ownership
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    
+    if (!livestream) {
+      throw new UnauthorizedException('Livestream not found');
+    }
+
+    if (livestream.teacherId !== req.user.sub && req.user.role !== 'ADMIN') {
+      throw new UnauthorizedException('You can only start your own livestreams');
+    }
+
+    return await this.livestreamService.startLivestream(id);
+  }
+
   @Patch(':id/end')
   @UseGuards(JwtAuthGuard)
   async endLivestream(

@@ -74,6 +74,35 @@ export class LivestreamService {
     return livestream;
   }
 
+  async startLivestream(id: string) {
+    const livestream = await this.prisma.postgres.liveStream.findUnique({
+      where: { id },
+    });
+
+    if (!livestream) {
+      throw new NotFoundException('Livestream not found');
+    }
+
+    if (livestream.status === LiveStreamStatus.LIVE) {
+      throw new BadRequestException('Livestream is already live');
+    }
+
+    if (livestream.status === LiveStreamStatus.ENDED) {
+      throw new BadRequestException('Cannot start an ended livestream');
+    }
+
+    // Update status to LIVE and set start time
+    const updatedLivestream = await this.prisma.postgres.liveStream.update({
+      where: { id },
+      data: {
+        status: LiveStreamStatus.LIVE,
+        startedAt: new Date(),
+      },
+    });
+
+    return updatedLivestream;
+  }
+
   async getLivestreamById(id: string) {
     const livestream = await this.prisma.postgres.liveStream.findUnique({
       where: { id },

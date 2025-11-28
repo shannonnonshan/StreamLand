@@ -67,6 +67,21 @@ export class LivestreamController {
     return await this.livestreamService.getActiveLivestreams();
   }
 
+  @Get('top/livestreams')
+  async getTopLivestreams() {
+    return await this.livestreamService.getTopLivestreams(20);
+  }
+
+  @Get('trending/videos')
+  async getTrendingVideos() {
+    return await this.livestreamService.getTrendingVideos(20);
+  }
+
+  @Post(':id/increment-view')
+  async incrementViewCount(@Param('id') id: string) {
+    return await this.livestreamService.incrementViewCount(id);
+  }
+
   @Patch(':id/end')
   @UseGuards(JwtAuthGuard)
   async endLivestream(

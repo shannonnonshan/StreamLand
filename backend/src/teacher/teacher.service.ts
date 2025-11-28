@@ -44,7 +44,6 @@ export class TeacherService {
       subjects: teacher.teacherProfile.subjects || [],
       website: teacher.teacherProfile.website || null,
       linkedin: teacher.teacherProfile.linkedin || null,
-      youtube: teacher.teacherProfile.youtube || null,
     };
   }
 

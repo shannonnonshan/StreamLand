@@ -1,6 +1,14 @@
 'use client';
 
-import { PlayCircleIcon, SignalIcon, HeartIcon, ChevronLeftIcon, ChevronRightIcon, UserPlusIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import {
+  PlayCircleIcon,
+  SignalIcon,
+  HeartIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  UserPlusIcon,
+  CheckCircleIcon
+} from '@heroicons/react/24/outline';
 import { motion } from 'framer-motion';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
@@ -59,7 +67,7 @@ function ChannelCard({ channel }: { channel: Teacher }) {
   };
 
   return (
-    <div 
+    <div
       className={`relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform ${isHovered ? 'scale-[1.02]' : ''} border border-gray-200 cursor-pointer`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -69,7 +77,7 @@ function ChannelCard({ channel }: { channel: Teacher }) {
         <div className="relative mb-4">
           <div className={`h-20 w-20 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 ${following ? `border-[#${SecondaryColor}]` : 'border-gray-300'} transition-all duration-300`}>
             {channel.teacher.avatar ? (
-              <Image 
+              <Image
                 src={channel.teacher.avatar}
                 alt={channel.teacher.fullName}
                 width={80}
@@ -120,7 +128,7 @@ function VideoCard({ video }: { video: Livestream | Video }) {
   };
 
   return (
-    <div 
+    <div
       className="relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-[1.02] cursor-pointer"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -128,7 +136,7 @@ function VideoCard({ video }: { video: Livestream | Video }) {
     >
       <div className="relative aspect-video bg-gray-200">
         {video.thumbnailUrl ? (
-          <Image 
+          <Image
             src={video.thumbnailUrl}
             alt={video.title}
             fill
@@ -139,25 +147,25 @@ function VideoCard({ video }: { video: Livestream | Video }) {
             <PlayCircleIcon className="h-16 w-16 text-white opacity-50" />
           </div>
         )}
-        
+
         {isLive && (
           <div className="absolute top-2 left-2 flex items-center space-x-1 bg-red-600 text-white px-2 py-1 rounded-md text-xs font-bold">
             <SignalIcon className="h-3 w-3 animate-pulse" />
             <span>LIVE</span>
           </div>
         )}
-        
+
         {!isLive && 'duration' in video && video.duration && (
           <div className="absolute bottom-2 right-2 bg-black/70 text-white px-2 py-0.5 rounded text-xs">
             {video.duration}
           </div>
         )}
-        
+
         <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent text-white">
           <p className="font-semibold text-sm truncate">{video.title}</p>
           <div className="flex items-center text-xs mt-1">
             {video.teacher.avatar ? (
-              <Image 
+              <Image
                 src={video.teacher.avatar}
                 alt={video.teacher.fullName}
                 width={20}
@@ -173,7 +181,7 @@ function VideoCard({ video }: { video: Livestream | Video }) {
           </div>
         </div>
       </div>
-      
+
       <div className="p-3 flex justify-between items-center">
         <div className="flex flex-col">
           <span className={`text-xs font-medium text-[#${PrimaryColor}]`}>
@@ -202,56 +210,66 @@ export default function LiveFollowingPage() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
   const { getFollowedTeachers } = useFollow();
-  
+
   const livestreamContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setIsLoaded(true);
-    
+
     const fetchData = async () => {
       try {
         setLoading(true);
         const accessToken = localStorage.getItem('accessToken');
-        
+
         if (!accessToken) {
           setLoading(false);
           return;
         }
-        
+
         // Fetch followed teachers
         const result = await getFollowedTeachers();
-        if (result.success && result.data) {
+        if (result && result.success && result.data) {
           setFollowedChannels(result.data);
         }
-        
+
         // Fetch livestreams from followed teachers
         const livestreamsRes = await fetch(`${API_URL}/student/followed-livestreams`, {
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
           },
         });
-        
+
         if (livestreamsRes.ok) {
           const livestreamsData = await livestreamsRes.json();
           setLivestreams(livestreamsData);
         }
-        
-        // TODO: Fetch videos when API endpoint is available
-        setVideos([]);
-        
+
+        // Fetch videos from followed teachers
+        const videosRes = await fetch(`${API_URL}/student/followed-videos`, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+
+        if (videosRes.ok) {
+          const videosData = await videosRes.json();
+          setVideos(videosData);
+        }
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
         setLoading(false);
       }
     };
-    
+
     fetchData();
-  }, [getFollowedTeachers]);
-  
+    // We intentionally run this effect once on mount to fetch initial data.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const fadeInUp = {
     hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.5 } }
+    visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
   };
 
   const scrollLeft = (ref: React.RefObject<HTMLDivElement | null>) => {
@@ -266,9 +284,10 @@ export default function LiveFollowingPage() {
     }
   };
 
-  const filteredLivestreams = activeTab === 'videos' ? [] : livestreams;
-  const filteredVideos = activeTab === 'live' ? [] : videos;
-  
+  // FIXED: explicit checks so 'all' shows both lists
+  const filteredLivestreams = activeTab === 'all' || activeTab === 'live' ? livestreams : [];
+  const filteredVideos = activeTab === 'all' || activeTab === 'videos' ? videos : [];
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -276,22 +295,13 @@ export default function LiveFollowingPage() {
       </div>
     );
   }
-  
+
   return (
-    <motion.div 
-      initial="hidden"
-      animate={isLoaded ? "visible" : "hidden"}
-      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
-    >
+    <motion.div initial="hidden" animate={isLoaded ? 'visible' : 'hidden'} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="w-full">
-        
         <motion.div variants={fadeInUp} className="mb-8 mt-4">
-          <h1 className={`text-3xl font-extrabold text-[#${PrimaryColor}] mb-2`}>
-            Following Channels
-          </h1>
-          <p className="text-gray-600">
-            Watch latest content from {followedChannels.length} channels you follow
-          </p>
+          <h1 className={`text-3xl font-extrabold text-[#${PrimaryColor}] mb-2`}>Following Channels</h1>
+          <p className="text-gray-600">Watch latest content from {followedChannels.length} channels you follow</p>
         </motion.div>
 
         <motion.div variants={fadeInUp} className="mb-8">
@@ -299,9 +309,7 @@ export default function LiveFollowingPage() {
             <button
               onClick={() => setActiveTab('all')}
               className={`px-6 py-3 text-sm font-medium transition-all duration-300 border-b-2 ${
-                activeTab === 'all' 
-                  ? `text-[#${PrimaryColor}] border-[#${PrimaryColor}]` 
-                  : 'text-gray-500 border-transparent hover:text-gray-700'
+                activeTab === 'all' ? `text-[#${PrimaryColor}] border-[#${PrimaryColor}]` : 'text-gray-500 border-transparent hover:text-gray-700'
               }`}
             >
               All ({followedChannels.length})
@@ -309,9 +317,7 @@ export default function LiveFollowingPage() {
             <button
               onClick={() => setActiveTab('live')}
               className={`px-6 py-3 text-sm font-medium transition-all duration-300 border-b-2 ${
-                activeTab === 'live' 
-                  ? `text-[#${SecondaryColor}] border-[#${SecondaryColor}]` 
-                  : 'text-gray-500 border-transparent hover:text-gray-700'
+                activeTab === 'live' ? `text-[#${SecondaryColor}] border-[#${SecondaryColor}]` : 'text-gray-500 border-transparent hover:text-gray-700'
               }`}
             >
               <span className="flex items-center gap-2">
@@ -322,9 +328,7 @@ export default function LiveFollowingPage() {
             <button
               onClick={() => setActiveTab('videos')}
               className={`px-6 py-3 text-sm font-medium transition-all duration-300 border-b-2 ${
-                activeTab === 'videos' 
-                  ? `text-[#${PrimaryColor}] border-[#${PrimaryColor}]` 
-                  : 'text-gray-500 border-transparent hover:text-gray-700'
+                activeTab === 'videos' ? `text-[#${PrimaryColor}] border-[#${PrimaryColor}]` : 'text-gray-500 border-transparent hover:text-gray-700'
               }`}
             >
               <span className="flex items-center gap-2">
@@ -337,28 +341,23 @@ export default function LiveFollowingPage() {
 
         <motion.section variants={fadeInUp} className="mb-12">
           <div className="flex justify-between items-center mb-4">
-            <h2 className={`text-xl font-bold text-[#${PrimaryColor}]`}>
-              Following Channels
-            </h2>
+            <h2 className={`text-xl font-bold text-[#${PrimaryColor}]`}>Following Channels</h2>
             <span className="text-sm text-gray-500">{followedChannels.length} channels</span>
           </div>
-          
+
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {followedChannels.map((channel, index) => (
-              <motion.div
-                key={channel.id}
-                variants={fadeInUp}
-                transition={{ delay: 0.05 * index }}
-                whileHover={{ y: -5, transition: { duration: 0.3 } }}
-              >
+              <motion.div key={channel.id} variants={fadeInUp} transition={{ delay: 0.05 * index }} whileHover={{ y: -5, transition: { duration: 0.3 } }}>
                 <ChannelCard channel={channel} />
               </motion.div>
             ))}
           </div>
         </motion.section>
 
+        {/* LIVESTREAMS */}
         {filteredLivestreams.length > 0 && (
-          <motion.section variants={fadeInUp} className="mb-12">
+          // Add key so section remounts if activeTab changes (safeguard if child components cache)
+          <motion.section key={`live-section-${activeTab}`} variants={fadeInUp} className="mb-12">
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center">
                 <h2 className={`text-xl font-bold text-[#${SecondaryColor}] mr-3 flex items-center gap-2`}>
@@ -368,15 +367,15 @@ export default function LiveFollowingPage() {
                 <span className="text-sm text-gray-500">{filteredLivestreams.length} livestreams</span>
               </div>
               <div className="flex space-x-3">
-                <button 
-                  onClick={() => scrollLeft(livestreamContainerRef)} 
+                <button
+                  onClick={() => scrollLeft(livestreamContainerRef)}
                   className="p-2 rounded-full bg-white border border-gray-200 shadow-sm hover:bg-[#161853]/5 hover:border-[#161853]/30 transition-all duration-200"
                   aria-label="Scroll left"
                 >
                   <ChevronLeftIcon className="h-5 w-5 text-[#161853]" />
                 </button>
-                <button 
-                  onClick={() => scrollRight(livestreamContainerRef)} 
+                <button
+                  onClick={() => scrollRight(livestreamContainerRef)}
                   className="p-2 rounded-full bg-white border border-gray-200 shadow-sm hover:bg-[#161853]/5 hover:border-[#161853]/30 transition-all duration-200"
                   aria-label="Scroll right"
                 >
@@ -384,19 +383,10 @@ export default function LiveFollowingPage() {
                 </button>
               </div>
             </div>
-            
-            <div 
-              ref={livestreamContainerRef} 
-              className="flex flex-row space-x-4 overflow-x-auto pb-4 snap-x snap-mandatory scroll-smooth scrollbar-none"
-            >
+
+            <div ref={livestreamContainerRef} className="flex flex-row space-x-4 overflow-x-auto pb-4 snap-x snap-mandatory scroll-smooth scrollbar-none">
               {filteredLivestreams.map((stream, index) => (
-                <motion.div 
-                  key={stream.id} 
-                  className="flex-shrink-0 w-72 snap-center"
-                  variants={fadeInUp}
-                  transition={{ delay: 0.1 * index }}
-                  whileHover={{ y: -5, transition: { duration: 0.3 } }}
-                >
+                <motion.div key={stream.id} className="flex-shrink-0 w-72 snap-center" variants={fadeInUp} transition={{ delay: 0.1 * index }} whileHover={{ y: -5, transition: { duration: 0.3 } }}>
                   <VideoCard video={stream} />
                 </motion.div>
               ))}
@@ -404,25 +394,19 @@ export default function LiveFollowingPage() {
           </motion.section>
         )}
 
+        {/* VIDEOS */}
         {filteredVideos.length > 0 && (
-          <motion.section variants={fadeInUp} className="mb-12">
+          <motion.section key={`videos-section-${activeTab}`} variants={fadeInUp} className="mb-12">
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center">
-                <h2 className={`text-xl font-bold text-[#${PrimaryColor}] mr-3`}>
-                  Recent Videos
-                </h2>
+                <h2 className={`text-xl font-bold text-[#${PrimaryColor}] mr-3`}>Recent Videos</h2>
                 <span className="text-sm text-gray-500">{filteredVideos.length} videos</span>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 md:gap-6">
               {filteredVideos.map((video, index) => (
-                <motion.div
-                  key={video.id}
-                  variants={fadeInUp}
-                  transition={{ delay: 0.1 * index }}
-                  whileHover={{ y: -5, transition: { duration: 0.3 } }}
-                >
+                <motion.div key={video.id} variants={fadeInUp} transition={{ delay: 0.1 * index }} whileHover={{ y: -5, transition: { duration: 0.3 } }}>
                   <VideoCard video={video} />
                 </motion.div>
               ))}
@@ -430,11 +414,9 @@ export default function LiveFollowingPage() {
           </motion.section>
         )}
 
+        {/* EMPTY STATE */}
         {filteredLivestreams.length === 0 && filteredVideos.length === 0 && (
-          <motion.div 
-            variants={fadeInUp}
-            className="flex flex-col items-center justify-center py-20 px-4"
-          >
+          <motion.div variants={fadeInUp} className="flex flex-col items-center justify-center py-20 px-4">
             <div className={`h-24 w-24 rounded-full bg-[#${PrimaryColor}]/10 flex items-center justify-center mb-6`}>
               <UserPlusIcon className={`h-12 w-12 text-[#${PrimaryColor}]`} />
             </div>
@@ -442,13 +424,12 @@ export default function LiveFollowingPage() {
               {activeTab === 'live' ? 'No livestreams available' : 'No videos available'}
             </h3>
             <p className="text-gray-500 text-center max-w-md">
-              {activeTab === 'live' 
+              {activeTab === 'live'
                 ? 'Channels you follow are not live at the moment. Check back later!'
                 : 'Channels you follow have not posted new videos. Explore more channels!'}
             </p>
           </motion.div>
         )}
-
       </div>
     </motion.div>
   );

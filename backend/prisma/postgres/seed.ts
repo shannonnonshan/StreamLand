@@ -336,6 +336,174 @@ async function main() {
     }
   }
 
+  // Create livestreams for teachers
+  console.log('\n🎥 Creating livestreams...');
+  
+  if (createdTeachers.length > 0) {
+    // Create some LIVE livestreams
+    const liveLivestreams = [
+      {
+        teacherId: createdTeachers[0].teacherProfile!.id,
+        title: 'IELTS Speaking Prep - Band 7+ Strategies',
+        description: 'Learn advanced techniques to ace IELTS Speaking test',
+        thumbnail: 'https://picsum.photos/seed/ielts1/400/300',
+        status: 'LIVE' as const,
+        totalViews: 2500,
+        currentViewers: 145,
+        peakViewers: 200,
+        startedAt: new Date(Date.now() - 3600000), // Started 1 hour ago
+      },
+      {
+        teacherId: createdTeachers[1].teacherProfile!.id,
+        title: 'Calculus I - Limits and Derivatives',
+        description: 'Master the fundamentals of calculus',
+        thumbnail: 'https://picsum.photos/seed/calc1/400/300',
+        status: 'LIVE' as const,
+        totalViews: 1200,
+        currentViewers: 89,
+        peakViewers: 120,
+        startedAt: new Date(Date.now() - 1800000), // Started 30 mins ago
+      },
+      {
+        teacherId: createdTeachers[4].teacherProfile!.id,
+        title: 'Vietnamese Literature - Modern Poetry Analysis',
+        description: 'Exploring contemporary Vietnamese poetry',
+        thumbnail: 'https://picsum.photos/seed/lit1/400/300',
+        status: 'LIVE' as const,
+        totalViews: 950,
+        currentViewers: 67,
+        peakViewers: 95,
+        startedAt: new Date(Date.now() - 2700000), // Started 45 mins ago
+      },
+    ];
+
+    for (const streamData of liveLivestreams) {
+      await prisma.liveStream.create({
+        data: streamData,
+      });
+    }
+    console.log(`✅ Created ${liveLivestreams.length} LIVE livestreams`);
+
+    // Create ended livestreams with recordings
+    const endedLivestreams = [
+      {
+        teacherId: createdTeachers[0].teacherProfile!.id,
+        title: 'English Listening Practice - Cambridge IELTS 18',
+        description: 'Complete listening practice with detailed explanations',
+        thumbnail: 'https://picsum.photos/seed/ielts2/400/300',
+        status: 'ENDED' as const,
+        totalViews: 5800,
+        peakViewers: 320,
+        recordingUrl: 'https://example.com/recordings/ielts-listening-1.mp4',
+        startedAt: new Date(Date.now() - 86400000 * 2), // 2 days ago
+        endedAt: new Date(Date.now() - 86400000 * 2 + 5400000), // 1.5 hours later
+      },
+      {
+        teacherId: createdTeachers[0].teacherProfile!.id,
+        title: 'IELTS Writing Task 2 - Common Mistakes',
+        description: 'Avoid these common errors in IELTS writing',
+        thumbnail: 'https://picsum.photos/seed/ielts3/400/300',
+        status: 'ENDED' as const,
+        totalViews: 4200,
+        peakViewers: 280,
+        recordingUrl: 'https://example.com/recordings/ielts-writing-1.mp4',
+        startedAt: new Date(Date.now() - 86400000 * 5), // 5 days ago
+        endedAt: new Date(Date.now() - 86400000 * 5 + 7200000), // 2 hours later
+      },
+      {
+        teacherId: createdTeachers[1].teacherProfile!.id,
+        title: 'Advanced Calculus - Integration Techniques',
+        description: 'Master complex integration methods',
+        thumbnail: 'https://picsum.photos/seed/calc2/400/300',
+        status: 'ENDED' as const,
+        totalViews: 3500,
+        peakViewers: 195,
+        recordingUrl: 'https://example.com/recordings/calculus-1.mp4',
+        startedAt: new Date(Date.now() - 86400000 * 3), // 3 days ago
+        endedAt: new Date(Date.now() - 86400000 * 3 + 6300000), // 1h 45m later
+      },
+      {
+        teacherId: createdTeachers[1].teacherProfile!.id,
+        title: 'Statistics 101 - Probability Distributions',
+        description: 'Understanding normal, binomial and Poisson distributions',
+        thumbnail: 'https://picsum.photos/seed/stats1/400/300',
+        status: 'ENDED' as const,
+        totalViews: 2900,
+        peakViewers: 167,
+        recordingUrl: 'https://example.com/recordings/stats-1.mp4',
+        startedAt: new Date(Date.now() - 86400000 * 7), // 1 week ago
+        endedAt: new Date(Date.now() - 86400000 * 7 + 5400000), // 1.5 hours later
+      },
+      {
+        teacherId: createdTeachers[2].teacherProfile!.id,
+        title: 'Organic Chemistry - Reaction Mechanisms',
+        description: 'Learn the key mechanisms in organic chemistry',
+        thumbnail: 'https://picsum.photos/seed/chem1/400/300',
+        status: 'ENDED' as const,
+        totalViews: 2100,
+        peakViewers: 145,
+        recordingUrl: 'https://example.com/recordings/chemistry-1.mp4',
+        startedAt: new Date(Date.now() - 86400000 * 4), // 4 days ago
+        endedAt: new Date(Date.now() - 86400000 * 4 + 6600000), // 1h 50m later
+      },
+      {
+        teacherId: createdTeachers[3].teacherProfile!.id,
+        title: 'Physics - Electromagnetism Fundamentals',
+        description: 'Understanding electric and magnetic fields',
+        thumbnail: 'https://picsum.photos/seed/physics1/400/300',
+        status: 'ENDED' as const,
+        totalViews: 3800,
+        peakViewers: 210,
+        recordingUrl: 'https://example.com/recordings/physics-1.mp4',
+        startedAt: new Date(Date.now() - 86400000 * 1), // 1 day ago
+        endedAt: new Date(Date.now() - 86400000 * 1 + 7200000), // 2 hours later
+      },
+      {
+        teacherId: createdTeachers[4].teacherProfile!.id,
+        title: 'Vietnamese Literature - Essay Writing Skills',
+        description: 'Crafting compelling literary essays',
+        thumbnail: 'https://picsum.photos/seed/lit2/400/300',
+        status: 'ENDED' as const,
+        totalViews: 1850,
+        peakViewers: 132,
+        recordingUrl: 'https://example.com/recordings/literature-1.mp4',
+        startedAt: new Date(Date.now() - 86400000 * 6), // 6 days ago
+        endedAt: new Date(Date.now() - 86400000 * 6 + 5400000), // 1.5 hours later
+      },
+      {
+        teacherId: createdTeachers[5].teacherProfile!.id,
+        title: 'Data Structures - Binary Trees Deep Dive',
+        description: 'Complete guide to binary search trees',
+        thumbnail: 'https://picsum.photos/seed/cs1/400/300',
+        status: 'ENDED' as const,
+        totalViews: 6200,
+        peakViewers: 380,
+        recordingUrl: 'https://example.com/recordings/cs-1.mp4',
+        startedAt: new Date(Date.now() - 86400000 * 2), // 2 days ago
+        endedAt: new Date(Date.now() - 86400000 * 2 + 7800000), // 2h 10m later
+      },
+      {
+        teacherId: createdTeachers[5].teacherProfile!.id,
+        title: 'Algorithms - Sorting Techniques Explained',
+        description: 'Quick sort, merge sort and heap sort comparison',
+        thumbnail: 'https://picsum.photos/seed/cs2/400/300',
+        status: 'ENDED' as const,
+        totalViews: 5400,
+        peakViewers: 312,
+        recordingUrl: 'https://example.com/recordings/cs-2.mp4',
+        startedAt: new Date(Date.now() - 86400000 * 8), // 8 days ago
+        endedAt: new Date(Date.now() - 86400000 * 8 + 6900000), // 1h 55m later
+      },
+    ];
+
+    for (const streamData of endedLivestreams) {
+      await prisma.liveStream.create({
+        data: streamData,
+      });
+    }
+    console.log(`✅ Created ${endedLivestreams.length} ENDED livestreams with recordings`);
+  }
+
   console.log('\n✅ PostgreSQL seeding completed!');
   console.log(`📊 Created ${createdTeachers.length} teachers`);
   console.log(`📊 Created ${createdStudents.length} students`);

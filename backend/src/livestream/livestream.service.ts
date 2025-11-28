@@ -171,4 +171,124 @@ export class LivestreamService {
 
   // Recording is now handled by stream.gateway.ts and R2 storage
   // These methods are deprecated and replaced by R2 upload flow
+
+  // Get top livestreams by view count (for dashboard)
+  async getTopLivestreams(limit: number = 10) {
+    const livestreams = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        isPublic: true,
+        OR: [
+          { status: LiveStreamStatus.LIVE },
+          { status: LiveStreamStatus.ENDED },
+        ],
+      },
+      include: {
+        users: {
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true,
+          },
+        },
+      },
+      orderBy: [
+        { status: 'asc' }, // LIVE streams first (LIVE comes before ENDED alphabetically)
+        { totalViews: 'desc' }, // Then by view count
+      ],
+      take: limit,
+    });
+
+    return livestreams.map((stream) => ({
+      id: stream.id,
+      title: stream.title,
+      description: stream.description,
+      teacher: {
+        id: stream.users.id,
+        fullName: stream.users.fullName,
+        avatar: stream.users.avatar,
+      },
+      viewCount: stream.totalViews,
+      currentViewers: stream.currentViewers,
+      thumbnailUrl: stream.thumbnail,
+      isLive: stream.status === LiveStreamStatus.LIVE,
+      status: stream.status,
+      category: stream.category,
+      startedAt: stream.startedAt,
+    }));
+  }
+
+  // Get trending videos (recently ended with high views)
+  async getTrendingVideos(limit: number = 10) {
+    const videos = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        status: LiveStreamStatus.ENDED,
+        isPublic: true,
+        recordingUrl: { not: null },
+      },
+      include: {
+        users: {
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true,
+          },
+        },
+      },
+      orderBy: [
+        { endedAt: 'desc' }, // Most recent first
+        { totalViews: 'desc' }, // Then by popularity
+      ],
+      take: limit,
+    });
+
+    return videos.map((video) => ({
+      id: video.id,
+      title: video.title,
+      description: video.description,
+      teacher: {
+        id: video.users.id,
+        fullName: video.users.fullName,
+        avatar: video.users.avatar,
+      },
+      viewCount: video.totalViews,
+      thumbnailUrl: video.thumbnail,
+      duration: video.duration,
+      recordingUrl: video.recordingUrl,
+      uploadedAt: video.endedAt,
+      category: video.category,
+    }));
+  }
+
+  // Increment view count for a livestream
+  async incrementViewCount(id: string) {
+    return await this.prisma.postgres.liveStream.update({
+      where: { id },
+      data: {
+        totalViews: { increment: 1 },
+      },
+    });
+  }
+
+  // Update current viewers count
+  async updateCurrentViewers(id: string, count: number) {
+    const livestream = await this.prisma.postgres.liveStream.update({
+      where: { id },
+      data: {
+        currentViewers: count,
+        peakViewers: {
+          set: count,
+        },
+      },
+    });
+
+    // Update peak viewers if current is higher
+    if (count > livestream.peakViewers) {
+      await this.prisma.postgres.liveStream.update({
+        where: { id },
+        data: { peakViewers: count },
+      });
+    }
+
+    return livestream;
+  }
 }

@@ -862,41 +862,47 @@ export class StudentService {
       throw new NotFoundException('Student profile not found');
     }
 
-    // Get all followed teachers
+    // Get all followed teachers with their User IDs
     const followedTeachers = await this.prisma.postgres.followedTeacher.findMany({
       where: { studentId: user.studentProfile.id },
-      select: { teacherId: true },
+      include: {
+        teacher: {
+          select: {
+            userId: true,
+            id: true,
+          },
+        },
+      },
     });
 
-    // Get teacher IDs
-    const teacherIds = followedTeachers.map(ft => ft.teacherId);
+    // Get User IDs (not TeacherProfile IDs!)
+    const teacherUserIds = followedTeachers.map(ft => ft.teacher.userId);
+    console.log('🔍 Following teacher User IDs:', teacherUserIds);
 
-    if (teacherIds.length === 0) {
+    if (teacherUserIds.length === 0) {
+      console.log('⚠️ No followed teachers found');
       return [];
     }
 
     // Get active livestreams from these teachers
     const livestreams = await this.prisma.postgres.liveStream.findMany({
       where: {
-        teacherId: { in: teacherIds },
+        teacherId: { in: teacherUserIds },
         status: 'LIVE',
       },
       orderBy: {
         createdAt: 'desc',
       },
     });
+    console.log('📺 Found LIVE livestreams:', livestreams.length);
 
-    // Get teacher details
-    const teachers = await this.prisma.postgres.teacherProfile.findMany({
-      where: { id: { in: teacherIds } },
-      include: {
-        user: {
-          select: {
-            id: true,
-            fullName: true,
-            avatar: true,
-          },
-        },
+    // Get teacher details by User IDs
+    const teachers = await this.prisma.postgres.user.findMany({
+      where: { id: { in: teacherUserIds } },
+      select: {
+        id: true,
+        fullName: true,
+        avatar: true,
       },
     });
 
@@ -909,15 +915,110 @@ export class StudentService {
         id: livestream.id,
         title: livestream.title,
         teacher: {
-          id: teacher?.user.id || '',
-          fullName: teacher?.user.fullName || 'Unknown',
-          avatar: teacher?.user.avatar || null,
+          id: teacher?.id || '',
+          fullName: teacher?.fullName || 'Unknown',
+          avatar: teacher?.avatar || null,
         },
         viewCount: livestream.totalViews,
         thumbnailUrl: livestream.thumbnail || null,
         isLive: true,
       };
     });
+  }
+
+  // Get videos (ended livestreams with recordings) from followed teachers
+  async getFollowedVideos(userId: string) {
+    // Get user's student profile
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true },
+    });
+
+    if (!user || !user.studentProfile) {
+      throw new NotFoundException('Student profile not found');
+    }
+
+    // Get all followed teachers with their User IDs
+    const followedTeachers = await this.prisma.postgres.followedTeacher.findMany({
+      where: { studentId: user.studentProfile.id },
+      include: {
+        teacher: {
+          select: {
+            userId: true,
+            id: true,
+          },
+        },
+      },
+    });
+
+    // Get User IDs (not TeacherProfile IDs!)
+    const teacherUserIds = followedTeachers.map(ft => ft.teacher.userId);
+    console.log('🔍 Following teacher User IDs for videos:', teacherUserIds);
+
+    if (teacherUserIds.length === 0) {
+      console.log('⚠️ No followed teachers found for videos');
+      return [];
+    }
+
+    // Get ended livestreams with recordings from these teachers
+    const videos = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        teacherId: { in: teacherUserIds },
+        status: 'ENDED',
+        recordingUrl: { not: null },
+      },
+      orderBy: [
+        { endedAt: 'desc' },
+        { totalViews: 'desc' },
+      ],
+      take: 50, // Limit to 50 recent videos
+    });
+    console.log('🎬 Found ENDED videos:', videos.length);
+
+    // Get teacher details by User IDs
+    const teachers = await this.prisma.postgres.user.findMany({
+      where: { id: { in: teacherUserIds } },
+      select: {
+        id: true,
+        fullName: true,
+        avatar: true,
+      },
+    });
+
+    const teacherMap = new Map(teachers.map(t => [t.id, t]));
+
+    // Format response
+    return videos.map(video => {
+      const teacher = teacherMap.get(video.teacherId);
+      return {
+        id: video.id,
+        title: video.title,
+        teacher: {
+          id: teacher?.id || '',
+          fullName: teacher?.fullName || 'Unknown',
+          avatar: teacher?.avatar || null,
+        },
+        viewCount: video.totalViews,
+        thumbnailUrl: video.thumbnail || null,
+        duration: this.calculateDuration(video.startedAt, video.endedAt),
+        uploadedAt: video.endedAt,
+      };
+    });
+  }
+
+  // Helper method to calculate video duration
+  private calculateDuration(startedAt: Date | null, endedAt: Date | null): string {
+    if (!startedAt || !endedAt) return '0:00';
+
+    const durationMs = endedAt.getTime() - startedAt.getTime();
+    const hours = Math.floor(durationMs / 3600000);
+    const minutes = Math.floor((durationMs % 3600000) / 60000);
+    const seconds = Math.floor((durationMs % 60000) / 1000);
+
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   }
 
   // Check if student is following a teacher

@@ -107,7 +107,12 @@ export default function StudentProfilePage() {
   });
   
   const [followedTeachers, setFollowedTeachers] = useState<FollowedTeacher[]>([]);
-  const [recentActivity] = useState<any[]>([]); // TODO: Add proper type when backend endpoint is ready
+  const [recentActivity] = useState<Array<{
+    id: string;
+    type: 'course' | 'document' | 'livestream';
+    title: string;
+    time: string;
+  }>>([]);
   
   // Edit form data
   const [editForm, setEditForm] = useState({

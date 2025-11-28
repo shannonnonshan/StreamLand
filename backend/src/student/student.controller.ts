@@ -134,6 +134,12 @@ export class StudentController {
     return this.studentService.getFollowedLivestreams(req.user.sub);
   }
 
+  // Get videos (ended livestreams with recordings) from followed teachers
+  @Get('followed-videos')
+  async getFollowedVideos(@Request() req: { user: { sub: string } }) {
+    return this.studentService.getFollowedVideos(req.user.sub);
+  }
+
   // Get all teachers (for search functionality - public endpoint)
   @Public()
   @Get('teachers/all')

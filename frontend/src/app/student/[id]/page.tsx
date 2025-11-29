@@ -1,6 +1,9 @@
-import { redirect, useParams } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
-export default function StudentRoot() {
-  const { id } = useParams();
-  redirect(`/student/${id}/dashboard`);
+interface StudentRootProps {
+  params: { id: string };
+}
+
+export default function StudentRoot({ params }: StudentRootProps) {
+  redirect(`/student/${params.id}/dashboard`);
 }

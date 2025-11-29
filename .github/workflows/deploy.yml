@@ -1,0 +1,33 @@
+name: Deploy Docker Compose to GCP
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Copy docker-compose.yml to server
+        uses: appleboy/scp-action@v1   # dùng scp-action để copy file
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "docker-compose.yml"
+          target: "/home/${{ secrets.SSH_USER }}/"
+
+      - name: Deploy with Docker Compose
+        uses: appleboy/ssh-action@v1.2.3   # dùng đúng version tồn tại
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /home/${{ secrets.SSH_USER }}
+            docker-compose pull
+            docker-compose up -d --remove-orphans

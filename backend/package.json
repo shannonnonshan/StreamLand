@@ -21,6 +21,7 @@
     "seed": "ts-node prisma/postgres/seed.ts",
     "seed:videos": "ts-node prisma/postgres/seed-videos.ts",
     "seed:documents": "ts-node prisma/postgres/seed-documents.ts",
+    "seed:dashboard-data": "ts-node prisma/postgres/seed-dashboard-data.ts",
     "seed:teacher": "ts-node prisma/postgres/seed-teacher.ts",
     "db:generate": "npx prisma generate && npx prisma generate --schema=./prisma/mongodb/schema.prisma",
     "db:push": "npx prisma db push && npx prisma db push --schema=./prisma/mongodb/schema.prisma"

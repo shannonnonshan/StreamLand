@@ -8,7 +8,7 @@ const prisma = new PrismaClient({
   },
 });
 
-const TEACHER_USER_ID = 'e511e51a-546f-47c2-af97-5055a1e1e8dd';
+const TEACHER_USER_ID = '4cc956cf-985d-415c-8ea5-a19045f9d766';
 
 /**
  * Seed additional data to make teacher dashboard look better

@@ -12,8 +12,13 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
+      - name: Set up SSH key
+        run: |
+          echo "${{ secrets.SSH_KEY }}" > id_rsa
+          chmod 600 id_rsa
+
       - name: Copy docker-compose.yml to server
-        uses: appleboy/scp-action@v1   # dùng scp-action để copy file
+        uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
@@ -22,7 +27,7 @@ jobs:
           target: "/home/${{ secrets.SSH_USER }}/"
 
       - name: Deploy with Docker Compose
-        uses: appleboy/ssh-action@v1.2.3   # dùng đúng version tồn tại
+        uses: appleboy/ssh-action@v1.2.3
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}

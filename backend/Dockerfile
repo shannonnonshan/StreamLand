@@ -1,25 +1,31 @@
 # -------------------------
 # 1. BUILD STAGE
 # -------------------------
-ARG DATABASE_URL
-ARG DIRECT_URL
-ARG MONGODB_URL
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 COPY package*.json ./
+COPY prisma ./prisma
 RUN npm install
 
 COPY . .
-COPY prisma ./prisma
 
-# --- Step 1: Generate PostgreSQL client ---
-# Dùng env từ build args (Render sẽ inject env)
-RUN DATABASE_URL=$DATABASE_URL DIRECT_URL=$DIRECT_URL npx prisma generate --generator client
+# --- Nhận biến môi trường từ Render (dưới dạng ARGs) và chuyển thành ENVs ---
+# Render sẽ tự động inject DATABASE_URL, MONGODB_URL vào đây
+ARG DATABASE_URL
+ARG DIRECT_URL
+ARG MONGODB_URL
 
-# --- Step 2: Generate MongoDB client ---
-RUN MONGODB_URL=$MONGODB_URL npx prisma generate --generator mongoClient
+# Đặt chúng thành biến ENV để Prisma có thể đọc trong các lệnh RUN sau:
+ENV DATABASE_URL=${DATABASE_URL}
+ENV DIRECT_URL=${DIRECT_URL}
+ENV MONGODB_URL=${MONGODB_URL}
+
+# --- Chạy Prisma Generate (bây giờ sẽ hoạt động) ---
+# Lỗi 1.601 sẽ được giải quyết vì ENV đã có sẵn
+RUN npx prisma generate --generator client
+RUN npx prisma generate --generator mongoClient
 
 # Build TypeScript / app
 RUN npm run build
@@ -36,14 +42,9 @@ COPY package*.json ./
 # Install only production dependencies
 RUN npm install --omit=dev
 
-# Copy built app
+# Copy built app & generated client files
 COPY --from=builder /app/dist ./dist
-
-# Copy generated Prisma clients
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-
-# Copy Prisma schema (optional if needed at runtime)
 COPY prisma ./prisma
 
 # Set production environment
@@ -52,5 +53,5 @@ ENV NODE_ENV=production
 # Expose port
 EXPOSE 4000
 
-# Start app
-CMD ["node", "dist/main.js","prisma", "generate"]
+# Start app (loại bỏ prisma generate khỏi CMD)
+CMD ["node", "dist/main.js"]

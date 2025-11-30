@@ -45,7 +45,10 @@ RUN npm install --omit=dev
 
 # Copy built app + Prisma clients
 COPY --from=builder /app/dist ./dist
+# Copy built app + Prisma clients
+COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # (Optional) Copy Prisma folder nếu runtime app dùng schema
 COPY prisma ./prisma

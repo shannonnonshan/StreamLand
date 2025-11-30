@@ -57,4 +57,4 @@ ENV NODE_ENV=production
 EXPOSE 4000
 
 # Start NestJS app
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/main"]

@@ -1,6 +1,9 @@
 # -------------------------
 # 1. BUILD STAGE
 # -------------------------
+ARG DATABASE_URL
+ARG DIRECT_URL
+ARG MONGODB_URL
 FROM node:20-alpine AS builder
 
 WORKDIR /app

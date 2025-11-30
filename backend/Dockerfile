@@ -24,8 +24,12 @@ ENV MONGODB_URL=${MONGODB_URL}
 
 # --- Chạy Prisma Generate (bây giờ sẽ hoạt động) ---
 # Lỗi 1.601 sẽ được giải quyết vì ENV đã có sẵn
-RUN npx prisma generate --generator client
-RUN npx prisma generate --generator mongoClient
+# Generate PostgreSQL client
+RUN npx prisma generate --schema=./prisma/postgres/schema.prisma
+
+# Generate MongoDB client
+RUN npx prisma generate --schema=./prisma/mongodb/schema.prisma
+
 
 # Build TypeScript / app
 RUN npm run build

@@ -23,6 +23,10 @@ A comprehensive online education platform that enables teachers to host live str
 
 StreamLand is a modern education platform that bridges the gap between teachers and students through live streaming technology. Teachers can broadcast live classes, upload educational materials, and interact with students in real-time, while students can join live sessions, watch recorded videos, and engage with educational content.
 
+### 🌐 Network Infrastructure
+
+The platform uses **WebRTC** with **TURN server support** to ensure reliable connections for multiple viewers simultaneously, even behind firewalls and restrictive NAT configurations. This guarantees that students can join livestreams from any network environment.
+
 ## Features
 
 ### For Teachers
@@ -345,15 +349,26 @@ StreamLand/
 - `GET /admin/users` - Get all users
 - `POST /admin/change-password` - Change admin password
 
-## Live Streaming Architecture
+## 🎥 Live Streaming Architecture
 
-The platform uses WebRTC for peer-to-peer video streaming with Socket.IO for signaling:
+The platform uses **WebRTC** for peer-to-peer video streaming with **Socket.IO** for signaling and **TURN servers** for NAT traversal:
 
 1. **Teacher initiates broadcast** → Creates WebRTC offer
 2. **Server signals students** → Distributes connection details
-3. **Students join stream** → Establish P2P connections
+3. **Students join stream** → Establish P2P connections (direct or via TURN relay)
 4. **Real-time chat** → Socket.IO message broadcasting
 5. **Recording** → Server captures and stores to R2
+
+### 🔌 TURN Server Support
+
+The application includes **free public TURN servers** (Open Relay Project) configured out-of-the-box to ensure reliable connectivity:
+
+- ✅ **Works behind firewalls** - Students can connect from corporate networks
+- ✅ **Supports restrictive NAT** - Handles symmetrical NAT configurations
+- ✅ **Multiple viewers simultaneously** - No connection limits for students
+- ✅ **Multiple server redundancy** - STUN + TURN servers on different ports (80, 443, TCP/UDP)
+
+**For production deployment or custom TURN servers**, see [TURN_SERVER_SETUP.md](./TURN_SERVER_SETUP.md) for detailed configuration guide.
 
 ## 🔧 Development Tools
 

@@ -202,45 +202,51 @@ export class LivestreamService {
   }
 
   async endLivestream(id: string, saveRecording: boolean) {
-    this.logger.log(`Ending livestream ${id}, saveRecording: ${saveRecording}`);
-    
-    const livestream = await this.prisma.postgres.liveStream.findUnique({
-      where: { id },
-    });
+      this.logger.log(`Ending livestream ${id}, saveRecording: ${saveRecording}`);
+      
+      const livestream = await this.prisma.postgres.liveStream.findUnique({
+        where: { id },
+      });
 
-    if (!livestream) {
-      throw new Error('Livestream not found');
+      if (!livestream) {
+        throw new Error('Livestream not found');
+      }
+
+      // Calculate duration
+      const startedAt = livestream.startedAt || livestream.createdAt;
+      const endedAt = new Date();
+      const durationMs = endedAt.getTime() - startedAt.getTime();
+      const duration = Math.floor(durationMs / 1000); // duration in seconds
+
+      // --- Update peakViewers and totalViewers ---
+      // Giả sử bạn đang track current viewers ở server:
+      const currentViewers = livestream.currentViewers || 0; // hoặc lấy từ cache/Socket.IO
+      const peakViewers = Math.max(livestream.peakViewers || 0, currentViewers);
+      const totalViewers = (livestream.totalViews || 0) + currentViewers;
+
+      // Update livestream status
+      const updateData: any = {
+        status: LiveStreamStatus.ENDED,
+        endedAt,
+        duration,
+        isRecorded: saveRecording,
+        peakViewers,
+        totalViewers,
+      };
+
+      if (saveRecording) {
+        this.logger.log(`Recording will be saved to R2 for livestream ${id}`);
+      }
+
+      const updatedLivestream = await this.prisma.postgres.liveStream.update({
+        where: { id },
+        data: updateData,
+      });
+
+      this.logger.log(`Livestream ${id} ended successfully. Duration: ${duration}s, Recorded: ${saveRecording}, PeakViewers: ${peakViewers}, TotalViewers: ${totalViewers}`);
+      return updatedLivestream;
     }
 
-    // Calculate duration
-    const startedAt = livestream.startedAt || livestream.createdAt;
-    const endedAt = new Date();
-    const durationMs = endedAt.getTime() - startedAt.getTime();
-    const duration = Math.floor(durationMs / 1000); // duration in seconds
-
-    // Update livestream status
-    const updateData: any = {
-      status: LiveStreamStatus.ENDED,
-      endedAt,
-      duration,
-      isRecorded: saveRecording,
-    };
-
-    // If saving recording, the video chunks are already being uploaded to R2 by stream.gateway
-    // The recordingUrl will be set automatically by the gateway's saveVideoToR2 method
-    if (saveRecording) {
-      // Recording URL will be updated by the WebSocket gateway after processing chunks
-      this.logger.log(`Recording will be saved to R2 for livestream ${id}`);
-    }
-
-    const updatedLivestream = await this.prisma.postgres.liveStream.update({
-      where: { id },
-      data: updateData,
-    });
-
-    this.logger.log(`Livestream ${id} ended successfully. Duration: ${duration}s, Recorded: ${saveRecording}`);
-    return updatedLivestream;
-  }
 
   async uploadRecording(livestreamId: string, videoBase64: string) {
     this.logger.log(`Uploading recording for livestream ${livestreamId}`);

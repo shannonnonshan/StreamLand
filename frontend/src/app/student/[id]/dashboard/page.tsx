@@ -116,16 +116,18 @@ function LivestreamCard({ stream, index }: { stream: LivestreamData; index: numb
             {/* Teacher Info */}
             <div className={`absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent text-white`}>
                 <p className="font-semibold text-sm truncate">{stream.title}</p>
-                <div className="flex items-center text-xs mt-1">
-                    {stream.teacher.avatar ? (
-                      <Image src={stream.teacher.avatar} alt={stream.teacher.fullName} width={20} height={20} className="h-5 w-5 rounded-full mr-2 border border-white object-cover" />
-                    ) : (
-                      <div className="h-5 w-5 rounded-full bg-[#161853]/70 mr-2 border border-white flex items-center justify-center">
-                        <span className="text-[10px]">{stream.teacher.fullName.charAt(0)}</span>
-                      </div>
-                    )}
-                    <span className="font-medium">{stream.teacher.fullName}</span>
-                </div>
+                {stream.teacher && (
+                  <div className="flex items-center text-xs mt-1">
+                      {stream.teacher.avatar ? (
+                        <Image src={stream.teacher.avatar} alt={stream.teacher.fullName} width={20} height={20} className="h-5 w-5 rounded-full mr-2 border border-white object-cover" />
+                      ) : (
+                        <div className="h-5 w-5 rounded-full bg-[#161853]/70 mr-2 border border-white flex items-center justify-center">
+                          <span className="text-[10px]">{stream.teacher.fullName.charAt(0)}</span>
+                        </div>
+                      )}
+                      <span className="font-medium">{stream.teacher.fullName}</span>
+                  </div>
+                )}
             </div>
         </div>
         
@@ -179,8 +181,12 @@ function TrendingCard({ item }: { item: VideoData }) {
             <div className="p-3">
                 <p className={`text-sm font-semibold text-[#${PrimaryColor}] transition-colors duration-300 line-clamp-2`}>{item.title}</p>
                 <p className="text-xs text-gray-600 mt-1">
-                    <span className={`${isHovered ? 'font-medium' : ''} transition-all duration-300`}>{item.teacher.fullName}</span>
-                    <span className="mx-1">•</span>
+                    {item.teacher && (
+                      <>
+                        <span className={`${isHovered ? 'font-medium' : ''} transition-all duration-300`}>{item.teacher.fullName}</span>
+                        <span className="mx-1">•</span>
+                      </>
+                    )}
                     <span className={`text-[#${PrimaryColor}] ${isHovered ? 'font-bold' : 'font-medium'} transition-all duration-300`}>
                       {item.totalViews.toLocaleString()} views
                     </span>

@@ -276,104 +276,90 @@ export default function BroadcasterPage() {
   }
 
   async function confirmEndStream() {
-    setIsEndingStream(true);
-    
-    try {
-      // Stop MediaRecorder first to finalize recording
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-        
-        // Wait a bit for final chunks to be processed
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+  setIsEndingStream(true);
 
-      // Upload recording if user chose to save
-      if (saveRecording && recordedChunksRef.current.length > 0) {
-        console.log(`[Broadcaster] Uploading recording (${recordedChunksRef.current.length} chunks)...`);
-        
-        // Combine all chunks into one blob
-        const recordingBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-        
-        // Convert to base64 for upload
+  try {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      await new Promise<void>((resolve) => {
+        mediaRecorderRef.current!.onstop = () => resolve();
+        mediaRecorderRef.current!.stop();
+      });
+    }
+
+    // --- Upload recording---
+    if (saveRecording && recordedChunksRef.current.length > 0) {
+      console.log(`[Broadcaster] Uploading recording (${recordedChunksRef.current.length} chunks)...`);
+
+      const recordingBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+
+      const videoBase64 = await new Promise<string>((resolve) => {
         const reader = new FileReader();
-        const base64Promise = new Promise<string>((resolve) => {
-          reader.onloadend = () => {
-            const base64data = reader.result as string;
-            resolve(base64data.split(',')[1]); // Remove data URL prefix
-          };
-          reader.readAsDataURL(recordingBlob);
-        });
-        
-        const videoBase64 = await base64Promise;
-        
-        // Upload to backend
-        const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-        const uploadResponse = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            video: videoBase64,
-          }),
-        });
-        
-        if (!uploadResponse.ok) {
-          console.error('Failed to upload recording');
-        } else {
-          console.log('[Broadcaster] Recording uploaded successfully');
-        }
-      }
-      
-      // Update livestream status
+        reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+        reader.readAsDataURL(recordingBlob);
+      });
+
       const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/livestream/${livestreamID}/end`, {
-        method: 'PATCH',
+      const uploadResponse = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          saveRecording: saveRecording,
-        }),
+        body: JSON.stringify({ video: videoBase64 }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to end livestream');
+      if (!uploadResponse.ok) {
+        console.error('Failed to upload recording');
+      } else {
+        console.log('[Broadcaster] Recording uploaded successfully');
       }
-
-      // Stop WebRTC connections and notify about recording preference
-      socket.emit("stream-ended", { 
-        livestreamID,
-        saveRecording: saveRecording 
-      });
-
-      Object.values(peersRef.current).forEach((pc) => pc.close());
-      peersRef.current = {};
-
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((t) => t.stop());
-        localStreamRef.current = null;
-      }
-
-      // Clear recorded chunks
-      recordedChunksRef.current = [];
-      mediaRecorderRef.current = null;
-
-      setIsLive(false);
-      setWatcherCount(0);
-      setShowEndConfirm(false);
-      
-      // Redirect to home page
-      window.location.href = `/teacher/${teacherID}`;
-    } catch (error) {
-      console.error('Failed to end livestream:', error);
-      alert('Failed to end livestream. Please try again.');
-    } finally {
-      setIsEndingStream(false);
     }
+
+    socket.emit('updateCurrentViewers', { livestreamID, currentViewers: watcherCount });
+
+    // --- Patch livestream end ---
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+    const response = await fetch(`${API_URL}/livestream/${livestreamID}/end`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ saveRecording }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to end livestream');
+    }
+
+    // --- 5. Notify all peers & cleanup WebRTC ---
+    socket.emit('stream-ended', { livestreamID, saveRecording });
+
+    Object.values(peersRef.current).forEach((pc) => pc.close());
+    peersRef.current = {};
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((t) => t.stop());
+      localStreamRef.current = null;
+    }
+
+    // --- 6. Reset states ---
+    recordedChunksRef.current = [];
+    mediaRecorderRef.current = null;
+    setIsLive(false);
+    setWatcherCount(0);
+    setShowEndConfirm(false);
+
+    // --- 7. Redirect ---
+    window.location.href = `/teacher/${teacherID}`;
+
+  } catch (error) {
+    console.error('Failed to end livestream:', error);
+    alert('Failed to end livestream. Please try again.');
+  } finally {
+    setIsEndingStream(false);
   }
+}
 
   async function handleWatcher(data: { id: string } | string) {
     const watcherId = typeof data === 'string' ? data : data.id;

@@ -13,7 +13,7 @@ RUN npm install
 
 # Copy source code
 COPY . .
-
+COPY .env ./
 # Prisma generate
 RUN npx prisma generate
 

@@ -15,6 +15,9 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useChat, ChatMessage } from '@/hooks/useChat';
 
+// Force dynamic rendering to prevent prerendering issues
+export const dynamic = 'force-dynamic';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 type FriendData = {

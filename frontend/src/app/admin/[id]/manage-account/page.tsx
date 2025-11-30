@@ -867,7 +867,7 @@ export default function ManageAccount() {
 
             <p className="text-sm text-gray-600 mb-4">
               Please provide a reason for rejecting{" "}
-              <span className="font-medium">{selectedTeacher?.name}</span>'s application.
+              <span className="font-medium">{selectedTeacher?.name}</span>&apos;s application.
               This will help them understand what needs to be improved.
             </p>
 

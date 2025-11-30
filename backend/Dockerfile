@@ -1,34 +1,29 @@
 # -------------------------
 # 1. BUILD STAGE
 # -------------------------
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
-
-# Install all dependencies (including dev for prisma)
 RUN npm install
 
-# Copy source code
 COPY . .
-
-# Copy Prisma schema
 COPY prisma ./prisma
 
-# Generate Prisma clients (không cần DATABASE_URL nếu chỉ generate client)
-# Nếu muốn chỉ generate 1 generator, dùng: npx prisma generate --generator mongoClient
-RUN npx prisma generate
+# --- Step 1: Generate PostgreSQL client ---
+# Dùng env từ build args (Render sẽ inject env)
+RUN DATABASE_URL=$DATABASE_URL DIRECT_URL=$DIRECT_URL npx prisma generate --generator client
 
-# Build TypeScript or app
+# --- Step 2: Generate MongoDB client ---
+RUN MONGODB_URL=$MONGODB_URL npx prisma generate --generator mongoClient
+
+# Build TypeScript / app
 RUN npm run build
-
 # -------------------------
 # 2. PRODUCTION STAGE
 # -------------------------
-FROM node:18-alpine AS runner
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 
@@ -55,4 +50,4 @@ ENV NODE_ENV=production
 EXPOSE 4000
 
 # Start app
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/main.js","prisma", "generate"]

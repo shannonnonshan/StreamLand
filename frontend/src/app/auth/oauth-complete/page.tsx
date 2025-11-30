@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 // Force dynamic rendering to prevent prerendering issues
 export const dynamic = 'force-dynamic';
-
+export const fetchCache = 'force-no-store';
 export default function OAuthCompletePage() {
   const router = useRouter();
   const searchParams = useSearchParams();

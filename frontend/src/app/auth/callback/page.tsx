@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 
 // Force dynamic rendering to prevent prerendering issues
 export const dynamic = 'force-dynamic';
-
+export const fetchCache = 'force-no-store';
 export default function AuthCallback() {
   const router = useRouter();
   const searchParams = useSearchParams();

@@ -1,11 +1,13 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+export const dynamicParams = true;
+
 import { useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-// Force dynamic rendering to prevent prerendering issues
-export const dynamic = 'force-dynamic';
-export const fetchCache = 'force-no-store';
 export default function AuthCallback() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -15,34 +17,26 @@ export default function AuthCallback() {
     const refreshToken = searchParams.get('refreshToken');
 
     if (accessToken && refreshToken) {
-      // Save tokens to localStorage
       localStorage.setItem('accessToken', accessToken);
       localStorage.setItem('refreshToken', refreshToken);
 
-      // Get user profile
       fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/profile`, {
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
         },
       })
         .then((res) => res.json())
         .then((user) => {
           localStorage.setItem('user', JSON.stringify(user));
 
-          // Redirect based on role
-          if (user.role === 'TEACHER') {
-            router.push(`/teacher/${user.id}`);
-          } else if (user.role === 'ADMIN') {
-            router.push('/admin/dashboard');
-          } else {
-            router.push(`/student/${user.id}/dashboard`);
-          }
+          if (user.role === 'TEACHER') router.push(`/teacher/${user.id}`);
+          else if (user.role === 'ADMIN') router.push('/admin/dashboard');
+          else router.push(`/student/${user.id}/dashboard`);
         })
         .catch(() => {
           router.push('/login?error=oauth_failed');
         });
     } else {
-      // Error handling
       router.push('/?error=oauth_failed');
     }
   }, [searchParams, router]);

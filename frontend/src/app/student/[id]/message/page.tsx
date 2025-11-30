@@ -18,6 +18,8 @@ import { useChat, ChatMessage } from '@/hooks/useChat';
 // Force dynamic rendering to prevent prerendering issues
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+export const dynamicParams = true;
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 type FriendData = {

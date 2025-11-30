@@ -1,7 +1,7 @@
 # ================================
 # Stage 1: Build
 # ================================
-FROM node:20-bullseye-slim AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package files
@@ -26,7 +26,7 @@ RUN npm run build
 # ================================
 # Stage 2: Production Image
 # ================================
-FROM node:20-bullseye-slim AS prod
+FROM node:20-alpine AS runner
 WORKDIR /app
 
 # Copy package files

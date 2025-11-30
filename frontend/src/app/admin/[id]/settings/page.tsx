@@ -15,7 +15,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 export default function AdminSettingsPage() {
   const params = useParams();
   const router = useRouter();
-  const adminId = params?.id as string;
+  // const adminId = params?.id as string;
 
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",

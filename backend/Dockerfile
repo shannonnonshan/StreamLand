@@ -5,34 +5,33 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Copy package.json + prisma folder trước
 COPY package*.json ./
 COPY prisma ./prisma
+
+# Cài tất cả dependencies (cả dev để build NestJS + Prisma)
 RUN npm install
 
+# Copy toàn bộ source code
 COPY . .
 
-# --- Nhận biến môi trường từ Render (dưới dạng ARGs) và chuyển thành ENVs ---
-# Render sẽ tự động inject DATABASE_URL, MONGODB_URL vào đây
+# --- ARG từ Render (env sẽ được inject) ---
 ARG DATABASE_URL
 ARG DIRECT_URL
 ARG MONGODB_URL
 
-# Đặt chúng thành biến ENV để Prisma có thể đọc trong các lệnh RUN sau:
+# --- Chuyển ARG thành ENV để Prisma đọc ---
 ENV DATABASE_URL=${DATABASE_URL}
 ENV DIRECT_URL=${DIRECT_URL}
 ENV MONGODB_URL=${MONGODB_URL}
 
-# --- Chạy Prisma Generate (bây giờ sẽ hoạt động) ---
-# Lỗi 1.601 sẽ được giải quyết vì ENV đã có sẵn
-# Generate PostgreSQL client
+# --- Generate Prisma clients tuần tự ---
 RUN npx prisma generate --schema=./prisma/postgres/schema.prisma
-
-# Generate MongoDB client
 RUN npx prisma generate --schema=./prisma/mongodb/schema.prisma
 
+# --- Build NestJS ---
+RUN npm run build -p tsconfig.build.json
 
-# Build TypeScript / app
-RUN npm run build
 # -------------------------
 # 2. PRODUCTION STAGE
 # -------------------------
@@ -40,22 +39,22 @@ FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-# Copy only package files for production
+# Copy package.json + install chỉ production deps
 COPY package*.json ./
-
-# Install only production dependencies
 RUN npm install --omit=dev
 
-# Copy built app & generated client files
+# Copy built app + Prisma clients
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+
+# (Optional) Copy Prisma folder nếu runtime app dùng schema
 COPY prisma ./prisma
 
-# Set production environment
+# ENV
 ENV NODE_ENV=production
 
 # Expose port
 EXPOSE 4000
 
-# Start app (loại bỏ prisma generate khỏi CMD)
+# Start NestJS app
 CMD ["node", "dist/main.js"]

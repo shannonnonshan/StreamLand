@@ -220,9 +220,28 @@ export default function BroadcasterPage() {
         });
 
         // Store video chunks in memory
-        mediaRecorder.ondataavailable = (event) => {
+        mediaRecorder.ondataavailable = async (event) => {
           if (event.data && event.data.size > 0) {
             recordedChunksRef.current.push(event.data);
+            console.log(`[Broadcaster] Chunk received: ${event.data.size} bytes, Total: ${recordedChunksRef.current.length} chunks`);
+            
+            // Send chunk to server during recording for backup
+            try {
+              const chunkBase64 = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+                reader.readAsDataURL(event.data);
+              });
+              
+              socket.emit('video-chunk', {
+                livestreamID,
+                chunk: chunkBase64,
+                chunkIndex: recordedChunksRef.current.length - 1,
+                totalSize: event.data.size,
+              });
+            } catch (error) {
+              console.warn('[Broadcaster] Failed to send chunk to server:', error);
+            }
           }
         };
 
@@ -288,13 +307,19 @@ export default function BroadcasterPage() {
 
     // --- Upload recording---
     if (saveRecording && recordedChunksRef.current.length > 0) {
-      console.log(`[Broadcaster] Uploading recording (${recordedChunksRef.current.length} chunks)...`);
+      console.log(`[Broadcaster] Uploading recording (${recordedChunksRef.current.length} chunks, ${recordedChunksRef.current.reduce((s, b) => s + b.size, 0)} bytes)...`);
 
       const recordingBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+      console.log(`[Broadcaster] Combined blob size: ${(recordingBlob.size / 1024 / 1024).toFixed(2)} MB`);
 
+      // Send full recording as final backup
       const videoBase64 = await new Promise<string>((resolve) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+        reader.onloadend = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          console.log(`[Broadcaster] Base64 size: ${(base64.length / 1024 / 1024).toFixed(2)} MB`);
+          resolve(base64);
+        };
         reader.readAsDataURL(recordingBlob);
       });
 
@@ -305,11 +330,16 @@ export default function BroadcasterPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ video: videoBase64 }),
+        body: JSON.stringify({ 
+          video: videoBase64,
+          size: recordingBlob.size,
+          chunkCount: recordedChunksRef.current.length,
+        }),
       });
 
       if (!uploadResponse.ok) {
-        console.error('Failed to upload recording');
+        const errorData = await uploadResponse.json();
+        console.error('Failed to upload recording:', errorData);
       } else {
         console.log('[Broadcaster] Recording uploaded successfully');
       }
@@ -452,6 +482,58 @@ export default function BroadcasterPage() {
     }
   }
 
+  // Restart media recorder with new stream
+  function restartMediaRecorder(stream: MediaStream) {
+    try {
+      // Stop old recorder if exists
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+
+      // Start new recorder with new stream
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'video/webm;codecs=vp8,opus',
+        videoBitsPerSecond: 2500000, // 2.5 Mbps
+      });
+
+      mediaRecorder.ondataavailable = async (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+          console.log(`[Broadcaster] Chunk received: ${event.data.size} bytes, Total: ${recordedChunksRef.current.length} chunks`);
+          
+          // Send chunk to server during recording for backup
+          try {
+            const chunkBase64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+              reader.readAsDataURL(event.data);
+            });
+            
+            socket.emit('video-chunk', {
+              livestreamID,
+              chunk: chunkBase64,
+              chunkIndex: recordedChunksRef.current.length - 1,
+              totalSize: event.data.size,
+            });
+          } catch (error) {
+            console.warn('[Broadcaster] Failed to send chunk to server:', error);
+          }
+        }
+      };
+
+      mediaRecorder.onerror = (error) => {
+        console.error('[Broadcaster] MediaRecorder error:', error);
+      };
+
+      // Record continuously
+      mediaRecorder.start(10000); // 10s chunks
+      mediaRecorderRef.current = mediaRecorder;
+      console.log('[Broadcaster] MediaRecorder restarted');
+    } catch (error) {
+      console.warn('[Broadcaster] Failed to restart MediaRecorder:', error);
+    }
+  }
+
   async function toggleScreenShare() {
     try {
       if (!isScreenSharing) {
@@ -479,6 +561,11 @@ export default function BroadcasterPage() {
           });
 
           oldVideoTrack.stop();
+          
+          // Restart recording with new screen share stream
+          if (localStreamRef.current) {
+            restartMediaRecorder(localStreamRef.current);
+          }
         }
 
         screenTrack.onended = async () => {
@@ -520,6 +607,11 @@ export default function BroadcasterPage() {
         });
 
         oldScreenTrack.stop();
+        
+        // Restart recording with new camera stream
+        if (localStreamRef.current) {
+          restartMediaRecorder(localStreamRef.current);
+        }
       }
 
       setIsScreenSharing(false);

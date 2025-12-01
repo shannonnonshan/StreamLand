@@ -94,13 +94,21 @@ export default function SettingsPage() {
   const handleSaveSettings = async () => {
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/teacher/${teacherId}/settings`, {
+      const response = await fetch(`${API_URL}/auth/profile/teacher`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({
+          fullName: settings.fullName,
+          bio: settings.bio,
+          location: settings.location,
+          education: settings.education,
+          experience: settings.experience,
+          website: settings.website,
+          linkedin: settings.linkedin,
+        }),
       });
 
       if (response.ok) {

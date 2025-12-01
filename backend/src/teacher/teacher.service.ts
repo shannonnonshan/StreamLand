@@ -113,39 +113,51 @@ export class TeacherService {
       where: { teacherId, status: 'SCHEDULED' },
     });
 
-    // Monthly views trend (last 12 months)
-    const monthlyViews = [];
-    const monthlySubscribers = [];
+    // Monthly views trend (last 12 months) - use aggregation to avoid N+1 queries
+    const monthlyViews: number[] = [];
+    const monthlySubscribers: number[] = [];
     const now = new Date();
+    const last12Months = 12;
     
-    for (let i = 11; i >= 0; i--) {
-      const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-      
-      const streams = await this.prisma.postgres.liveStream.findMany({
-        where: {
-          teacherId,
-          status: 'ENDED',
-          endedAt: {
-            gte: monthStart,
-            lte: monthEnd,
-          },
+    const monthRanges = Array.from({ length: last12Months }, (_, i) => {
+      const start = new Date(now.getFullYear(), now.getMonth() - (last12Months - 1 - i), 1);
+      const end = new Date(now.getFullYear(), now.getMonth() - (last12Months - 2 - i) + 1, 0);
+      return { start, end };
+    });
+    
+    // Get all ended streams at once (avoid N+1)
+    const allEndedStreams = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        teacherId,
+        status: 'ENDED',
+        endedAt: {
+          gte: monthRanges[0].start,
+          lte: monthRanges[last12Months - 1].end,
         },
-        select: { totalViews: true },
-      });
-      
-      const monthViews = streams.reduce((sum, s) => sum + (s.totalViews || 0), 0);
+      },
+      select: { totalViews: true, endedAt: true },
+    });
+    
+    // Calculate monthly views from the single query
+    monthRanges.forEach(({ start, end }) => {
+      const monthViews = allEndedStreams
+        .filter(s => s.endedAt && s.endedAt >= start && s.endedAt <= end)
+        .reduce((sum, s) => sum + (s.totalViews || 0), 0);
       monthlyViews.push(monthViews);
-      
-      // Subscribers growth (simplified - count followers at each point)
-      const subsCount = await this.prisma.postgres.followedTeacher.count({
-        where: {
-          teacherId,
-          createdAt: { lte: monthEnd },
-        },
-      });
+    });
+    
+    // Get subscriber growth at once using raw SQL or aggregation
+    const subscriberGrowth = await this.prisma.postgres.followedTeacher.findMany({
+      where: { teacherId },
+      select: { createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    
+    // Calculate monthly subscribers from single query
+    monthRanges.forEach(({ end }) => {
+      const subsCount = subscriberGrowth.filter(s => s.createdAt <= end).length;
       monthlySubscribers.push(subsCount);
-    }
+    });
 
     // Get top 3 livestreams by views
     const topLivestreams = await this.prisma.postgres.liveStream.findMany({
@@ -229,50 +241,6 @@ export class TeacherService {
       subjects: teacher.teacherProfile.subjects || [],
       website: teacher.teacherProfile.website || null,
       linkedin: teacher.teacherProfile.linkedin || null,
-    };
-  }
-
-  // Update teacher bio
-  async updateBio(teacherId: string, bio: string) {
-    const teacher = await this.prisma.postgres.user.findUnique({
-      where: { id: teacherId },
-      include: { teacherProfile: true },
-    });
-
-    if (!teacher || !teacher.teacherProfile) {
-      throw new NotFoundException('Teacher not found');
-    }
-
-    const updatedTeacher = await this.prisma.postgres.user.update({
-      where: { id: teacherId },
-      data: { bio },
-    });
-
-    return {
-      message: 'Bio updated successfully',
-      bio: updatedTeacher.bio,
-    };
-  }
-
-  // Update teacher avatar
-  async updateAvatar(teacherId: string, avatarUrl: string) {
-    const teacher = await this.prisma.postgres.user.findUnique({
-      where: { id: teacherId },
-      include: { teacherProfile: true },
-    });
-
-    if (!teacher || !teacher.teacherProfile) {
-      throw new NotFoundException('Teacher not found');
-    }
-
-    const updatedTeacher = await this.prisma.postgres.user.update({
-      where: { id: teacherId },
-      data: { avatar: avatarUrl },
-    });
-
-    return {
-      message: 'Avatar updated successfully',
-      avatar: updatedTeacher.avatar,
     };
   }
 

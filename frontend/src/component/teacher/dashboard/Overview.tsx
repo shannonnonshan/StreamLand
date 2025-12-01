@@ -5,7 +5,12 @@ import dynamic from "next/dynamic";
 import { ApexOptions } from "apexcharts";
 import Image from "next/image";
 import { useTeacherDashboard } from "@/hooks/useTeacherDashboard";
-const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false });
+
+// Lazy load ApexCharts only when needed (reduces initial bundle)
+const ReactApexChart = dynamic(() => import("react-apexcharts"), { 
+  ssr: false,
+  loading: () => <div className="h-80 bg-gray-100 rounded-lg animate-pulse" />,
+});
 
 interface OverviewProps {
   filter: string;
@@ -127,13 +132,19 @@ export default function Overview({ filter }: OverviewProps) {
       </div>
 
       {/* Chart Wrapper */}
-        <div className=" mx-auto">
-        <ReactApexChart 
-            options={options} 
-            series={series} 
-            type="area" 
-            height={300} 
-        />
+        <div className="mx-auto">
+        {stats && stats.monthlyViews ? (
+          <ReactApexChart 
+              options={options} 
+              series={series} 
+              type="area" 
+              height={300} 
+          />
+        ) : (
+          <div className="h-80 bg-gray-100 rounded-lg flex items-center justify-center">
+            <p className="text-gray-500">Loading chart...</p>
+          </div>
+        )}
         </div>
     </div>
     {/* Top live streams */}

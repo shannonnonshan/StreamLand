@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
-import { PrismaClient as PostgresClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { PrismaClient as MongoClient } from '@prisma/mongodb-client';
 
 @Injectable()
@@ -7,14 +7,14 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
 
   // PostgreSQL client
-  public postgres: PostgresClient;
+  public postgres: PrismaClient;
 
   // MongoDB client
   public mongo: MongoClient;
 
   constructor() {
     // Initialize PostgreSQL client with increased timeout and connection settings
-    this.postgres = new PostgresClient({
+    this.postgres = new PrismaClient({
       datasources: {
         db: {
           url: process.env.DATABASE_URL + '&connection_limit=20&pool_timeout=30',

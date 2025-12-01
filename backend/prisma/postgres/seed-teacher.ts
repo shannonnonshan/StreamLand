@@ -2,10 +2,10 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-const TEACHER_ID = 'e511e51a-546f-47c2-af97-5055a1e1e8dd';
+const TEACHER_ID = '4cc956cf-985d-415c-8ea5-a19045f9d766';
 
 /**
- * Seed data specifically for teacher e511e51a-546f-47c2-af97-5055a1e1e8dd
+ * Seed data specifically for teacher 4cc956cf-985d-415c-8ea5-a19045f9d766
  */
 
 // Shared recording URLs to save R2 storage (only 5 actual video files needed)

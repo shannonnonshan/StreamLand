@@ -295,7 +295,7 @@ export class TeacherService {
       where,
       orderBy: { uploadedAt: 'desc' },
     });
-
+    console.log('Documents fetched:', documents);
     return documents;
   }
 

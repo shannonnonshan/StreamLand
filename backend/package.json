@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build",
+    "build": "nest build -p tsconfig.build.json",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch -r tsconfig-paths/register",
@@ -21,6 +21,7 @@
     "seed": "ts-node prisma/postgres/seed.ts",
     "seed:videos": "ts-node prisma/postgres/seed-videos.ts",
     "seed:documents": "ts-node prisma/postgres/seed-documents.ts",
+    "seed:dashboard-data": "ts-node prisma/postgres/seed-dashboard-data.ts",
     "seed:teacher": "ts-node prisma/postgres/seed-teacher.ts",
     "db:generate": "npx prisma generate && npx prisma generate --schema=./prisma/mongodb/schema.prisma",
     "db:push": "npx prisma db push && npx prisma db push --schema=./prisma/mongodb/schema.prisma"
@@ -54,7 +55,8 @@
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "tsconfig-paths": "^4.2.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -85,7 +87,6 @@
     "ts-jest": "^29.2.5",
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
   },

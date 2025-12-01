@@ -5,6 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import CompleteOAuthModal from '@/component/(modal)/completeOAuth';
 import { useAuth } from '@/hooks/useAuth';
 
+// Force dynamic rendering to prevent prerendering issues
+export const dynamic = 'force-dynamic';
+
 export default function OAuthCompletePage() {
   const router = useRouter();
   const searchParams = useSearchParams();

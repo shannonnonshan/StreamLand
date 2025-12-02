@@ -1,21 +1,22 @@
 version: '3.8'
 
-services:
-  # Redis for session and real-time (Only Redis - Postgres and MongoDB use cloud)
-  redis:
-    image: redis:7-alpine
-    container_name: streamland-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes --requirepass streamland123
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "streamland123", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-    restart: unless-stopped
+redis:
+  image: redis:7-alpine
+  container_name: streamland-redis
+  ports:
+    - "6379:6379"
+  volumes:
+    - redis-data:/data
+  command: >
+    redis-server --appendonly yes --requirepass streamland123
+    --bind 0.0.0.0
+    --protected-mode no
+  healthcheck:
+    test: ["CMD", "redis-cli", "-a", "streamland123", "ping"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
+  restart: unless-stopped
 
 volumes:
   redis-data:

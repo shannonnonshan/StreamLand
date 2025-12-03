@@ -47,11 +47,9 @@ export class LivestreamController {
     return await this.livestreamService.createLivestream(createLivestreamDto);
   }
 
-  @Get(':id')
-  async getLivestreamById(@Param('id') id: string) {
-    return await this.livestreamService.getLivestreamById(id);
-  }
-
+  // IMPORTANT: Specific routes MUST come BEFORE generic :id routes
+  // Otherwise :id will match everything
+  
   @Get('teacher/:teacherId')
   @UseGuards(JwtAuthGuard)
   async getTeacherLivestreams(
@@ -92,6 +90,17 @@ export class LivestreamController {
   async getUpcomingScheduledStreams(@Query('limit') limit: string) {
     const limitNum = limit ? parseInt(limit, 10) : 20;
     return await this.livestreamService.getUpcomingScheduledStreams(limitNum);
+  }
+
+  // Routes with :id param - MUST be after specific routes
+  @Get(':id/documents')
+  async getLivestreamDocuments(@Param('id') id: string) {
+    return await this.livestreamService.getLivestreamDocuments(id);
+  }
+
+  @Get(':id')
+  async getLivestreamById(@Param('id') id: string) {
+    return await this.livestreamService.getLivestreamById(id);
   }
 
   @Post(':id/increment-view')

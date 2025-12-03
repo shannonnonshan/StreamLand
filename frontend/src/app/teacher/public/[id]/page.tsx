@@ -80,6 +80,17 @@ export default function PublicTeacherProfilePage() {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [videos, setVideos] = useState<VideoData[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(true);
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  // Handle scroll for sticky header
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 200);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Fetch teacher profile
   useEffect(() => {
@@ -115,7 +126,7 @@ export default function PublicTeacherProfilePage() {
       try {
         setLoadingVideos(true);
         const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/teacher/${teacherId}/videos?limit=6`
+          `${process.env.NEXT_PUBLIC_API_URL}/teacher/${teacherId}/videos?limit=1000`
         );
 
         if (!response.ok) {
@@ -216,13 +227,10 @@ export default function PublicTeacherProfilePage() {
 
   const handleVideoClick = (video: VideoData) => {
     if (video.status === 'LIVE') {
-      // Redirect to live viewer page
       router.push(`/student/livestream/${video.id}`);
     } else if (video.status === 'ENDED' && video.recordingUrl) {
-      // Redirect to video player page
       router.push(`/student/video/${video.id}`);
     } else if (video.status === 'SCHEDULED') {
-      // Show scheduled time alert
       const scheduledTime = video.scheduledStartTime 
         ? new Date(video.scheduledStartTime).toLocaleString('en-US', {
             month: 'long',
@@ -271,6 +279,68 @@ export default function PublicTeacherProfilePage() {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       <Toaster />
       
+      {/* Sticky Header - Shows when scrolled */}
+      {isScrolled && teacher && (
+        <div className="fixed top-0 left-0 right-0 bg-gradient-to-r from-[#292C6D] to-[#1f2350] shadow-lg z-50 transition-all duration-300">
+          <div className="max-w-6xl mx-auto px-6 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full border-2 border-white shadow-sm overflow-hidden bg-gray-200">
+                  <Image
+                    src={teacher.avatar}
+                    alt={teacher.name}
+                    width={48}
+                    height={48}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">{teacher.name}</h2>
+                  <p className="text-sm text-gray-200">{teacher.subscribers.toLocaleString()} subscribers</p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleSubscribe}
+                  disabled={loading}
+                  className={`flex items-center gap-2 px-5 py-2 rounded-lg transition-colors font-medium ${
+                    !isAuthenticated
+                      ? "bg-white/20 text-white hover:bg-white/30 border border-white/30"
+                      : isSubscribed
+                      ? "bg-white/90 text-[#292C6D] hover:bg-white"
+                      : "bg-white text-[#292C6D] hover:bg-white/90"
+                  } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {!isAuthenticated ? (
+                    <>
+                      <Lock size={16} />
+                      Follow
+                    </>
+                  ) : isSubscribed ? (
+                    <>
+                      <BellOff size={16} />
+                      Following
+                    </>
+                  ) : (
+                    <>
+                      <Bell size={16} />
+                      Follow
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleShare}
+                  className="flex items-center gap-2 px-4 py-2 border-2 border-white/50 text-white rounded-lg hover:bg-white/10 hover:border-white transition-colors font-medium"
+                >
+                  <Share2 size={16} />
+                  Share
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Cover Banner */}
       <div className="h-48 bg-gradient-to-r from-[#292C6D] to-[#1f2350]"></div>
 
@@ -278,7 +348,7 @@ export default function PublicTeacherProfilePage() {
         {/* Back Button */}
         <button
           onClick={() => router.back()}
-          className="flex items-center gap-2 text-white hover:text-[#FAEDF0] mb-4 transition-colors"
+          className="flex items-center gap-2 bg-white/10 backdrop-blur-sm text-white hover:bg-white/20 px-4 py-2 rounded-lg mb-4 transition-all border border-white/30"
         >
           <ArrowLeft size={20} />
           <span>Back</span>
@@ -305,7 +375,6 @@ export default function PublicTeacherProfilePage() {
               )}
             </div>
 
-            {/* Profile Info */}
             <div className="flex-1">
               <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                 <div>

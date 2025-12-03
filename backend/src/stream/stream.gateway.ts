@@ -149,12 +149,11 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const channel = this.channels[key];
 
       if (channel.broadcaster === socket.id) {
-        // Broadcaster closed stream, notify watchers
-        const teacherID = key.split(':')[0];
+        // Broadcaster closed stream unexpectedly (not via stream-ended)
+        // Note: Normal stream ends should go through handleStreamEnded
         const livestreamID = key.split(':')[1];
         
         this.server.to([...channel.watchers]).emit('stream-ended', {
-          teacherID,
           livestreamID,
         });
         
@@ -163,13 +162,8 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
           console.error('Redis cleanup error:', err)
         );
         
-        // Track stream end analytics
-        this.trackStreamEnd(teacherID, livestreamID, channel.watchers.size).catch(err =>
-          this.logger.error('Analytics error', err)
-        );
-        
+        this.logger.log(`Broadcaster unexpectedly disconnected from channel: ${key}`);
         delete this.channels[key];
-        this.logger.log(`Broadcaster closed channel: ${key}`);
       } else if (channel.watchers.has(socket.id)) {
         // Watcher left, notify broadcaster
         channel.watchers.delete(socket.id);
@@ -294,16 +288,27 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('stream-ended')
-  handleStreamEnded(@MessageBody() data: BroadcasterPayload & { saveRecording?: boolean }) {
+  async handleStreamEnded(@MessageBody() data: BroadcasterPayload & { saveRecording?: boolean }) {
     const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
     if (channel) {
       this.server.to([...channel.watchers]).emit('stream-ended', data);
       
-      // Recording is now handled by frontend upload (not chunk-based)
-      // Just clean up the channel
-      console.log(`Stream ended for livestream ${data.livestreamID}`);
+      const teacherID = key.split(':')[0];
       
+      // Track analytics and save video chunks BEFORE cleanup
+      try {
+        await this.trackStreamEnd(teacherID, data.livestreamID, channel.watchers.size);
+      } catch (error) {
+        this.logger.error(`Error tracking stream end for ${data.livestreamID}:`, error);
+      }
+      
+      // Cleanup Redis viewers
+      this.redisService.cleanupLivestream(data.livestreamID).catch(err =>
+        console.error('Redis cleanup error:', err)
+      );
+      
+      console.log(`Stream ended for livestream ${data.livestreamID}`);
       delete this.channels[key];
     }
   }
@@ -357,6 +362,22 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  @SubscribeMessage('document-uploaded')
+  handleDocumentUploaded(
+    @MessageBody() data: { livestreamID: string; document: unknown },
+    @ConnectedSocket() socket: Socket,
+  ) {
+    const key = this.getKey(data.livestreamID);
+    const channel = this.channels[key];
+    
+    if (channel && channel.broadcaster === socket.id) {
+      // Broadcast new document to all watchers
+      this.server.to([...channel.watchers]).emit('document-uploaded', {
+        document: data.document,
+      });
+    }
+  }
+
   @SubscribeMessage('send-chat-message')
   async handleChatMessage(
     @MessageBody() data: ChatMessagePayload,
@@ -368,9 +389,11 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (channel) {
       // Rate limiting check
       const canSend = await this.redisService.checkChatRateLimit(
+        data.message.id,
         data.livestreamID,
-        socket.id,
-      );
+        5,
+        10
+      ); // Max 5 messages per second
       
       if (!canSend) {
         this.server.to(socket.id).emit('rate-limit-exceeded', {
@@ -389,6 +412,39 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
           console.error('Failed to save chat message:', err)
         );
       });
+    }
+  }
+
+  // Handle incoming video chunks from broadcaster
+  @SubscribeMessage('video-chunk')
+  handleVideoChunk(
+    @MessageBody() data: { livestreamID: string; chunk: string; chunkIndex: number; totalSize: number },
+  ) {
+    try {
+      const key = this.getKey(data.livestreamID);
+      const channel = this.channels[key];
+
+      if (!channel) {
+        this.logger.warn(`Chunk received for non-existent channel: ${data.livestreamID}`);
+        return;
+      }
+
+      // Initialize video chunks array if needed
+      if (!channel.videoChunks) {
+        channel.videoChunks = [];
+        channel.chunkCount = 0;
+      }
+
+      // Convert base64 chunk to Buffer
+      const chunkBuffer = Buffer.from(data.chunk, 'base64');
+      channel.videoChunks[data.chunkIndex] = chunkBuffer;
+      channel.chunkCount = (channel.chunkCount || 0) + 1;
+
+      this.logger.log(
+        `Video chunk ${data.chunkIndex} received for livestream ${data.livestreamID} (${(data.totalSize / 1024).toFixed(2)} KB)`
+      );
+    } catch (error) {
+      this.logger.error('Error handling video chunk:', error);
     }
   }
 
@@ -466,16 +522,44 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // Track stream end analytics
   private async trackStreamEnd(teacherID: string, livestreamID: string, finalViewerCount: number): Promise<void> {
     try {
+      // Get analytics from MongoDB
       const analytics = await this.prismaService.mongo.liveStreamAnalytics.findUnique({
         where: { livestreamId: livestreamID },
       });
 
       if (analytics) {
-        // Just log the end - schema doesn't have endedAt field
         this.logger.log(`Stream analytics - ${livestreamID}: Peak ${analytics.peakViewers}, Total ${analytics.totalViews}`);
+        
+        // Update PostgreSQL livestream with final peakViewers and currentViewers from MongoDB
+        await this.prismaService.postgres.liveStream.update({
+          where: { id: livestreamID },
+          data: {
+            peakViewers: analytics.peakViewers,
+            currentViewers: finalViewerCount,
+            totalViews: analytics.totalViews,
+          },
+        });
+        
+        this.logger.log(`PostgreSQL updated: ${livestreamID} with peakViewers=${analytics.peakViewers}, currentViewers=${finalViewerCount}`);
       }
 
-      console.log(`Stream ended: ${livestreamID}, Final viewers: ${finalViewerCount}`);
+      // Save video chunks from memory if available
+      const key = this.getKey(livestreamID);
+      const channel = this.channels[key];
+      if (channel && channel.videoChunks && channel.videoChunks.length > 0) {
+        const validChunks = channel.videoChunks.filter(c => c && c.length > 0);
+        if (validChunks.length > 0) {
+          this.logger.log(`Saving ${validChunks.length} video chunks to R2 for livestream ${livestreamID}`);
+          try {
+            await this.saveVideoToR2(livestreamID, validChunks);
+            this.logger.log(`Video chunks saved successfully for livestream ${livestreamID}`);
+          } catch (error) {
+            this.logger.error(`Failed to save video chunks for livestream ${livestreamID}:`, error);
+          }
+        }
+      }
+
+      console.log(`Stream ended: ${livestreamID}, Final viewers: ${finalViewerCount}, Peak: ${analytics?.peakViewers || 0}`);
     } catch (error) {
       console.error('Error tracking stream end:', error);
       throw error;

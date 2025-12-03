@@ -61,7 +61,14 @@ export default function BroadcasterPage() {
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [livestreamInfo, setLivestreamInfo] = useState<LivestreamInfo | null>(null);
+  // Optimistic default to prevent loading flicker
+  const [livestreamInfo, setLivestreamInfo] = useState<LivestreamInfo | null>({
+    title: 'Loading...',
+    description: '',
+    category: 'Education',
+    isPublic: true,
+    allowComments: true,
+  });
 
   const [showFiles, setShowFiles] = useState(true);
   const [showComments, setShowComments] = useState(true);
@@ -112,11 +119,8 @@ export default function BroadcasterPage() {
     
     const fetchLivestreamInfo = async () => {
       try {
-        const response = await fetch(`${API_URL}/livestream/${livestreamID}`, {
-          // Add cache control for better performance
-          cache: 'no-store',
-          next: { revalidate: 0 }
-        });
+        // Use default fetch (allows browser caching)
+        const response = await fetch(`${API_URL}/livestream/${livestreamID}`);
         if (response.ok) {
           const data = await response.json();
           
@@ -140,12 +144,14 @@ export default function BroadcasterPage() {
           });
         }
       } catch (error) {
-        // Error fetching livestream info
+        // Error fetching livestream info - don't block UI
         console.error('Error fetching livestream info:', error);
       }
     };
     
-    fetchLivestreamInfo();
+    // Defer fetch slightly to prioritize rendering
+    const timeoutId = setTimeout(fetchLivestreamInfo, 0);
+    return () => clearTimeout(timeoutId);
   }, [teacherID, livestreamID, router, fetchTeacherDocuments]);
 
   useEffect(() => {
@@ -220,9 +226,28 @@ export default function BroadcasterPage() {
         });
 
         // Store video chunks in memory
-        mediaRecorder.ondataavailable = (event) => {
+        mediaRecorder.ondataavailable = async (event) => {
           if (event.data && event.data.size > 0) {
             recordedChunksRef.current.push(event.data);
+            console.log(`[Broadcaster] Chunk received: ${event.data.size} bytes, Total: ${recordedChunksRef.current.length} chunks`);
+            
+            // Send chunk to server during recording for backup
+            try {
+              const chunkBase64 = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+                reader.readAsDataURL(event.data);
+              });
+              
+              socket.emit('video-chunk', {
+                livestreamID,
+                chunk: chunkBase64,
+                chunkIndex: recordedChunksRef.current.length - 1,
+                totalSize: event.data.size,
+              });
+            } catch (error) {
+              console.warn('[Broadcaster] Failed to send chunk to server:', error);
+            }
           }
         };
 
@@ -276,104 +301,134 @@ export default function BroadcasterPage() {
   }
 
   async function confirmEndStream() {
-    setIsEndingStream(true);
-    
-    try {
-      // Stop MediaRecorder first to finalize recording
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-        
-        // Wait a bit for final chunks to be processed
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+  setIsEndingStream(true);
 
-      // Upload recording if user chose to save
-      if (saveRecording && recordedChunksRef.current.length > 0) {
-        console.log(`[Broadcaster] Uploading recording (${recordedChunksRef.current.length} chunks)...`);
-        
-        // Combine all chunks into one blob
-        const recordingBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-        
-        // Convert to base64 for upload
+  try {
+    // Step 1: Stop media recorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      await new Promise<void>((resolve) => {
+        mediaRecorderRef.current!.onstop = () => resolve();
+        mediaRecorderRef.current!.stop();
+      });
+    }
+
+    // Step 2: Get auth token
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+    if (!token) {
+      throw new Error('Authentication required');
+    }
+
+    // Step 3: Upload recording if enabled
+    if (saveRecording && recordedChunksRef.current.length > 0) {
+      console.log(`[Broadcaster] Uploading recording (${recordedChunksRef.current.length} chunks, ${recordedChunksRef.current.reduce((s, b) => s + b.size, 0)} bytes)...`);
+
+      const recordingBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+      console.log(`[Broadcaster] Combined blob size: ${(recordingBlob.size / 1024 / 1024).toFixed(2)} MB`);
+
+      // Send full recording as final backup
+      const videoBase64 = await new Promise<string>((resolve) => {
         const reader = new FileReader();
-        const base64Promise = new Promise<string>((resolve) => {
-          reader.onloadend = () => {
-            const base64data = reader.result as string;
-            resolve(base64data.split(',')[1]); // Remove data URL prefix
-          };
-          reader.readAsDataURL(recordingBlob);
-        });
-        
-        const videoBase64 = await base64Promise;
-        
-        // Upload to backend
-        const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-        const uploadResponse = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            video: videoBase64,
-          }),
-        });
-        
-        if (!uploadResponse.ok) {
-          console.error('Failed to upload recording');
-        } else {
-          console.log('[Broadcaster] Recording uploaded successfully');
-        }
-      }
-      
-      // Update livestream status
-      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/livestream/${livestreamID}/end`, {
-        method: 'PATCH',
+        reader.onloadend = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          console.log(`[Broadcaster] Base64 size: ${(base64.length / 1024 / 1024).toFixed(2)} MB`);
+          resolve(base64);
+        };
+        reader.readAsDataURL(recordingBlob);
+      });
+
+      const uploadResponse = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          saveRecording: saveRecording,
+        body: JSON.stringify({ 
+          video: videoBase64,
+          size: recordingBlob.size,
+          chunkCount: recordedChunksRef.current.length,
         }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to end livestream');
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json().catch(() => ({ message: 'Unknown error' }));
+        console.error('Failed to upload recording:', errorData);
+        // Don't throw - continue ending the stream
+      } else {
+        console.log('[Broadcaster] Recording uploaded successfully');
       }
-
-      // Stop WebRTC connections and notify about recording preference
-      socket.emit("stream-ended", { 
-        livestreamID,
-        saveRecording: saveRecording 
-      });
-
-      Object.values(peersRef.current).forEach((pc) => pc.close());
-      peersRef.current = {};
-
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((t) => t.stop());
-        localStreamRef.current = null;
-      }
-
-      // Clear recorded chunks
-      recordedChunksRef.current = [];
-      mediaRecorderRef.current = null;
-
-      setIsLive(false);
-      setWatcherCount(0);
-      setShowEndConfirm(false);
-      
-      // Redirect to home page
-      window.location.href = `/teacher/${teacherID}`;
-    } catch (error) {
-      console.error('Failed to end livestream:', error);
-      alert('Failed to end livestream. Please try again.');
-    } finally {
-      setIsEndingStream(false);
     }
+
+    // Step 4: Update viewer count
+    socket.emit('updateCurrentViewers', { livestreamID, currentViewers: watcherCount });
+
+    // Step 5: End livestream in database
+    const response = await fetch(`${API_URL}/livestream/${livestreamID}/end`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ saveRecording }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.message || 'Failed to end livestream');
+    }
+
+    const endData = await response.json();
+    console.log('[Broadcaster] Livestream ended:', endData);
+
+    // Step 6: Notify all viewers via socket
+    socket.emit('stream-ended', { livestreamID, saveRecording });
+
+    // Step 7: Close all WebRTC peer connections
+    Object.values(peersRef.current).forEach((pc) => {
+      try {
+        pc.close();
+      } catch (error) {
+        console.warn('Error closing peer connection:', error);
+      }
+    });
+    peersRef.current = {};
+
+    // Step 8: Stop local media stream
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (error) {
+          console.warn('Error stopping track:', error);
+        }
+      });
+      localStreamRef.current = null;
+    }
+
+    // Step 9: Clear video element
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null;
+    }
+
+    // Step 10: Reset states
+    recordedChunksRef.current = [];
+    mediaRecorderRef.current = null;
+    setIsLive(false);
+    setWatcherCount(0);
+    setShowEndConfirm(false);
+
+    // Step 11: Wait a bit for cleanup to complete
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Step 12: Redirect using router.push (better for Next.js)
+    router.push(`/teacher/${teacherID}`);
+
+  } catch (error) {
+    console.error('Failed to end livestream:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to end livestream';
+    alert(`Error: ${errorMessage}. Please try again.`);
+    setIsEndingStream(false);
   }
+}
 
   async function handleWatcher(data: { id: string } | string) {
     const watcherId = typeof data === 'string' ? data : data.id;
@@ -466,6 +521,58 @@ export default function BroadcasterPage() {
     }
   }
 
+  // Restart media recorder with new stream
+  function restartMediaRecorder(stream: MediaStream) {
+    try {
+      // Stop old recorder if exists
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+
+      // Start new recorder with new stream
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'video/webm;codecs=vp8,opus',
+        videoBitsPerSecond: 2500000, // 2.5 Mbps
+      });
+
+      mediaRecorder.ondataavailable = async (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+          console.log(`[Broadcaster] Chunk received: ${event.data.size} bytes, Total: ${recordedChunksRef.current.length} chunks`);
+          
+          // Send chunk to server during recording for backup
+          try {
+            const chunkBase64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+              reader.readAsDataURL(event.data);
+            });
+            
+            socket.emit('video-chunk', {
+              livestreamID,
+              chunk: chunkBase64,
+              chunkIndex: recordedChunksRef.current.length - 1,
+              totalSize: event.data.size,
+            });
+          } catch (error) {
+            console.warn('[Broadcaster] Failed to send chunk to server:', error);
+          }
+        }
+      };
+
+      mediaRecorder.onerror = (error) => {
+        console.error('[Broadcaster] MediaRecorder error:', error);
+      };
+
+      // Record continuously
+      mediaRecorder.start(10000); // 10s chunks
+      mediaRecorderRef.current = mediaRecorder;
+      console.log('[Broadcaster] MediaRecorder restarted');
+    } catch (error) {
+      console.warn('[Broadcaster] Failed to restart MediaRecorder:', error);
+    }
+  }
+
   async function toggleScreenShare() {
     try {
       if (!isScreenSharing) {
@@ -493,6 +600,11 @@ export default function BroadcasterPage() {
           });
 
           oldVideoTrack.stop();
+          
+          // Restart recording with new screen share stream
+          if (localStreamRef.current) {
+            restartMediaRecorder(localStreamRef.current);
+          }
         }
 
         screenTrack.onended = async () => {
@@ -534,6 +646,11 @@ export default function BroadcasterPage() {
         });
 
         oldScreenTrack.stop();
+        
+        // Restart recording with new camera stream
+        if (localStreamRef.current) {
+          restartMediaRecorder(localStreamRef.current);
+        }
       }
 
       setIsScreenSharing(false);
@@ -616,8 +733,20 @@ export default function BroadcasterPage() {
       size: uploadPreview.size
     };
     
-    setDocuments(prev => [...prev, newDoc]);
-    console.log('[Broadcaster] Document added:', newDoc);
+    setDocuments(prev => {
+      const updatedDocs = [...prev, newDoc];
+      
+      // Emit only the new document to viewers
+      socket.emit('document-uploaded', {
+        teacherID,
+        livestreamID,
+        document: newDoc
+      });
+      
+      return updatedDocs;
+    });
+    
+    console.log('[Broadcaster] Document added and synced:', newDoc);
     
     // Reset
     setUploadPreview(null);

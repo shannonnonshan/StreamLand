@@ -832,8 +832,10 @@ export class StudentService {
                 email: true,
                 avatar: true,
                 bio: true,
+                isVerified: true,
               },
             },
+            followers: true,
           },
         },
       },
@@ -842,12 +844,35 @@ export class StudentService {
       },
     });
 
-    return follows.map(f => ({
-      id: f.id,
-      teacher: f.teacher.user,
-      teacherProfileId: f.teacher.id,
-      followedSince: f.createdAt,
-    }));
+    // Get additional info for each teacher
+    const teachersWithStats = await Promise.all(
+      follows.map(async (f) => {
+        const teacherId = f.teacher.userId;
+        
+        // Count total livestreams
+        const totalLivestreams = await this.prisma.postgres.liveStream.count({
+          where: {
+            teacherId,
+            isPublic: true,
+          },
+        });
+
+        return {
+          id: f.teacher.user.id,
+          name: f.teacher.user.fullName,
+          email: f.teacher.user.email,
+          avatar: f.teacher.user.avatar,
+          bio: f.teacher.user.bio,
+          isVerified: f.teacher.user.isVerified,
+          subjects: f.teacher.subjects || [],
+          subscribers: f.teacher.followers.length,
+          totalVideos: totalLivestreams,
+          followedSince: f.createdAt,
+        };
+      })
+    );
+
+    return teachersWithStats;
   }
 
   // Get livestreams from followed teachers

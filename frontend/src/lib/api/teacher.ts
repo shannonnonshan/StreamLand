@@ -274,3 +274,63 @@ export function groupRecordingsByMonth(recordings: LiveStream[]) {
   
   return grouped;
 }
+
+// Update teacher profile (generic - works for bio, avatar, location, etc.)
+export async function updateUserProfile(updateData: {
+  bio?: string;
+  avatar?: string;
+  location?: string;
+  fullName?: string;
+}) {
+  const token = getAuthToken();
+  if (!token) {
+    throw new Error('Authentication required');
+  }
+
+  const response = await fetch(`${API_URL}/auth/profile`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify(updateData),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to update profile');
+  }
+
+  return response.json();
+}
+
+// Update teacher-specific profile (education, experience, website, linkedin, subjects)
+export async function updateTeacherProfile(updateData: {
+  education?: string;
+  experience?: number;
+  website?: string;
+  linkedin?: string;
+  subjects?: string[];
+  fullName?: string;
+  bio?: string;
+  location?: string;
+}) {
+  const token = getAuthToken();
+  if (!token) {
+    throw new Error('Authentication required');
+  }
+
+  const response = await fetch(`${API_URL}/auth/profile/teacher`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify(updateData),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to update teacher profile');
+  }
+
+  return response.json();
+}

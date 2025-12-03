@@ -45,36 +45,6 @@ export class TeacherController {
     return await this.teacherService.getDashboardStats(teacherId);
   }
 
-  // Update teacher bio (protected endpoint)
-  @UseGuards(JwtAuthGuard)
-  @Patch(':id/bio')
-  async updateBio(
-    @Param('id') teacherId: string,
-    @Body('bio') bio: string,
-    @Request() req: { user: { sub: string } }
-  ) {
-    // Verify that the user is updating their own profile
-    if (req.user.sub !== teacherId) {
-      throw new Error('Unauthorized');
-    }
-    return this.teacherService.updateBio(teacherId, bio);
-  }
-
-  // Update teacher avatar (protected endpoint)
-  @UseGuards(JwtAuthGuard)
-  @Patch(':id/avatar')
-  async updateAvatar(
-    @Param('id') teacherId: string,
-    @Body('avatarUrl') avatarUrl: string,
-    @Request() req: { user: { sub: string } }
-  ) {
-    // Verify that the user is updating their own profile
-    if (req.user.sub !== teacherId) {
-      throw new Error('Unauthorized');
-    }
-    return this.teacherService.updateAvatar(teacherId, avatarUrl);
-  }
-
   // Get teacher documents
   @UseGuards(JwtAuthGuard)
   @Get(':id/documents')
@@ -161,11 +131,11 @@ export class TeacherController {
     @Param('id') teacherId: string,
     @Body('content') content: string,
     @Request() req: { user: { sub: string } }
-  ) {
+  ): Promise<any> {
     if (req.user.sub !== teacherId) {
       throw new BadRequestException('Unauthorized');
     }
-    return this.chatService.createMessage({
+    return await this.chatService.createMessage({
       senderId: teacherId,
       receiverId: 'ADMIN',
       content: content || '', // Ensure content is never undefined
@@ -178,10 +148,10 @@ export class TeacherController {
   async getAdminConversation(
     @Param('id') teacherId: string,
     @Request() req: { user: { sub: string } }
-  ) {
+  ): Promise<any> {
     if (req.user.sub !== teacherId) {
       throw new BadRequestException('Unauthorized');
     }
-    return this.chatService.getConversation(teacherId, 'ADMIN');
+    return await this.chatService.getConversation(teacherId, 'ADMIN');
   }
 }

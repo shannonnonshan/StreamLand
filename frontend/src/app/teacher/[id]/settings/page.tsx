@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useAuth } from "@/hooks/useAuth";
+import toast, { Toaster } from 'react-hot-toast';
 import { 
   Shield, 
   Mail, 
@@ -22,6 +24,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 export default function SettingsPage() {
   const params = useParams();
   const router = useRouter();
+  const { getProfile } = useAuth();
   const teacherId = params?.id as string;
 
   const [openSections, setOpenSections] = useState({
@@ -42,6 +45,7 @@ export default function SettingsPage() {
   });
 
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const fetchTeacherData = async () => {
@@ -92,33 +96,132 @@ export default function SettingsPage() {
   };
 
   const handleSaveSettings = async () => {
+    if (saving) return;
+    
+    setSaving(true);
+    
+    // Show loading toast with spinner
+    const loadingToastId = toast.loading('Saving settings...', {
+      position: 'top-right',
+      style: {
+        background: '#047e56ff',
+        color: '#fff',
+        padding: '16px',
+        borderRadius: '8px',
+      },
+    });
+    
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/teacher/${teacherId}/settings`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(settings),
-      });
+      
+      // Execute both API calls in parallel for faster response
+      const [userProfileResponse, teacherProfileResponse] = await Promise.all([
+        fetch(`${API_URL}/auth/profile`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            fullName: settings.fullName,
+            bio: settings.bio,
+            location: settings.location,
+          }),
+        }),
+        fetch(`${API_URL}/auth/profile/teacher`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            education: settings.education,
+            experience: settings.experience,
+            website: settings.website,
+            linkedin: settings.linkedin,
+          }),
+        }),
+      ]);
 
-      if (response.ok) {
-        alert('Settings saved successfully!');
+      if (userProfileResponse.ok && teacherProfileResponse.ok) {
+        // Refresh user profile to update Headerbar
+        await getProfile();
+        
+        // Dismiss loading toast and show success with checkmark
+        toast.dismiss(loadingToastId);
+        toast.success('Settings saved successfully!', {
+          duration: 3000,
+          position: 'top-right',
+          icon: '✓',
+          style: {
+            background: '#047e56ff',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+            fontWeight: '500',
+          },
+        });
       } else {
-        alert('Failed to save settings');
+        toast.dismiss(loadingToastId);
+        const errorMsg = !userProfileResponse.ok 
+          ? 'Failed to save user profile' 
+          : 'Failed to save teacher profile';
+        toast.error(errorMsg, {
+          duration: 4000,
+          position: 'top-right',
+          icon: '✕',
+          style: {
+            background: '#EF4444',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+          },
+        });
       }
     } catch (error) {
       console.error('Error saving settings:', error);
-      alert('Error saving settings');
+      toast.dismiss(loadingToastId);
+      toast.error('Error saving settings', {
+        duration: 4000,
+        position: 'top-right',
+        icon: '✕',
+        style: {
+          background: '#EF4444',
+          color: '#fff',
+          padding: '16px',
+          borderRadius: '8px',
+        },
+      });
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleChangePassword = async () => {
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      alert('New passwords do not match!');
+      toast.error('New passwords do not match!', {
+        duration: 4000,
+        position: 'top-right',
+        icon: '✕',
+        style: {
+          background: '#EF4444',
+          color: '#fff',
+          padding: '16px',
+          borderRadius: '8px',
+        },
+      });
       return;
     }
+
+    const loadingToastId = toast.loading('Changing password...', {
+      position: 'top-right',
+      style: {
+        background: '#292C6D',
+        color: '#fff',
+        padding: '16px',
+        borderRadius: '8px',
+      },
+    });
 
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
@@ -135,45 +238,124 @@ export default function SettingsPage() {
       });
 
       if (response.ok) {
-        alert('Password changed successfully!');
+        toast.dismiss(loadingToastId);
+        toast.success('Password changed successfully!', {
+          duration: 3000,
+          position: 'top-right',
+          icon: '✓',
+          style: {
+            background: '#10B981',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+            fontWeight: '500',
+          },
+        });
         setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
       } else {
-        alert('Failed to change password');
+        toast.dismiss(loadingToastId);
+        toast.error('Failed to change password', {
+          duration: 4000,
+          position: 'top-right',
+          icon: '✕',
+          style: {
+            background: '#EF4444',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+          },
+        });
       }
     } catch (error) {
       console.error('Error changing password:', error);
-      alert('Error changing password');
+      toast.dismiss(loadingToastId);
+      toast.error('Error changing password', {
+        duration: 4000,
+        position: 'top-right',
+        icon: '✕',
+        style: {
+          background: '#EF4444',
+          color: '#fff',
+          padding: '16px',
+          borderRadius: '8px',
+        },
+      });
     }
   };
 
   const handleToggle2FA = async () => {
+    const newValue = !settings.twoFactorEnabled;
+    const loadingToastId = toast.loading(`${newValue ? 'Enabling' : 'Disabling'} 2FA...`, {
+      position: 'top-right',
+      style: {
+        background: '#292C6D',
+        color: '#fff',
+        padding: '16px',
+        borderRadius: '8px',
+      },
+    });
+
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-      const newValue = !settings.twoFactorEnabled;
       
-      const response = await fetch(`${API_URL}/teacher/${teacherId}/toggle-2fa`, {
+      const response = await fetch(`${API_URL}/auth/${teacherId}/2fa`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ enabled: newValue }),
+        body: JSON.stringify({ twoFactorEnabled: newValue }),
       });
 
       if (response.ok) {
         setSettings({ ...settings, twoFactorEnabled: newValue });
-        alert(`2FA ${newValue ? 'enabled' : 'disabled'} successfully!`);
+        toast.dismiss(loadingToastId);
+        toast.success(`2FA ${newValue ? 'enabled' : 'disabled'} successfully!`, {
+          duration: 3000,
+          position: 'top-right',
+          icon: '✓',
+          style: {
+            background: '#10B981',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+            fontWeight: '500',
+          },
+        });
       } else {
-        alert('Failed to toggle 2FA');
+        toast.dismiss(loadingToastId);
+        toast.error('Failed to toggle 2FA', {
+          duration: 4000,
+          position: 'top-right',
+          icon: '✕',
+          style: {
+            background: '#EF4444',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+          },
+        });
       }
     } catch (error) {
       console.error('Error toggling 2FA:', error);
-      alert('Error toggling 2FA');
+      toast.dismiss(loadingToastId);
+      toast.error('Error toggling 2FA', {
+        duration: 4000,
+        position: 'top-right',
+        icon: '✕',
+        style: {
+          background: '#EF4444',
+          color: '#fff',
+          padding: '16px',
+          borderRadius: '8px',
+        },
+      });
     }
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
+      <Toaster />
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
           <button
@@ -451,10 +633,24 @@ export default function SettingsPage() {
 
                   <button
                     onClick={handleSaveSettings}
-                    className="flex items-center gap-2 px-6 py-2 bg-[#292C6D] text-white rounded-lg hover:bg-[#1f2350] transition-colors"
+                    disabled={saving}
+                    className={`flex items-center gap-2 px-6 py-2 bg-[#292C6D] text-white rounded-lg transition-colors ${
+                      saving 
+                        ? 'opacity-50 cursor-not-allowed' 
+                        : 'hover:bg-[#1f2350]'
+                    }`}
                   >
-                    <Save size={18} />
-                    Save Changes
+                    {saving ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save size={18} />
+                        Save Changes
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

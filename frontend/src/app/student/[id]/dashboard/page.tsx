@@ -69,26 +69,46 @@ function LivestreamCard({ stream, index }: { stream: LivestreamData; index: numb
     }
   };
 
+  const handleMouseEnter = () => {
+    setIsHovered(true);
+    // Prefetch the route on hover for instant navigation
+    if (stream.status === 'LIVE') {
+      router.prefetch(`/student/livestream/${stream.id}`);
+    } else if (stream.status === 'ENDED' && stream.recordingUrl) {
+      router.prefetch(`/student/video/${stream.id}`);
+    }
+  };
+
   return (
     <div 
       className={`relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform ${isHovered ? 'scale-[1.02]' : ''} border border-gray-200 cursor-pointer`}
-      onMouseEnter={() => setIsHovered(true)}
+      onMouseEnter={handleMouseEnter}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
     >
         
         {/* Image/Placeholder */}
-        <div className="relative bg-gray-200 overflow-hidden h-48">
-            {/* Sử dụng một placeholder nếu không có ảnh, hoặc dùng ảnh thật */}
+        <div className="relative bg-gradient-to-br from-gray-100 to-gray-200 overflow-hidden h-48">
             {stream.thumbnailUrl ? (
-                <div 
-                  className={`absolute inset-0 bg-cover bg-center transform transition-transform duration-500 ${isHovered ? 'scale-110' : 'scale-100'}`} 
-                  style={{ backgroundImage: `url(${stream.thumbnailUrl})` }}
-                >
-                </div>
-            ) : (
-                <div className="flex items-center justify-center h-full text-gray-400 transition-all duration-300">
-                    <PlayCircleIcon className={`w-10 h-10 transition-all duration-300 ${isHovered ? `text-[#${stream.status === 'LIVE' ? SecondaryColor : PrimaryColor}] scale-110` : ''}`} />
+                <Image
+                  src={stream.thumbnailUrl}
+                  alt={stream.title}
+                  fill
+                  priority={index < 4}
+                  loading={index < 4 ? 'eager' : 'lazy'}
+                  className={`object-cover transform transition-transform duration-500 ${isHovered ? 'scale-110' : 'scale-100'}`}
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                  onError={(e) => {
+                    // Fallback to placeholder if image fails to load
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                  }}
+                />
+            ) : null}
+            {!stream.thumbnailUrl && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 transition-all duration-300">
+                    <PlayCircleIcon className={`w-16 h-16 mb-2 transition-all duration-300 ${isHovered ? `text-[#${stream.status === 'LIVE' ? SecondaryColor : PrimaryColor}] scale-110` : ''}`} />
+                    <span className="text-xs font-medium opacity-60">No Thumbnail</span>
                 </div>
             )}
             
@@ -116,16 +136,28 @@ function LivestreamCard({ stream, index }: { stream: LivestreamData; index: numb
             {/* Teacher Info */}
             <div className={`absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent text-white`}>
                 <p className="font-semibold text-sm truncate">{stream.title}</p>
-                <div className="flex items-center text-xs mt-1">
-                    {stream.teacher.avatar ? (
-                      <Image src={stream.teacher.avatar} alt={stream.teacher.fullName} width={20} height={20} className="h-5 w-5 rounded-full mr-2 border border-white object-cover" />
-                    ) : (
-                      <div className="h-5 w-5 rounded-full bg-[#161853]/70 mr-2 border border-white flex items-center justify-center">
-                        <span className="text-[10px]">{stream.teacher.fullName.charAt(0)}</span>
-                      </div>
-                    )}
-                    <span className="font-medium">{stream.teacher.fullName}</span>
-                </div>
+                {stream.teacher && (
+                  <div className="flex items-center text-xs mt-1">
+                      {stream.teacher.avatar ? (
+                        <Image 
+                          src={stream.teacher.avatar} 
+                          alt={stream.teacher.fullName} 
+                          width={20} 
+                          height={20} 
+                          className="h-5 w-5 rounded-full mr-2 border border-white object-cover" 
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <div className="h-5 w-5 rounded-full bg-white/20 mr-2 border border-white flex items-center justify-center">
+                          <span className="text-[10px] font-bold">{stream.teacher.fullName.charAt(0).toUpperCase()}</span>
+                        </div>
+                      )}
+                      <span className="font-medium">{stream.teacher.fullName}</span>
+                  </div>
+                )}
             </div>
         </div>
         
@@ -155,37 +187,66 @@ function LivestreamCard({ stream, index }: { stream: LivestreamData; index: numb
   );
 }
 
-// --- Sub-Component: Trending Card ---
-function TrendingCard({ item }: { item: VideoData }) {
+function TrendingCard({ item, index }: { item: VideoData; index: number }) {
     const [isHovered, setIsHovered] = useState(false);
+    const [imageError, setImageError] = useState(false);
     const router = useRouter();
 
     const handleClick = () => {
         // Navigate to video player page for recorded stream
         router.push(`/student/video/${item.id}`);
     };
+
+    const handleMouseEnter = () => {
+        setIsHovered(true);
+        // Prefetch the route on hover for instant navigation
+        router.prefetch(`/student/video/${item.id}`);
+    };
     
     return (
         <div 
             className={`w-full h-full bg-white rounded-xl overflow-hidden ${isHovered ? 'shadow-md' : 'shadow-sm'} transition-all duration-300 border border-gray-200 ${isHovered ? `border-[#${PrimaryColor}] border-opacity-40` : ''} cursor-pointer`}
-            onMouseEnter={() => setIsHovered(true)}
+            onMouseEnter={handleMouseEnter}
             onMouseLeave={() => setIsHovered(false)}
             onClick={handleClick}
         >
-            <div className="h-40 bg-gray-200 flex items-center justify-center overflow-hidden">
-                {/* Placeholder cho video thumbnail */}
-                <HeartIcon className={`h-8 w-8 transition-all duration-300 ${isHovered ? `text-[#${PrimaryColor}] scale-125 transform rotate-12` : 'text-gray-400'}`} />
+            <div className="h-40 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden relative">
+                {item.thumbnailUrl && !imageError ? (
+                  <Image
+                    src={item.thumbnailUrl}
+                    alt={item.title}
+                    fill
+                    priority={index < 4}
+                    loading={index < 4 ? 'eager' : 'lazy'}
+                    className="object-cover"
+                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
+                    onError={() => setImageError(true)}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center">
+                    <PlayCircleIcon className={`h-12 w-12 transition-all duration-300 ${isHovered ? `text-[#${PrimaryColor}] scale-125 transform rotate-12` : 'text-gray-400'}`} />
+                    <span className="text-xs text-gray-400 mt-2">No Thumbnail</span>
+                  </div>
+                )}
             </div>
             <div className="p-3">
                 <p className={`text-sm font-semibold text-[#${PrimaryColor}] transition-colors duration-300 line-clamp-2`}>{item.title}</p>
                 <p className="text-xs text-gray-600 mt-1">
-                    <span className={`${isHovered ? 'font-medium' : ''} transition-all duration-300`}>{item.teacher.fullName}</span>
-                    <span className="mx-1">•</span>
+                    {item.teacher && (
+                      <>
+                        <span className={`${isHovered ? 'font-medium' : ''} transition-all duration-300`}>{item.teacher.fullName}</span>
+                        <span className="mx-1">•</span>
+                      </>
+                    )}
                     <span className={`text-[#${PrimaryColor}] ${isHovered ? 'font-bold' : 'font-medium'} transition-all duration-300`}>
                       {item.totalViews.toLocaleString()} views
                     </span>
-                    <span className="mx-1">•</span>
-                    {new Date(item.endedAt).toLocaleDateString()}
+                    {item.endedAt && (
+                      <>
+                        <span className="mx-1">•</span>
+                        {new Date(item.endedAt).toLocaleDateString()}
+                      </>
+                    )}
                 </p>
             </div>
         </div>
@@ -208,14 +269,22 @@ export default function StudentDashboard() {
   // Fetch top livestreams (LIVE and SCHEDULED)
   const fetchTopLivestreams = async () => {
     try {
-      // Fetch both LIVE and SCHEDULED streams
+      // Fetch both LIVE and SCHEDULED streams in parallel
       const [liveResponse, scheduledResponse] = await Promise.all([
-        fetch(`${API_URL}/livestream/active/all`), // Get LIVE streams
-        fetch(`${API_URL}/livestream/scheduled/upcoming?limit=10`), // Get SCHEDULED streams
+        fetch(`${API_URL}/livestream/active/all`, {
+          next: { revalidate: 30 }, // Cache for 30 seconds
+        }), // Get LIVE streams
+        fetch(`${API_URL}/livestream/scheduled/upcoming?limit=10`, {
+          next: { revalidate: 60 }, // Cache for 60 seconds
+        }), // Get SCHEDULED streams
       ]);
 
       const liveData = liveResponse.ok ? await liveResponse.json() : [];
       const scheduledData = scheduledResponse.ok ? await scheduledResponse.json() : [];
+      
+      console.log('🔴 Live Data:', liveData);
+      console.log('🔴 First live thumbnail:', liveData[0]?.thumbnailUrl);
+      console.log('📅 Scheduled Data:', scheduledData);
       
       // Combine and sort by totalViews/priority
       const combined = [...liveData, ...scheduledData].sort((a, b) => {
@@ -238,14 +307,19 @@ export default function StudentDashboard() {
   const fetchTrendingVideos = async () => {
     try {
       // Fetch ended livestreams with recordings
-      const response = await fetch(`${API_URL}/livestream/recorded/all?limit=12`);
+      const response = await fetch(`${API_URL}/livestream/recorded/all?limit=12`, {
+        next: { revalidate: 60 }, // Cache for 60 seconds instead of no-store
+      });
       
       if (response.ok) {
         const data = await response.json();
+        console.log('🎥 Trending Videos Data:', data);
+        console.log('🎥 First video thumbnail:', data[0]?.thumbnailUrl);
         // Filter to only include streams with recordingUrl
         const recordedStreams = (data as VideoData[]).filter((stream) => 
           stream.status === 'ENDED' && stream.recordingUrl
         );
+        console.log('🎥 Filtered Videos:', recordedStreams);
         setTopTrending(recordedStreams);
       }
     } catch (error) {
@@ -258,16 +332,8 @@ export default function StudentDashboard() {
   // Run animation and fetch data after component mounts
   useEffect(() => {
     setIsLoaded(true);
-    fetchTopLivestreams();
-    fetchTrendingVideos();
-
-    // Auto-refresh every 30 seconds for real-time updates
-    const intervalId = setInterval(() => {
-      fetchTopLivestreams();
-      fetchTrendingVideos();
-    }, 30000);
-
-    return () => clearInterval(intervalId);
+    // Fetch data in parallel
+    Promise.all([fetchTopLivestreams(), fetchTrendingVideos()]);
   }, []);
   
   const fadeInUp = {
@@ -416,11 +482,11 @@ export default function StudentDashboard() {
               <motion.div
                 key={item.id}
                 variants={fadeInUp}
-                transition={{ delay: 0.2 * index }}
+                transition={{ delay: 0.05 * (index < 8 ? index : 8) }}
                 whileHover={{ y: -5, transition: { duration: 0.3 } }}
                 className="h-full"
               >
-                <TrendingCard key={item.id} item={item} />
+                <TrendingCard item={item} index={index} />
               </motion.div>
             ))}
           </div>

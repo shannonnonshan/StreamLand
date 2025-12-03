@@ -85,11 +85,30 @@ export default function TeacherProfilePage() {
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 3);
 
-  const handleSaveBio = () => {
+  const handleSaveBio = async () => {
     if (!teacher) return;
-    // TODO: Call API to save bio
-    setTeacher({ ...teacher, bio: editedBio });
-    setIsEditingBio(false);
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/profile`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ bio: editedBio }),
+      });
+
+      if (response.ok) {
+        setTeacher({ ...teacher, bio: editedBio });
+        setIsEditingBio(false);
+        alert('Bio updated successfully!');
+      } else {
+        alert('Failed to update bio');
+      }
+    } catch (error) {
+      console.error('Error updating bio:', error);
+      alert('Error updating bio');
+    }
   };
 
   const handleChangeAvatar = () => {

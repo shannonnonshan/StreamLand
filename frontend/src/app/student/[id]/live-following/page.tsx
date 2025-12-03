@@ -21,12 +21,14 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 interface Teacher {
   id: string;
-  teacher: {
-    id: string;
-    fullName: string;
-    avatar?: string;
-    email: string;
-  };
+  name: string;
+  email: string;
+  avatar?: string;
+  bio?: string;
+  isVerified?: boolean;
+  subjects?: string[];
+  subscribers?: number;
+  totalVideos?: number;
   followedSince: string;
 }
 
@@ -63,47 +65,55 @@ function ChannelCard({ channel }: { channel: Teacher }) {
   const following = true; // Always true since these are followed teachers
 
   const handleClick = () => {
-    router.push(`/teacher/public/${channel.teacher.id}`);
+    router.push(`/teacher/public/${channel.id}`);
+  };
+
+  const handleMouseEnter = () => {
+    setIsHovered(true);
+    // Prefetch the route on hover for instant navigation
+    router.prefetch(`/teacher/public/${channel.id}`);
   };
 
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform ${isHovered ? 'scale-[1.02]' : ''} border border-gray-200 cursor-pointer`}
-      onMouseEnter={() => setIsHovered(true)}
+      className={`relative h-full w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform ${isHovered ? 'scale-[1.02]' : ''} border border-gray-200 cursor-pointer flex flex-col`}
+      onMouseEnter={handleMouseEnter}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
     >
-      <div className="p-5 flex flex-col items-center">
+      <div className="p-6 flex flex-col items-center justify-between flex-1">
         <div className="relative mb-4">
-          <div className={`h-20 w-20 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 ${following ? `border-[#${SecondaryColor}]` : 'border-gray-300'} transition-all duration-300`}>
-            {channel.teacher.avatar ? (
+          <div className={`h-24 w-24 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 ${following ? `border-[#${SecondaryColor}]` : 'border-gray-300'} transition-all duration-300`}>
+            {channel.avatar ? (
               <Image
-                src={channel.teacher.avatar}
-                alt={channel.teacher.fullName}
-                width={80}
-                height={80}
+                src={channel.avatar}
+                alt={channel.name || 'Teacher'}
+                width={96}
+                height={96}
                 className="w-full h-full object-cover"
               />
             ) : (
-              <span className="text-2xl text-gray-500">{channel.teacher.fullName.charAt(0)}</span>
+              <span className="text-3xl text-gray-500 font-semibold">{(channel.name || 'T').charAt(0)}</span>
             )}
           </div>
           {following && (
-            <div className={`absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-[#${SecondaryColor}] flex items-center justify-center border-2 border-white`}>
-              <CheckCircleIcon className="h-4 w-4 text-white" />
+            <div className={`absolute -bottom-1 -right-1 h-7 w-7 rounded-full bg-[#${SecondaryColor}] flex items-center justify-center border-2 border-white`}>
+              <CheckCircleIcon className="h-5 w-5 text-white" />
             </div>
           )}
         </div>
 
-        <h3 className={`text-sm font-semibold text-[#${PrimaryColor}] text-center mb-2 line-clamp-2`}>
-          {channel.teacher.fullName}
-        </h3>
+        <div className="flex-1 flex flex-col items-center justify-center w-full">
+          <h3 className={`text-sm font-semibold text-[#${PrimaryColor}] text-center mb-2 line-clamp-2 min-h-[2.5rem] px-2`}>
+            {channel.name || 'Unknown Teacher'}
+          </h3>
 
-        <p className="text-xs text-gray-500 mb-3">
-          Following since {new Date(channel.followedSince).toLocaleDateString()}
-        </p>
+          <p className="text-xs text-gray-500 mb-3">
+            Following since {new Date(channel.followedSince).toLocaleDateString()}
+          </p>
+        </div>
 
-        <div className={`px-3 py-1.5 rounded-full text-xs font-medium ${following ? `bg-[#${SecondaryColor}]/10 text-[#${SecondaryColor}]` : `bg-gray-100 text-gray-600`} transition-all duration-300`}>
+        <div className={`px-4 py-2 rounded-full text-xs font-medium ${following ? `bg-[#${SecondaryColor}]/10 text-[#${SecondaryColor}]` : `bg-gray-100 text-gray-600`} transition-all duration-300`}>
           {following ? 'Following' : 'Not Following'}
         </div>
       </div>
@@ -111,7 +121,7 @@ function ChannelCard({ channel }: { channel: Teacher }) {
   );
 }
 
-function VideoCard({ video }: { video: Livestream | Video }) {
+function VideoCard({ video, index = 0 }: { video: Livestream | Video; index?: number }) {
   const [isHovered, setIsHovered] = useState(false);
   const router = useRouter();
   const isLive = 'isLive' in video && video.isLive;
@@ -124,6 +134,16 @@ function VideoCard({ video }: { video: Livestream | Video }) {
     }
   };
 
+  const handleMouseEnter = () => {
+    setIsHovered(true);
+    // Prefetch the route on hover for instant navigation
+    if (isLive) {
+      router.prefetch(`/student/livestream/${video.id}`);
+    } else {
+      router.prefetch(`/student/video/${video.id}`);
+    }
+  };
+
   const formatViews = (count: number) => {
     if (count >= 1000) {
       return `${(count / 1000).toFixed(1)}k`;
@@ -133,18 +153,21 @@ function VideoCard({ video }: { video: Livestream | Video }) {
 
   return (
     <div
-      className="relative w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-[1.02] cursor-pointer"
-      onMouseEnter={() => setIsHovered(true)}
+      className="relative h-full w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-[1.02] cursor-pointer flex flex-col"
+      onMouseEnter={handleMouseEnter}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
     >
-      <div className="relative aspect-video bg-gray-200">
+      <div className="relative aspect-video bg-gray-200 flex-shrink-0">
         {video.thumbnailUrl ? (
           <Image
             src={video.thumbnailUrl}
             alt={video.title}
             fill
+            priority={index < 4}
+            loading={index < 4 ? 'eager' : 'lazy'}
             className="object-cover"
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-400 to-pink-500">
@@ -166,7 +189,7 @@ function VideoCard({ video }: { video: Livestream | Video }) {
         )}
 
         <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent text-white">
-          <p className="font-semibold text-sm truncate">{video.title}</p>
+          <p className="font-semibold text-sm line-clamp-1">{video.title}</p>
           <div className="flex items-center text-xs mt-1">
             {video.teacher.avatar ? (
               <Image
@@ -174,20 +197,20 @@ function VideoCard({ video }: { video: Livestream | Video }) {
                 alt={video.teacher.fullName}
                 width={20}
                 height={20}
-                className="rounded-full mr-2 border border-white"
+                className="rounded-full mr-2 border border-white object-cover"
               />
             ) : (
-              <div className="h-5 w-5 rounded-full bg-[#161853]/70 mr-2 border border-white flex items-center justify-center">
+              <div className="h-5 w-5 rounded-full bg-[#161853]/70 mr-2 border border-white flex items-center justify-center flex-shrink-0">
                 <span className="text-xs">{video.teacher.fullName.charAt(0)}</span>
               </div>
             )}
-            <span className="font-medium">{video.teacher.fullName}</span>
+            <span className="font-medium truncate">{video.teacher.fullName}</span>
           </div>
         </div>
       </div>
 
-      <div className="p-3 flex justify-between items-center">
-        <div className="flex flex-col">
+      <div className="p-3 flex justify-between items-center flex-shrink-0 min-h-[4rem]">
+        <div className="flex flex-col flex-1">
           <span className={`text-xs font-medium text-[#${PrimaryColor}]`}>
             {formatViews(video.viewCount)} views
           </span>
@@ -197,7 +220,7 @@ function VideoCard({ video }: { video: Livestream | Video }) {
             </span>
           )}
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-shrink-0">
           <HeartIcon className={`h-4 w-4 ${isHovered ? `text-[#${SecondaryColor}]` : `text-[#${PrimaryColor}]`} transition-colors duration-300`} />
           <PlayCircleIcon className={`h-4 w-4 ${isHovered ? `text-[#${SecondaryColor}]` : `text-[#${PrimaryColor}]`} transition-colors duration-300`} />
         </div>
@@ -230,30 +253,26 @@ export default function LiveFollowingPage() {
           return;
         }
 
-        // Fetch followed teachers
-        const result = await getFollowedTeachers();
-        if (result && result.success && result.data) {
-          setFollowedChannels(result.data);
-        }
+        const headers = {
+          Authorization: `Bearer ${accessToken}`,
+        };
 
-        // Fetch livestreams from followed teachers
-        const livestreamsRes = await fetch(`${API_URL}/student/followed-livestreams`, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
+        // Fetch all data in parallel for faster loading
+        const [teachersResult, livestreamsRes, videosRes] = await Promise.all([
+          getFollowedTeachers(),
+          fetch(`${API_URL}/student/followed-livestreams`, { headers }),
+          fetch(`${API_URL}/student/followed-videos`, { headers }),
+        ]);
+
+        // Process results
+        if (teachersResult && teachersResult.success && teachersResult.data) {
+          setFollowedChannels(teachersResult.data);
+        }
 
         if (livestreamsRes.ok) {
           const livestreamsData = await livestreamsRes.json();
           setLivestreams(livestreamsData);
         }
-
-        // Fetch videos from followed teachers
-        const videosRes = await fetch(`${API_URL}/student/followed-videos`, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
 
         if (videosRes.ok) {
           const videosData = await videosRes.json();
@@ -351,7 +370,13 @@ export default function LiveFollowingPage() {
 
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {followedChannels.map((channel, index) => (
-              <motion.div key={channel.id} variants={fadeInUp} transition={{ delay: 0.05 * index }} whileHover={{ y: -5, transition: { duration: 0.3 } }}>
+              <motion.div 
+                key={channel.id} 
+                className="h-full"
+                variants={fadeInUp} 
+                transition={{ delay: 0.05 * (index < 8 ? index : 8) }} 
+                whileHover={{ y: -5, transition: { duration: 0.3 } }}
+              >
                 <ChannelCard channel={channel} />
               </motion.div>
             ))}
@@ -390,8 +415,14 @@ export default function LiveFollowingPage() {
 
             <div ref={livestreamContainerRef} className="flex flex-row space-x-4 overflow-x-auto pb-4 snap-x snap-mandatory scroll-smooth scrollbar-none">
               {filteredLivestreams.map((stream, index) => (
-                <motion.div key={stream.id} className="flex-shrink-0 w-72 snap-center" variants={fadeInUp} transition={{ delay: 0.1 * index }} whileHover={{ y: -5, transition: { duration: 0.3 } }}>
-                  <VideoCard video={stream} />
+                <motion.div 
+                  key={stream.id} 
+                  className="flex-shrink-0 w-72 h-full snap-center" 
+                  variants={fadeInUp} 
+                  transition={{ delay: 0.05 * (index < 8 ? index : 8) }} 
+                  whileHover={{ y: -5, transition: { duration: 0.3 } }}
+                >
+                  <VideoCard video={stream} index={index} />
                 </motion.div>
               ))}
             </div>
@@ -410,8 +441,14 @@ export default function LiveFollowingPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 md:gap-6">
               {filteredVideos.map((video, index) => (
-                <motion.div key={video.id} variants={fadeInUp} transition={{ delay: 0.1 * index }} whileHover={{ y: -5, transition: { duration: 0.3 } }}>
-                  <VideoCard video={video} />
+                <motion.div 
+                  key={video.id} 
+                  className="h-full"
+                  variants={fadeInUp} 
+                  transition={{ delay: 0.05 * (index < 8 ? index : 8) }} 
+                  whileHover={{ y: -5, transition: { duration: 0.3 } }}
+                >
+                  <VideoCard video={video} index={index} />
                 </motion.div>
               ))}
             </div>

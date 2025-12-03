@@ -180,7 +180,7 @@ export default function MainLayout({ children, params }: { children: ReactNode; 
       />
       
       {/* Main content area */}
-        <main className="fixed left-20 top-16 right-0 bottom-0 overflow-y-auto overflow-x-hidden">
+        <main className="fixed left-0 top-16 right-0 bottom-0 overflow-y-auto overflow-x-hidden">
           {children}
         </main>
         

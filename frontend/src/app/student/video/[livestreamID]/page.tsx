@@ -202,10 +202,16 @@ export default function VideoPlayerPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-[#161853] mx-auto mb-4" />
-          <p className="text-gray-600">Loading video...</p>
+          <div className="relative">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-r from-[#161853] to-[#292C6D] flex items-center justify-center mx-auto mb-6 shadow-xl">
+              <Loader2 className="w-10 h-10 animate-spin text-white" />
+            </div>
+            <div className="absolute inset-0 w-20 h-20 mx-auto rounded-full bg-gradient-to-r from-[#161853] to-[#292C6D] blur-xl opacity-30 animate-pulse"></div>
+          </div>
+          <p className="text-lg font-medium text-gray-700">Loading video...</p>
+          <p className="text-sm text-gray-500 mt-2">Please wait a moment</p>
         </div>
       </div>
     );
@@ -213,18 +219,19 @@ export default function VideoPlayerPage() {
 
   if (error || !videoInfo) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="bg-white rounded-xl shadow-lg p-8 max-w-md mx-4">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Play className="text-red-600" size={32} />
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
+        <div className="text-center max-w-md">
+          <div className="bg-white rounded-2xl shadow-2xl p-10 backdrop-blur-lg border border-gray-100">
+            <div className="w-20 h-20 bg-gradient-to-br from-red-50 to-red-100 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+              <Play className="text-red-600" size={40} />
             </div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">Video Not Available</h2>
-            <p className="text-gray-600 mb-6">{error || 'This video could not be found'}</p>
+            <h2 className="text-2xl font-bold text-gray-900 mb-3">Video Not Available</h2>
+            <p className="text-gray-600 mb-8 leading-relaxed">{error || 'This video could not be found or has been removed'}</p>
             <button
               onClick={() => router.back()}
-              className="px-6 py-3 bg-[#161853] text-white rounded-lg hover:bg-[#292C6D] transition-colors font-medium"
+              className="group px-8 py-3.5 bg-gradient-to-r from-[#161853] to-[#292C6D] text-white rounded-xl hover:shadow-xl transition-all duration-300 font-semibold flex items-center gap-2 mx-auto hover:scale-105"
             >
+              <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
               Go Back
             </button>
           </div>
@@ -234,23 +241,24 @@ export default function VideoPlayerPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Back Button */}
         <button
           onClick={() => router.back()}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4 transition-colors"
+          className="group flex items-center gap-2 text-gray-600 hover:text-[#161853] mb-6 transition-all duration-300 hover:gap-3 font-medium"
         >
-          <ArrowLeft size={20} />
-          <span>Back</span>
+          <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+          <span>Back to Videos</span>
         </button>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Video Player */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+          {/* Video Player Section */}
+          <div className="xl:col-span-2 space-y-6">
+            {/* Video Player */}
+            <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
               <div
-                className="relative bg-black"
+                className="relative bg-black group"
                 onMouseEnter={() => setShowControls(true)}
                 onMouseLeave={() => setShowControls(false)}
               >
@@ -258,141 +266,172 @@ export default function VideoPlayerPage() {
                   ref={videoRef}
                   src={videoInfo.recordingUrl}
                   poster={videoInfo.thumbnailUrl}
-                  className="w-full aspect-video"
+                  className="w-full aspect-video cursor-pointer"
                   onClick={togglePlay}
                 />
 
+                {/* Play Overlay */}
+                {!isPlaying && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <div className="w-20 h-20 rounded-full bg-white/90 flex items-center justify-center shadow-2xl hover:scale-110 transition-transform cursor-pointer">
+                      <Play size={32} className="text-[#161853] ml-1" fill="currentColor" />
+                    </div>
+                  </div>
+                )}
+
                 {/* Custom Controls */}
-                {showControls && (
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 transition-opacity">
-                    {/* Progress Bar */}
+                <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-6 transition-all duration-300 ${showControls ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
+                  {/* Progress Bar */}
+                  <div className="mb-4">
                     <input
                       type="range"
                       min="0"
                       max={duration || 0}
                       value={currentTime}
                       onChange={handleSeek}
-                      className="w-full mb-2 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                      className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:transition-transform"
+                      style={{
+                        background: `linear-gradient(to right, #EC255A ${(currentTime / duration) * 100}%, rgba(255,255,255,0.2) ${(currentTime / duration) * 100}%)`
+                      }}
                     />
+                  </div>
 
-                    <div className="flex items-center justify-between text-white">
-                      <div className="flex items-center gap-3">
-                        <button onClick={togglePlay} className="hover:scale-110 transition">
-                          {isPlaying ? <Pause size={24} /> : <Play size={24} />}
+                  <div className="flex items-center justify-between text-white">
+                    <div className="flex items-center gap-4">
+                      <button 
+                        onClick={togglePlay} 
+                        className="hover:scale-110 transition-transform duration-200 w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10"
+                      >
+                        {isPlaying ? <Pause size={24} /> : <Play size={24} />}
+                      </button>
+
+                      <div className="flex items-center gap-3 bg-white/10 rounded-full px-4 py-2 backdrop-blur-sm">
+                        <button 
+                          onClick={toggleMute} 
+                          className="hover:scale-110 transition-transform duration-200"
+                        >
+                          {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
                         </button>
-
-                        <div className="flex items-center gap-2">
-                          <button onClick={toggleMute} className="hover:scale-110 transition">
-                            {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-                          </button>
-                          <input
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.1"
-                            value={volume}
-                            onChange={handleVolumeChange}
-                            className="w-20 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
-                          />
-                        </div>
-
-                        <span className="text-sm">
-                          {formatTime(currentTime)} / {formatTime(duration)}
-                        </span>
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.1"
+                          value={volume}
+                          onChange={handleVolumeChange}
+                          className="w-24 h-1 bg-white/30 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+                        />
                       </div>
 
-                      <div className="flex items-center gap-3">
-                        <button className="hover:scale-110 transition">
-                          <Settings size={20} />
-                        </button>
-                        <button onClick={toggleFullscreen} className="hover:scale-110 transition">
-                          <Maximize size={20} />
-                        </button>
-                      </div>
+                      <span className="text-sm font-medium bg-white/10 rounded-full px-4 py-2 backdrop-blur-sm">
+                        {formatTime(currentTime)} / {formatTime(duration)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button className="hover:scale-110 transition-transform duration-200 w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10">
+                        <Settings size={20} />
+                      </button>
+                      <button 
+                        onClick={toggleFullscreen} 
+                        className="hover:scale-110 transition-transform duration-200 w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10"
+                      >
+                        <Maximize size={20} />
+                      </button>
                     </div>
                   </div>
-                )}
+                </div>
               </div>
 
               {/* Video Info */}
-              <div className="p-6">
-                <h1 className="text-2xl font-bold text-gray-900 mb-3">{videoInfo.title}</h1>
+              <div className="p-8">
+                <h1 className="text-3xl font-bold text-gray-900 mb-4 leading-tight">{videoInfo.title}</h1>
 
-                <div className="flex items-center justify-between mb-4 pb-4 border-b">
-                  <div className="flex items-center gap-4 text-sm text-gray-600">
-                    <span>{videoInfo.totalViews.toLocaleString()} views</span>
-                    <span>•</span>
-                    <span>{new Date(videoInfo.endedAt).toLocaleDateString()}</span>
-                    <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-6 border-b border-gray-200">
+                  <div className="flex items-center gap-4 text-sm">
+                    <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl">
+                      <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                      <span className="font-semibold text-gray-700">{videoInfo.totalViews.toLocaleString()} views</span>
+                    </div>
+                    <span className="text-gray-400">•</span>
+                    <span className="text-gray-600 font-medium">{new Date(videoInfo.endedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                    <span className="px-4 py-2 bg-gradient-to-r from-[#161853] to-[#292C6D] text-white rounded-xl text-xs font-bold shadow-lg">
                       {videoInfo.category}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
                     <button
                       onClick={handleLike}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                      className={`group flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all duration-300 font-semibold shadow-md hover:shadow-lg hover:scale-105 ${
                         isLiked
-                          ? "bg-blue-100 text-blue-600"
-                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          ? "bg-gradient-to-r from-blue-500 to-blue-600 text-white"
+                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                       }`}
                     >
-                      <ThumbsUp size={18} />
-                      <span className="text-sm font-medium">{videoInfo.likes}</span>
+                      <ThumbsUp size={18} className={isLiked ? "fill-current" : ""} />
+                      <span className="text-sm">{videoInfo.likes}</span>
                     </button>
                     <button
                       onClick={handleDislike}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                      className={`group flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all duration-300 font-semibold shadow-md hover:shadow-lg hover:scale-105 ${
                         isDisliked
-                          ? "bg-red-100 text-red-600"
-                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          ? "bg-gradient-to-r from-red-500 to-red-600 text-white"
+                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                       }`}
                     >
-                      <ThumbsDown size={18} />
-                      <span className="text-sm font-medium">{videoInfo.dislikes}</span>
+                      <ThumbsDown size={18} className={isDisliked ? "fill-current" : ""} />
+                      <span className="text-sm">{videoInfo.dislikes}</span>
                     </button>
                     <button
                       onClick={handleShare}
-                      className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition"
+                      className="group flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#EC255A] to-[#ff4d7a] text-white rounded-xl hover:shadow-lg transition-all duration-300 font-semibold hover:scale-105"
                     >
                       <Share2 size={18} />
-                      <span className="text-sm font-medium">Share</span>
+                      <span className="text-sm">Share</span>
                     </button>
                   </div>
                 </div>
 
                 {/* Teacher Info */}
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="w-12 h-12 rounded-full bg-gray-200 overflow-hidden">
-                    {videoInfo.teacher.avatar ? (
-                      <Image
-                        src={videoInfo.teacher.avatar}
-                        alt={videoInfo.teacher.fullName}
-                        width={48}
-                        height={48}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-[#161853] text-white font-bold">
-                        {videoInfo.teacher.fullName.charAt(0)}
+                <div className="flex items-center justify-between p-6 bg-gradient-to-r from-gray-50 to-blue-50/50 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow duration-300">
+                  <div className="flex items-center gap-5">
+                    <div className="relative group">
+                      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#161853] to-[#292C6D] overflow-hidden shadow-lg group-hover:shadow-xl transition-all duration-300 group-hover:scale-105">
+                        {videoInfo.teacher.avatar ? (
+                          <Image
+                            src={videoInfo.teacher.avatar}
+                            alt={videoInfo.teacher.fullName}
+                            width={64}
+                            height={64}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-white text-xl font-bold">
+                            {videoInfo.teacher.fullName.charAt(0)}
+                          </div>
+                        )}
                       </div>
-                    )}
+                      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-[#161853] to-[#292C6D] blur-lg opacity-0 group-hover:opacity-30 transition-opacity duration-300"></div>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900 mb-1">{videoInfo.teacher.fullName}</h3>
+                      <p className="text-sm text-gray-500">Instructor</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{videoInfo.teacher.fullName}</h3>
-                    <button
-                      onClick={() => router.push(`/teacher/public/${videoInfo.teacher.id}`)}
-                      className="text-sm text-blue-600 hover:underline"
-                    >
-                      View Profile
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => router.push(`/teacher/public/${videoInfo.teacher.id}`)}
+                    className="px-6 py-2.5 bg-gradient-to-r from-[#161853] to-[#292C6D] text-white rounded-xl hover:shadow-lg transition-all duration-300 font-semibold hover:scale-105"
+                  >
+                    View Profile
+                  </button>
                 </div>
 
                 {/* Description */}
                 {videoInfo.description && (
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <p className="text-gray-700 whitespace-pre-wrap">{videoInfo.description}</p>
+                  <div className="mt-6 bg-gradient-to-br from-gray-50 to-blue-50/30 rounded-2xl p-6 border border-gray-100">
+                    <h4 className="text-sm font-bold text-gray-900 mb-3 uppercase tracking-wide">Description</h4>
+                    <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">{videoInfo.description}</p>
                   </div>
                 )}
               </div>
@@ -400,10 +439,19 @@ export default function VideoPlayerPage() {
           </div>
 
           {/* Sidebar - Related Videos */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="font-semibold text-gray-900 mb-4">Related Videos</h3>
-              <p className="text-sm text-gray-500">No related videos available</p>
+          <div className="xl:col-span-1">
+            <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100 sticky top-8">
+              <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <div className="w-1 h-6 bg-gradient-to-b from-[#161853] to-[#292C6D] rounded-full"></div>
+                Related Videos
+              </h3>
+              <div className="text-center py-12">
+                <div className="w-16 h-16 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Play className="text-gray-400" size={28} />
+                </div>
+                <p className="text-sm text-gray-500 font-medium">No related videos available</p>
+                <p className="text-xs text-gray-400 mt-2">Check back later for more content</p>
+              </div>
             </div>
           </div>
         </div>

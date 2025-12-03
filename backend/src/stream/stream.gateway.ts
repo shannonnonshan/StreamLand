@@ -362,6 +362,22 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  @SubscribeMessage('document-uploaded')
+  handleDocumentUploaded(
+    @MessageBody() data: { livestreamID: string; document: unknown },
+    @ConnectedSocket() socket: Socket,
+  ) {
+    const key = this.getKey(data.livestreamID);
+    const channel = this.channels[key];
+    
+    if (channel && channel.broadcaster === socket.id) {
+      // Broadcast new document to all watchers
+      this.server.to([...channel.watchers]).emit('document-uploaded', {
+        document: data.document,
+      });
+    }
+  }
+
   @SubscribeMessage('send-chat-message')
   async handleChatMessage(
     @MessageBody() data: ChatMessagePayload,

@@ -66,7 +66,7 @@ export default function StudentProfilePage() {
   const params = useParams();
   const router = useRouter();
   const { id } = params;
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, getProfile } = useAuth();
   
   const [friendshipStatus, setFriendshipStatus] = useState<'NONE' | 'PENDING' | 'ACCEPTED'>('NONE');
   const [friendshipId, setFriendshipId] = useState<string | null>(null);
@@ -309,6 +309,12 @@ export default function StudentProfilePage() {
 
       // Reload profile after save
       await loadProfile();
+      
+      // Refetch user profile to update Headerbar if this is own profile
+      if (isOwnProfile) {
+        await getProfile();
+      }
+      
       setIsEditMode(false);
     } catch (error) {
       console.error('Error saving profile:', error);
@@ -404,17 +410,8 @@ export default function StudentProfilePage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <Headerbar />
       
-      <div className="ml-20 pt-16">
-        <div className="max-w-7xl mx-auto p-6">
-          {/* Back Button */}
-          <button
-            onClick={() => router.back()}
-            className="mb-4 flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-gray-50 text-gray-700 font-medium transition-all shadow-sm hover:shadow-md"
-          >
-            <ArrowLeftIcon className="h-5 w-5" />
-            Back
-          </button>
-
+      <div className="pt-16 pl-20">
+        <div className="max-w-[1400px] mx-auto px-8 py-6">
           {/* Loading State */}
           {isLoading ? (
             <div className="flex items-center justify-center h-96">

@@ -19,20 +19,28 @@ export class LivestreamService {
   async createLivestream(createLivestreamDto: CreateLivestreamDto) {
     const { id, teacherId, title, description, isPublic, allowComments } = createLivestreamDto;
 
-    // Check if livestream ID already exists
-    const existingLivestream = await this.prisma.postgres.liveStream.findUnique({
-      where: { id },
-    });
+    // Optimize: Single query to check teacher and active livestream
+    const [existingLivestream, teacher, activeLivestream] = await Promise.all([
+      this.prisma.postgres.liveStream.findUnique({
+        where: { id },
+        select: { id: true }, // Only need ID for existence check
+      }),
+      this.prisma.postgres.user.findUnique({
+        where: { id: teacherId },
+        select: { id: true, role: true }, // Don't need full teacherProfile
+      }),
+      this.prisma.postgres.liveStream.findFirst({
+        where: {
+          teacherId,
+          status: LiveStreamStatus.LIVE,
+        },
+        select: { id: true }, // Only need ID for existence check
+      }),
+    ]);
 
     if (existingLivestream) {
       throw new ConflictException('Livestream ID already exists');
     }
-
-    // Check if teacher exists and has TEACHER role
-    const teacher = await this.prisma.postgres.user.findUnique({
-      where: { id: teacherId },
-      include: { teacherProfile: true },
-    });
 
     if (!teacher) {
       throw new NotFoundException('Teacher not found');
@@ -41,14 +49,6 @@ export class LivestreamService {
     if (teacher.role !== 'TEACHER') {
       throw new BadRequestException('User is not a teacher');
     }
-
-    // Check if teacher already has an active livestream
-    const activeLivestream = await this.prisma.postgres.liveStream.findFirst({
-      where: {
-        teacherId,
-        status: LiveStreamStatus.LIVE,
-      },
-    });
 
     if (activeLivestream) {
       throw new ConflictException('Teacher already has an active livestream');
@@ -61,6 +61,7 @@ export class LivestreamService {
         teacherId,
         title,
         description: description || '',
+        thumbnail: 'https://images.unsplash.com/photo-1588072432836-e10032774350?w=800&h=450&fit=crop', // Default thumbnail
         isPublic: isPublic !== undefined ? isPublic : true,
         allowComments: allowComments !== undefined ? allowComments : true,
         status: LiveStreamStatus.SCHEDULED,
@@ -68,6 +69,19 @@ export class LivestreamService {
         totalViews: 0,
         peakViewers: 0,
         duration: 0,
+      },
+      select: {
+        id: true,
+        teacherId: true,
+        title: true,
+        description: true,
+        category: true,
+        thumbnail: true,
+        status: true,
+        isPublic: true,
+        allowComments: true,
+        createdAt: true,
+        // Don't return unnecessary fields to reduce response size
       },
     });
 
@@ -148,6 +162,23 @@ export class LivestreamService {
     };
   }
 
+  async getLivestreamDocuments(id: string) {
+    // Check if livestream exists
+    const livestream = await this.prisma.postgres.liveStream.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!livestream) {
+      throw new NotFoundException('Livestream not found');
+    }
+
+    // TODO: Implement document storage and retrieval
+    // For now, return empty array as documents are not yet implemented in database
+    this.logger.warn(`Documents requested for livestream ${id} but document feature is not yet implemented`);
+    return [];
+  }
+
   async updateLivestreamStatus(id: string, status: LiveStreamStatus) {
     const livestream = await this.prisma.postgres.liveStream.findUnique({
       where: { id },
@@ -192,13 +223,43 @@ export class LivestreamService {
   }
 
   async getActiveLivestreams() {
-    return await this.prisma.postgres.liveStream.findMany({
+    const livestreams = await this.prisma.postgres.liveStream.findMany({
       where: {
         status: LiveStreamStatus.LIVE,
         isPublic: true,
       },
+      include: {
+        teacher: {
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true,
+          },
+        },
+      },
       orderBy: { currentViewers: 'desc' },
     });
+
+    return livestreams.map((stream) => ({
+      id: stream.id,
+      title: stream.title,
+      description: stream.description,
+      teacherId: stream.teacherId,
+      teacher: {
+        id: stream.teacher.id,
+        fullName: stream.teacher.fullName,
+        avatar: stream.teacher.avatar,
+      },
+      totalViews: stream.totalViews,
+      currentViewers: stream.currentViewers,
+      thumbnailUrl: stream.thumbnail,
+      status: stream.status,
+      category: stream.category,
+      recordingUrl: stream.recordingUrl,
+      startedAt: stream.startedAt,
+      endedAt: stream.endedAt,
+      scheduledStartTime: stream.scheduledAt,
+    }));
   }
 
   async endLivestream(id: string, saveRecording: boolean) {
@@ -218,11 +279,11 @@ export class LivestreamService {
       const durationMs = endedAt.getTime() - startedAt.getTime();
       const duration = Math.floor(durationMs / 1000); // duration in seconds
 
-      // --- Update peakViewers and totalViewers ---
+      // --- Update peakViewers and totalViews ---
       // Giả sử bạn đang track current viewers ở server:
       const currentViewers = livestream.currentViewers || 0; // hoặc lấy từ cache/Socket.IO
       const peakViewers = Math.max(livestream.peakViewers || 0, currentViewers);
-      const totalViewers = (livestream.totalViews || 0) + currentViewers;
+      const totalViews = (livestream.totalViews || 0) + currentViewers;
 
       // Update livestream status
       const updateData: any = {
@@ -231,7 +292,7 @@ export class LivestreamService {
         duration,
         isRecorded: saveRecording,
         peakViewers,
-        totalViewers,
+        totalViews,
       };
 
       if (saveRecording) {
@@ -243,7 +304,7 @@ export class LivestreamService {
         data: updateData,
       });
 
-      this.logger.log(`Livestream ${id} ended successfully. Duration: ${duration}s, Recorded: ${saveRecording}, PeakViewers: ${peakViewers}, TotalViewers: ${totalViewers}`);
+      this.logger.log(`Livestream ${id} ended successfully. Duration: ${duration}s, Recorded: ${saveRecording}, PeakViewers: ${peakViewers}, TotalViews: ${totalViews}`);
       return updatedLivestream;
     }
 
@@ -317,6 +378,7 @@ export class LivestreamService {
           teacherId,
           title,
           description: '',
+          thumbnail: 'https://images.unsplash.com/photo-1588072432836-e10032774350?w=800&h=450&fit=crop', // Default thumbnail
           status: LiveStreamStatus.SCHEDULED,
           scheduledAt: new Date(startTime),
           totalViews: 0,

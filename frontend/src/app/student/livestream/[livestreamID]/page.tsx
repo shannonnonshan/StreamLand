@@ -5,6 +5,9 @@ import { raleway } from '@/utils/front';
 import { useParams } from 'next/navigation';
 import { useLivestreamViewer } from '@/hooks/useLivestreamViewer';
 import { trackWatchActivity } from '@/utils/trackActivity';
+import { useAuth } from '@/hooks/useAuth';
+import { getLivestreamDocuments } from '@/lib/api/student';
+import toast, { Toaster } from 'react-hot-toast';
 import { 
   PlayIcon, 
   PauseIcon,
@@ -59,6 +62,7 @@ interface SharedDocument {
 export default function LivestreamViewerPage() {
   const params = useParams();
   const livestreamID = params.livestreamID as string;
+  const { user } = useAuth();
   
   // Livestream info from backend
   const [livestreamInfo, setLivestreamInfo] = useState<LivestreamInfo | null>(null);
@@ -80,7 +84,6 @@ export default function LivestreamViewerPage() {
   });
   
   // Video player states
-  const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(80);
   const [isLiked, setIsLiked] = useState(false);
@@ -104,44 +107,9 @@ export default function LivestreamViewerPage() {
   const [showSharedDocument, setShowSharedDocument] = useState(false);
   
   // Documents shared by teacher
-  const [teacherDocuments] = useState([
-    {
-      id: '1',
-      title: 'IELTS Speaking Part 2 - Sample Topics',
-      filename: 'ielts-speaking-part2.pdf',
-      type: 'pdf' as const,
-      size: '2.4 MB',
-      uploadedAt: '2 hours ago',
-      description: 'Collection of common Part 2 topics with sample answers',
-      downloadUrl: '#',
-      isSaved: false,
-    },
-    {
-      id: '2',
-      title: 'Speaking Band Descriptors',
-      filename: 'speaking-band-descriptors.pdf',
-      type: 'pdf' as const,
-      size: '1.2 MB',
-      uploadedAt: '1 hour ago',
-      description: 'Official IELTS speaking assessment criteria',
-      downloadUrl: '#',
-      isSaved: false,
-    },
-    {
-      id: '3',
-      title: 'Useful Phrases and Idioms',
-      filename: 'phrases-idioms.docx',
-      type: 'doc' as const,
-      size: '890 KB',
-      uploadedAt: '30 minutes ago',
-      description: 'Advanced vocabulary for high band scores',
-      downloadUrl: '#',
-      isSaved: true,
-    },
-  ]);
-  const [savedDocuments, setSavedDocuments] = useState<string[]>(
-    teacherDocuments.filter(doc => doc.isSaved).map(doc => doc.id)
-  );
+  const [teacherDocuments, setTeacherDocuments] = useState<any[]>([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [savedDocuments, setSavedDocuments] = useState<string[]>([]);
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
@@ -192,6 +160,42 @@ export default function LivestreamViewerPage() {
     fetchLivestreamInfo();
   }, [livestreamID]);
 
+  // Fetch documents from API
+  useEffect(() => {
+    const fetchDocuments = async () => {
+      if (!livestreamID) return;
+      
+      setDocumentsLoading(true);
+      try {
+        const docs = await getLivestreamDocuments(livestreamID);
+        
+        // Map API documents to frontend format
+        const mappedDocs = docs.map((doc: any) => ({
+          id: doc.id,
+          title: doc.title,
+          filename: doc.fileName,
+          type: doc.fileType.includes('pdf') ? 'pdf' : 
+                doc.fileType.includes('doc') ? 'doc' : 
+                doc.fileType.includes('ppt') ? 'ppt' : 
+                doc.fileType.includes('xls') ? 'xls' : 'file',
+          size: formatFileSize(doc.fileSize),
+          uploadedAt: formatTimeAgo(doc.uploadedAt),
+          description: doc.description || '',
+          downloadUrl: doc.fileUrl,
+          isSaved: false,
+        }));
+        
+        setTeacherDocuments(mappedDocs);
+      } catch (error) {
+        console.error('Error fetching documents:', error);
+      } finally {
+        setDocumentsLoading(false);
+      }
+    };
+
+    fetchDocuments();
+  }, [livestreamID]);
+
   // Listen for livestream info from backend
   useEffect(() => {
     import('@/socket').then((module) => {
@@ -240,10 +244,39 @@ export default function LivestreamViewerPage() {
         setSharedDocument(null);
       });
 
-      // Listen for documents sync when joining
-      socket.on('sync-documents', () => {
-        // If there were documents shared, we could show them in a list
-        // For now, just log them
+      // Listen for documents sync when joining or when teacher uploads
+      socket.on('sync-documents', (data: { documents: any[] }) => {
+        if (data.documents && data.documents.length > 0) {
+          // Map documents to frontend format
+          const mappedDocs = data.documents.map((doc: any) => ({
+            id: doc.id,
+            title: doc.name || doc.title,
+            filename: doc.name,
+            type: doc.type,
+            size: doc.size ? formatFileSize(doc.size) : 'Unknown',
+            uploadedAt: 'Just now',
+            description: '',
+            downloadUrl: doc.url,
+            isSaved: false,
+          }));
+          setTeacherDocuments(mappedDocs);
+        }
+      });
+
+      // Listen for new document uploads from teacher
+      socket.on('document-uploaded', (data: { document: any }) => {
+        const newDoc = {
+          id: data.document.id,
+          title: data.document.name || data.document.title,
+          filename: data.document.name,
+          type: data.document.type,
+          size: data.document.size ? formatFileSize(data.document.size) : 'Unknown',
+          uploadedAt: 'Just now',
+          description: '',
+          downloadUrl: data.document.url,
+          isSaved: false,
+        };
+        setTeacherDocuments(prev => [...prev, newDoc]);
       });
     });
 
@@ -255,6 +288,7 @@ export default function LivestreamViewerPage() {
         module.default.off('share-document');
         module.default.off('close-document');
         module.default.off('sync-documents');
+        module.default.off('document-uploaded');
       });
     };
   }, []);
@@ -278,16 +312,27 @@ export default function LivestreamViewerPage() {
   const sendChatMessage = () => {
     if (!chatMessage.trim()) return;
     
+    // Check authentication
+    if (!user) {
+      toast.error('Please login to send messages', {
+        duration: 3000,
+        position: 'top-center',
+        icon: '🔒',
+      });
+      setChatMessage('');
+      return;
+    }
+    
     import('@/socket').then((module) => {
       const socket = module.default;
       
       const message = {
         id: Date.now().toString() + Math.random(),
-        username: 'Student', // TODO: Get from auth
+        username: user?.fullName || 'Student',
         userRole: 'student' as const,
         message: chatMessage,
         timestamp: new Date().toISOString(),
-        avatar: '/student-avatar.png'
+        avatar: user?.avatar || '/student-avatar.png'
       };
       
       // Emit to backend
@@ -306,6 +351,30 @@ export default function LivestreamViewerPage() {
       e.preventDefault();
       sendChatMessage();
     }
+  };
+
+  // Helper function to format file size
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  };
+
+  // Helper function to format time ago
+  const formatTimeAgo = (date: string): string => {
+    const now = new Date();
+    const uploaded = new Date(date);
+    const diffMs = now.getTime() - uploaded.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
   };
 
   // Save document to student's document library
@@ -371,10 +440,6 @@ export default function LivestreamViewerPage() {
     }
   };
 
-  const handleTogglePlay = () => {
-    setIsPlaying(!isPlaying);
-  };
-
   const handleToggleMute = () => {
     setIsMuted(!isMuted);
   };
@@ -421,6 +486,7 @@ export default function LivestreamViewerPage() {
 
       return (
         <div className={`${raleway.className} h-full w-full bg-gray-50`}>
+          <Toaster />
           <div className="h-full flex gap-4 p-4">
         
             {/* Main Content Area */}
@@ -439,9 +505,19 @@ export default function LivestreamViewerPage() {
                       playsInline
                       muted
                       className="absolute inset-0 w-full h-full object-contain bg-gray-900"
-                      onLoadedMetadata={() => {}}
-                      onPlay={() => {}}
-                      onPause={() => {}}
+                      onLoadedMetadata={(e) => {
+                        // Handle play promise to avoid AbortError
+                        const video = e.currentTarget;
+                        const playPromise = video.play();
+                        if (playPromise !== undefined) {
+                          playPromise.catch(error => {
+                            // Auto-play was prevented or interrupted
+                            if (error.name !== 'AbortError') {
+                              console.warn('Video play interrupted:', error);
+                            }
+                          });
+                        }
+                      }}
                     />
                   </div>
 
@@ -479,6 +555,18 @@ export default function LivestreamViewerPage() {
                             src={sharedDocument.url}
                             controls
                             className="max-w-full h-auto mx-auto"
+                            onLoadedMetadata={(e) => {
+                              // Handle play promise for shared document video
+                              const video = e.currentTarget;
+                              const playPromise = video.play();
+                              if (playPromise !== undefined) {
+                                playPromise.catch(error => {
+                                  if (error.name !== 'AbortError') {
+                                    console.warn('Shared document video play interrupted:', error);
+                                  }
+                                });
+                              }
+                            }}
                           />
                         ) : sharedDocument.type === 'pdf' ? (
                           <iframe
@@ -505,12 +593,6 @@ export default function LivestreamViewerPage() {
                   )}
                 </div>
             
-                {/* Connection status indicator */}
-                {!isLoading && isConnected && (
-                  <div className="absolute top-4 left-4 px-3 py-1.5 bg-green-600/90 backdrop-blur-sm rounded-lg z-20">
-                    <p className="text-white text-xs font-semibold">● Connected</p>
-                  </div>
-                )}
             
                 {/* Loading state */}
                 {isLoading && (
@@ -657,17 +739,32 @@ export default function LivestreamViewerPage() {
                           value={chatMessage}
                           onChange={(e) => setChatMessage(e.target.value)}
                           onKeyPress={handleChatKeyPress}
-                          placeholder="Message..."
-                          className="flex-1 min-w-0 px-2.5 py-1.5 bg-white/10 border border-white/20 rounded-lg text-xs text-white placeholder-white/50 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                          onFocus={() => {
+                            if (!user) {
+                              toast.error('Please login to send messages', {
+                                duration: 3000,
+                                position: 'top-center',
+                                icon: '🔒',
+                              });
+                            }
+                          }}
+                          placeholder={user ? "Message..." : "Login to chat..."}
+                          disabled={!user}
+                          className="flex-1 min-w-0 px-2.5 py-1.5 bg-white/10 border border-white/20 rounded-lg text-xs text-white placeholder-white/50 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                         />
                         <button
                           onClick={sendChatMessage}
-                          disabled={!chatMessage.trim()}
+                          disabled={!chatMessage.trim() || !user}
                           className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg whitespace-nowrap"
                         >
                           Send
                         </button>
                       </div>
+                      {!user && (
+                        <p className="text-xs text-white/60 mt-1.5 text-center">
+                          🔒 Login required to participate in chat
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
@@ -703,12 +800,22 @@ export default function LivestreamViewerPage() {
                   
                     {/* Toggle Documents Button */}
                     <button
-                      onClick={() => setShowDocuments(!showDocuments)}
+                      onClick={() => {
+                        if (!user) {
+                          toast.error('Please login to view documents', {
+                            duration: 3000,
+                            position: 'top-center',
+                            icon: '🔒',
+                          });
+                          return;
+                        }
+                        setShowDocuments(!showDocuments);
+                      }}
                       className={`flex items-center gap-2 px-4 py-2.5 rounded-xl backdrop-blur-md transition-all border shadow-lg font-semibold text-sm ${showDocuments
                         ? 'bg-[#EC255A] border-white/20 text-white'
                         : 'bg-black/60 hover:bg-black/80 border-white/20 text-white'
                         }`}
-                      title={showDocuments ? "Hide documents" : "View documents"}
+                      title={user ? (showDocuments ? "Hide documents" : "View documents") : "Login to view documents"}
                     >
                       <FolderIcon className="h-5 w-5" />
                       <span>{showDocuments ? 'Hide' : 'Documents'}</span>
@@ -724,18 +831,6 @@ export default function LivestreamViewerPage() {
                 {/* Video Controls - Show on Hover */}
                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                   <div className="flex items-center gap-4">
-                    {/* Play/Pause */}
-                    <button
-                      onClick={handleTogglePlay}
-                      className="p-2 rounded-full hover:bg-white/20 transition-colors"
-                    >
-                      {isPlaying ? (
-                        <PauseIcon className="h-6 w-6 text-white" />
-                      ) : (
-                        <PlayIcon className="h-6 w-6 text-white" />
-                      )}
-                    </button>
-                
                     {/* Volume */}
                     <div className="flex items-center gap-2">
                       <button
@@ -881,7 +976,12 @@ export default function LivestreamViewerPage() {
             
                 {/* Documents List */}
                 <div className="flex-1 overflow-y-auto">
-                  {teacherDocuments.length === 0 ? (
+                  {documentsLoading ? (
+                    <div className="p-8 text-center">
+                      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#161853] mx-auto mb-3"></div>
+                      <p className="text-gray-500 font-medium">Loading documents...</p>
+                    </div>
+                  ) : teacherDocuments.length === 0 ? (
                     <div className="p-8 text-center">
                       <FolderIcon className="h-16 w-16 mx-auto text-gray-300 mb-3" />
                       <p className="text-gray-500 font-medium">No documents yet</p>

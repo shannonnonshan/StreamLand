@@ -209,9 +209,21 @@ export class TeacherService {
       throw new NotFoundException('Teacher not found');
     }
 
-    // Count total videos/recordings for this teacher
-    // This would require a Recording/Video model - for now using 0
-    const totalVideos = 0; // TODO: Implement when Recording model is created
+    // Count total videos/livestreams for this teacher
+    const totalVideos = await this.prisma.postgres.liveStream.count({
+      where: {
+        teacherId,
+        isPublic: true,
+        OR: [
+          { status: 'LIVE' },
+          { status: 'SCHEDULED' },
+          { 
+            status: 'ENDED',
+            recordingUrl: { not: null } // Only count ended streams with recordings
+          },
+        ],
+      },
+    });
 
     return {
       id: teacher.id,

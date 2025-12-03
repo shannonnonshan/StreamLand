@@ -168,10 +168,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         throw new Error(errorData.message || `Failed to create livestream (${response.status})`);
       }
 
-      await response.json();
+      const livestreamData = await response.json();
 
-      // Close modal and navigate to livestream page
+      // Close modal immediately for better UX
       setShowStartLiveModal(false);
+      
+      // Navigate with data to avoid refetching
       setIsRedirecting(true);
       router.push(`/teacher/${id}/livestream/${pendingLivestreamId}`);
     } catch (error) {

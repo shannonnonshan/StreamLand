@@ -251,7 +251,7 @@ export default function Header() {
   };
   
   return (
-    <header className={`fixed top-0 left-0 right-0 h-16 bg-white flex items-center justify-between px-8 shadow-sm border-b border-gray-100 z-40`}>
+    <header className={`fixed top-0 left-0 right-0 h-16 bg-white/80 backdrop-blur-md flex items-center justify-between px-8 shadow-sm border-b border-gray-100/50 z-40`}>
       {/* Logo on left */}
       <div className="flex items-center">
         <Image src="/logo.png" alt="StreamLand Logo" width={32} height={32} className="h-8 w-auto" />

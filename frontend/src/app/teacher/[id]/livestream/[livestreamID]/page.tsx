@@ -61,7 +61,14 @@ export default function BroadcasterPage() {
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [livestreamInfo, setLivestreamInfo] = useState<LivestreamInfo | null>(null);
+  // Optimistic default to prevent loading flicker
+  const [livestreamInfo, setLivestreamInfo] = useState<LivestreamInfo | null>({
+    title: 'Loading...',
+    description: '',
+    category: 'Education',
+    isPublic: true,
+    allowComments: true,
+  });
 
   const [showFiles, setShowFiles] = useState(true);
   const [showComments, setShowComments] = useState(true);
@@ -112,11 +119,8 @@ export default function BroadcasterPage() {
     
     const fetchLivestreamInfo = async () => {
       try {
-        const response = await fetch(`${API_URL}/livestream/${livestreamID}`, {
-          // Add cache control for better performance
-          cache: 'no-store',
-          next: { revalidate: 0 }
-        });
+        // Use default fetch (allows browser caching)
+        const response = await fetch(`${API_URL}/livestream/${livestreamID}`);
         if (response.ok) {
           const data = await response.json();
           
@@ -140,12 +144,14 @@ export default function BroadcasterPage() {
           });
         }
       } catch (error) {
-        // Error fetching livestream info
+        // Error fetching livestream info - don't block UI
         console.error('Error fetching livestream info:', error);
       }
     };
     
-    fetchLivestreamInfo();
+    // Defer fetch slightly to prioritize rendering
+    const timeoutId = setTimeout(fetchLivestreamInfo, 0);
+    return () => clearTimeout(timeoutId);
   }, [teacherID, livestreamID, router, fetchTeacherDocuments]);
 
   useEffect(() => {
@@ -298,6 +304,7 @@ export default function BroadcasterPage() {
   setIsEndingStream(true);
 
   try {
+    // Step 1: Stop media recorder
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       await new Promise<void>((resolve) => {
         mediaRecorderRef.current!.onstop = () => resolve();
@@ -305,7 +312,13 @@ export default function BroadcasterPage() {
       });
     }
 
-    // --- Upload recording---
+    // Step 2: Get auth token
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+    if (!token) {
+      throw new Error('Authentication required');
+    }
+
+    // Step 3: Upload recording if enabled
     if (saveRecording && recordedChunksRef.current.length > 0) {
       console.log(`[Broadcaster] Uploading recording (${recordedChunksRef.current.length} chunks, ${recordedChunksRef.current.reduce((s, b) => s + b.size, 0)} bytes)...`);
 
@@ -323,7 +336,6 @@ export default function BroadcasterPage() {
         reader.readAsDataURL(recordingBlob);
       });
 
-      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
       const uploadResponse = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording`, {
         method: 'POST',
         headers: {
@@ -338,17 +350,18 @@ export default function BroadcasterPage() {
       });
 
       if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json();
+        const errorData = await uploadResponse.json().catch(() => ({ message: 'Unknown error' }));
         console.error('Failed to upload recording:', errorData);
+        // Don't throw - continue ending the stream
       } else {
         console.log('[Broadcaster] Recording uploaded successfully');
       }
     }
 
+    // Step 4: Update viewer count
     socket.emit('updateCurrentViewers', { livestreamID, currentViewers: watcherCount });
 
-    // --- Patch livestream end ---
-    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+    // Step 5: End livestream in database
     const response = await fetch(`${API_URL}/livestream/${livestreamID}/end`, {
       method: 'PATCH',
       headers: {
@@ -359,34 +372,60 @@ export default function BroadcasterPage() {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to end livestream');
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      throw new Error(errorData.message || 'Failed to end livestream');
     }
 
-    // --- 5. Notify all peers & cleanup WebRTC ---
+    const endData = await response.json();
+    console.log('[Broadcaster] Livestream ended:', endData);
+
+    // Step 6: Notify all viewers via socket
     socket.emit('stream-ended', { livestreamID, saveRecording });
 
-    Object.values(peersRef.current).forEach((pc) => pc.close());
+    // Step 7: Close all WebRTC peer connections
+    Object.values(peersRef.current).forEach((pc) => {
+      try {
+        pc.close();
+      } catch (error) {
+        console.warn('Error closing peer connection:', error);
+      }
+    });
     peersRef.current = {};
 
+    // Step 8: Stop local media stream
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((t) => t.stop());
+      localStreamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (error) {
+          console.warn('Error stopping track:', error);
+        }
+      });
       localStreamRef.current = null;
     }
 
-    // --- 6. Reset states ---
+    // Step 9: Clear video element
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null;
+    }
+
+    // Step 10: Reset states
     recordedChunksRef.current = [];
     mediaRecorderRef.current = null;
     setIsLive(false);
     setWatcherCount(0);
     setShowEndConfirm(false);
 
-    // --- 7. Redirect ---
-    window.location.href = `/teacher/${teacherID}`;
+    // Step 11: Wait a bit for cleanup to complete
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Step 12: Redirect using router.push (better for Next.js)
+    router.push(`/teacher/${teacherID}`);
 
   } catch (error) {
     console.error('Failed to end livestream:', error);
-    alert('Failed to end livestream. Please try again.');
-  } finally {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to end livestream';
+    alert(`Error: ${errorMessage}. Please try again.`);
     setIsEndingStream(false);
   }
 }
@@ -694,8 +733,20 @@ export default function BroadcasterPage() {
       size: uploadPreview.size
     };
     
-    setDocuments(prev => [...prev, newDoc]);
-    console.log('[Broadcaster] Document added:', newDoc);
+    setDocuments(prev => {
+      const updatedDocs = [...prev, newDoc];
+      
+      // Emit only the new document to viewers
+      socket.emit('document-uploaded', {
+        teacherID,
+        livestreamID,
+        document: newDoc
+      });
+      
+      return updatedDocs;
+    });
+    
+    console.log('[Broadcaster] Document added and synced:', newDoc);
     
     // Reset
     setUploadPreview(null);

@@ -149,6 +149,27 @@ export class LivestreamController {
     return await this.livestreamService.endLivestream(id, body.saveRecording);
   }
 
+  @Patch(':id/update-viewers')
+  @UseGuards(JwtAuthGuard)
+  async updateViewers(
+    @Param('id') id: string,
+    @Body() body: { totalViewers: number },
+    @Request() req: any,
+  ) {
+    // Get livestream to verify ownership
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    
+    if (!livestream) {
+      throw new UnauthorizedException('Livestream not found');
+    }
+
+    if (livestream.teacherId !== req.user.sub && req.user.role !== 'ADMIN') {
+      throw new UnauthorizedException('You can only update your own livestream viewers');
+    }
+
+    return await this.livestreamService.updateTotalViewers(id, body.totalViewers);
+  }
+
   @Post(':id/upload-recording')
   @UseGuards(JwtAuthGuard)
   async uploadRecording(

@@ -151,7 +151,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (channel.broadcaster === socket.id) {
         // Broadcaster closed stream unexpectedly (not via stream-ended)
         // Note: Normal stream ends should go through handleStreamEnded
-        const livestreamID = key.split(':')[1];
+        const livestreamID = key; // keys are livestreamIDs
         
         this.server.to([...channel.watchers]).emit('stream-ended', {
           livestreamID,
@@ -173,7 +173,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
           .emit('viewerCount', channel.watchers.size);
         
         // Remove viewer from Redis
-        const livestreamID = key.split(':')[1];
+        const livestreamID = key; // keys are livestreamIDs
         this.redisService.removeViewer(livestreamID, socket.id).catch(err =>
           this.logger.error('Redis remove viewer error', err)
         );

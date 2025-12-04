@@ -16,7 +16,9 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronUp,
-  ArrowLeft
+  ArrowLeft,
+  Camera,
+  Upload
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -42,7 +44,11 @@ export default function SettingsPage() {
     website: "",
     linkedin: "",
     twoFactorEnabled: false,
+    avatar: "",
   });
+
+  const [avatarPreview, setAvatarPreview] = useState<string>("");
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -67,7 +73,11 @@ export default function SettingsPage() {
             website: data.teacherProfile?.website || '',
             linkedin: data.teacherProfile?.linkedin || '',
             twoFactorEnabled: data.twoFactorEnabled || false,
+            avatar: data.avatar || '',
           });
+          if (data.avatar) {
+            setAvatarPreview(data.avatar);
+          }
         }
       } catch (error) {
         console.error('Error fetching teacher data:', error);
@@ -280,6 +290,96 @@ export default function SettingsPage() {
           borderRadius: '8px',
         },
       });
+    }
+  };
+
+  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Preview image
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setAvatarPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+      
+      // Upload immediately
+      handleAvatarUpload(file);
+    }
+  };
+
+  const handleAvatarUpload = async (file: File) => {
+    setUploadingAvatar(true);
+    const loadingToastId = toast.loading('Uploading avatar...', {
+      position: 'top-right',
+      style: {
+        background: '#047e56ff',
+        color: '#fff',
+        padding: '16px',
+        borderRadius: '8px',
+      },
+    });
+
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const formData = new FormData();
+      formData.append('avatar', file);
+
+      const response = await fetch(`${API_URL}/auth/profile`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (response.ok) {
+        toast.dismiss(loadingToastId);
+        toast.success('Avatar updated successfully!', {
+          duration: 3000,
+          position: 'top-right',
+          icon: '✓',
+          style: {
+            background: '#047e56ff',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+            fontWeight: '500',
+          },
+        });
+        
+        // Refresh profile
+        await getProfile();
+      } else {
+        toast.dismiss(loadingToastId);
+        toast.error('Failed to upload avatar', {
+          duration: 4000,
+          position: 'top-right',
+          icon: '✕',
+          style: {
+            background: '#EF4444',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+      toast.dismiss(loadingToastId);
+      toast.error('Error uploading avatar', {
+        duration: 4000,
+        position: 'top-right',
+        icon: '✕',
+        style: {
+          background: '#EF4444',
+          color: '#fff',
+          padding: '16px',
+          borderRadius: '8px',
+        },
+      });
+    } finally {
+      setUploadingAvatar(false);
     }
   };
 
@@ -505,6 +605,69 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Avatar Section */}
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div className="p-6 border-b">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-[#047e56ff] rounded-lg flex items-center justify-center">
+                  <Camera className="text-white" size={20} />
+                </div>
+                <div className="text-left">
+                  <h2 className="text-xl font-semibold text-gray-900">Profile Picture</h2>
+                  <p className="text-sm text-gray-500">Update your avatar</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 pb-6 pt-6">
+              <div className="flex flex-col items-center gap-6">
+                {/* Avatar Preview */}
+                <div className="relative">
+                  <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 border-gray-100 shadow-md">
+                    {avatarPreview || settings.avatar ? (
+                      <img
+                        src={avatarPreview || settings.avatar}
+                        alt="Avatar"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <User size={64} className="text-gray-400" />
+                    )}
+                  </div>
+                  
+                  {/* Upload Button Overlay */}
+                  <label
+                    htmlFor="avatar-input"
+                    className="absolute bottom-0 right-0 bg-[#047e56ff] hover:bg-[#036644ff] text-white rounded-full p-3 cursor-pointer shadow-lg transition-colors"
+                  >
+                    <Upload size={20} />
+                    <input
+                      id="avatar-input"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarSelect}
+                      className="hidden"
+                      disabled={uploadingAvatar}
+                    />
+                  </label>
+                </div>
+
+                {uploadingAvatar && (
+                  <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-[#047e56ff]"></div>
+                    <p className="text-sm text-gray-600 mt-2">Uploading...</p>
+                  </div>
+                )}
+                
+                {!uploadingAvatar && (
+                  <p className="text-sm text-gray-500 text-center">
+                    Click the camera icon to upload a new avatar
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="bg-white rounded-xl shadow-sm overflow-hidden">

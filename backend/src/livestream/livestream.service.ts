@@ -308,6 +308,35 @@ export class LivestreamService {
       return updatedLivestream;
     }
 
+  async updateTotalViewers(id: string, totalViewers: number) {
+    try {
+      const livestream = await this.prisma.postgres.liveStream.findUnique({
+        where: { id },
+      });
+
+      if (!livestream) {
+        throw new NotFoundException('Livestream not found');
+      }
+
+      // Update currentViewers and peakViewers if current is higher
+      const peakViewers = Math.max(livestream.peakViewers || 0, totalViewers);
+      
+      const updatedLivestream = await this.prisma.postgres.liveStream.update({
+        where: { id },
+        data: {
+          currentViewers: totalViewers,
+          peakViewers: peakViewers,
+        },
+      });
+
+      this.logger.log(`Updated livestream ${id} viewers. Current: ${totalViewers}, Peak: ${peakViewers}`);
+      return updatedLivestream;
+    } catch (error) {
+      this.logger.error(`Error updating viewers for livestream ${id}:`, error);
+      throw error;
+    }
+  }
+
 
   async uploadRecording(livestreamId: string, videoBase64: string) {
     this.logger.log(`Uploading recording for livestream ${livestreamId}`);
@@ -843,24 +872,22 @@ export class LivestreamService {
 
   // Update current viewers count
   async updateCurrentViewers(id: string, count: number) {
-    const livestream = await this.prisma.postgres.liveStream.update({
+    const livestream = await this.prisma.postgres.liveStream.findUnique({
+      where: { id },
+    });
+
+    if (!livestream) {
+      throw new NotFoundException('Livestream not found');
+    }
+
+    const peakViewers = Math.max(livestream.peakViewers || 0, count);
+
+    return await this.prisma.postgres.liveStream.update({
       where: { id },
       data: {
         currentViewers: count,
-        peakViewers: {
-          set: count,
-        },
+        peakViewers: peakViewers,
       },
     });
-
-    // Update peak viewers if current is higher
-    if (count > livestream.peakViewers) {
-      await this.prisma.postgres.liveStream.update({
-        where: { id },
-        data: { peakViewers: count },
-      });
-    }
-
-    return livestream;
   }
 }

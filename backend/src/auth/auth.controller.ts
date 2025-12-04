@@ -12,9 +12,13 @@ import {
   Param,
   Req,
   ForbiddenException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
+import { R2StorageService } from '../r2-storage/r2-storage.service';
 
 interface OAuthResult {
   isNewUser: boolean;
@@ -45,7 +49,10 @@ import { Role } from '@prisma/client';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly r2StorageService: R2StorageService,
+  ) {}
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -187,10 +194,23 @@ export class AuthController {
   // Profile update routes
   @Patch('profile')
   @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('avatar'))
   async updateProfile(
     @Request() req: { user: { sub: string } },
     @Body() updateDto: UpdateUserProfileDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
+    // If avatar file is provided, upload to R2 and get the URL
+    if (file) {
+      const avatarUrl = await this.r2StorageService.uploadDocument(
+        req.user.sub,
+        file.originalname,
+        file.buffer,
+        file.mimetype,
+      );
+      updateDto.avatar = avatarUrl;
+    }
+
     return this.authService.updateUserProfile(req.user.sub, updateDto);
   }
 

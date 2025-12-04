@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
 import { 
@@ -15,10 +15,13 @@ import {
   UserIcon
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
-import LoginModal from '@/component/(modal)/login';
-import RegisterModal from '@/component/(modal)/register';
-import OTPModal from '@/component/(modal)/verifyOtp';
 import { getStudentRoute } from '@/utils/student';
+
+const LoginModal = lazy(() => import('@/component/(modal)/login'));
+const RegisterModal = lazy(() => import('@/component/(modal)/register'));
+const OTPModal = lazy(() => import('@/component/(modal)/verifyOtp'));
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export default function Home() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -26,6 +29,9 @@ export default function Home() {
   const [isOTPModalOpen, setIsOTPModalOpen] = useState(false);
   const [otpEmail, setOtpEmail] = useState('');
   const [otpPurpose, setOtpPurpose] = useState<'registration' | 'password-reset'>('registration');
+  const [liveStreams, setLiveStreams] = useState<any[]>([]);
+  const [activeVideoIndex, setActiveVideoIndex] = useState(0);
+  const [loadingStreams, setLoadingStreams] = useState(true);
 
   const openLoginModal = () => {
     setIsLoginModalOpen(true);
@@ -56,6 +62,36 @@ export default function Home() {
     setIsOTPModalOpen(false);
   };
 
+  // Fetch live streams
+  useEffect(() => {
+    const fetchStreams = async () => {
+      try {
+        const response = await fetch(`${API_URL}/livestream/active/all`, {
+          cache: 'no-store'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setLiveStreams(data.slice(0, 3));
+        }
+      } catch (error) {
+        console.error('Failed to fetch streams:', error);
+      } finally {
+        setLoadingStreams(false);
+      }
+    };
+
+    fetchStreams();
+  }, []);
+
+  // Auto-rotate videos every 5 seconds
+  useEffect(() => {
+    if (liveStreams.length === 0) return;
+    const interval = setInterval(() => {
+      setActiveVideoIndex((prev) => (prev + 1) % liveStreams.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [liveStreams.length]);
+
   const features = [
     {
       icon: VideoCameraIcon,
@@ -85,69 +121,6 @@ export default function Home() {
     { number: '1,000+', label: 'Courses' },
     { number: '95%', label: 'Satisfaction' }
   ];
-
-  const liveStreams = [
-    {
-      id: 1,
-      title: 'Basic Mathematics - Quadratic Equations',
-      teacher: 'Mr. Nguyen Van A',
-      viewers: 234,
-      thumbnail: 'https://images.unsplash.com/photo-1509228468518-180dd4864904?w=800&h=450&fit=crop',
-      subject: 'Math',
-      isLive: true
-    },
-    {
-      id: 2,
-      title: 'Organic Chemistry - Alcohols and Phenols',
-      teacher: 'Ms. Tran Thi B',
-      viewers: 189,
-      thumbnail: 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=800&h=450&fit=crop',
-      subject: 'Chemistry',
-      isLive: true
-    },
-    {
-      id: 3,
-      title: 'Physics - Harmonic Oscillation',
-      teacher: 'Mr. Le Van C',
-      viewers: 156,
-      thumbnail: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=800&h=450&fit=crop',
-      subject: 'Physics',
-      isLive: false
-    }
-  ];
-
-  const testimonials = [
-    {
-      name: 'Nguyen Thi Mai',
-      role: '12th Grade Student',
-      avatar: 'https://i.pravatar.cc/150?img=1',
-      rating: 5,
-      comment: 'StreamLand helped me improve my grades significantly. The teachers are very dedicated and easy to understand!'
-    },
-    {
-      name: 'Tran Van Nam',
-      role: 'Parent',
-      avatar: 'https://i.pravatar.cc/150?img=2',
-      rating: 5,
-      comment: 'My child loves learning on StreamLand. This platform is truly effective and convenient.'
-    },
-    {
-      name: 'Le Thu Huong',
-      role: '11th Grade Student',
-      avatar: 'https://i.pravatar.cc/150?img=3',
-      rating: 5,
-      comment: 'Direct interaction with teachers helps me understand lessons much faster. Definitely worth trying!'
-    }
-  ];
-
-  const [activeVideoIndex, setActiveVideoIndex] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveVideoIndex((prev) => (prev + 1) % liveStreams.length);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [liveStreams.length]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
@@ -291,16 +264,19 @@ export default function Home() {
               <div className="relative rounded-2xl overflow-hidden shadow-2xl">
                 {/* Video/Image */}
                 <div className="aspect-video bg-gradient-to-br from-gray-800 to-gray-900 relative">
-                  <Image 
-                    src={liveStreams[activeVideoIndex].thumbnail}
-                    alt={liveStreams[activeVideoIndex].title}
-                    fill
-                    className="object-cover"
-                    unoptimized
-                  />
+                  {!loadingStreams && liveStreams.length > 0 && (
+                    <Image 
+                      src={liveStreams[activeVideoIndex]?.thumbnail || 'https://images.unsplash.com/photo-1509228468518-180dd4864904?w=800&h=450&fit=crop'}
+                      alt={liveStreams[activeVideoIndex]?.title || 'Loading...'}
+                      fill
+                      className="object-cover"
+                      priority={true}
+                      sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                    />
+                  )}
                   
                   {/* Live Badge */}
-                  {liveStreams[activeVideoIndex].isLive && (
+                  {!loadingStreams && liveStreams[activeVideoIndex]?.isLive && (
                     <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 bg-red-600 rounded-full">
                       <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
                       <span className="text-white font-bold text-sm">LIVE</span>
@@ -308,10 +284,12 @@ export default function Home() {
                   )}
 
                   {/* Viewer Count */}
-                  <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 bg-black/50 backdrop-blur-sm rounded-full">
-                    <UserIcon className="h-4 w-4 text-white" />
-                    <span className="text-white font-semibold text-sm">{liveStreams[activeVideoIndex].viewers}</span>
-                  </div>
+                  {!loadingStreams && liveStreams[activeVideoIndex] && (
+                    <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 bg-black/50 backdrop-blur-sm rounded-full">
+                      <UserIcon className="h-4 w-4 text-white" />
+                      <span className="text-white font-semibold text-sm">{liveStreams[activeVideoIndex].viewers}</span>
+                    </div>
+                  )}
 
                   {/* Play Overlay */}
                   <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-all duration-300 flex items-center justify-center">
@@ -343,16 +321,24 @@ export default function Home() {
                 </div>
 
                 {/* Video Info */}
-                <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/80 to-transparent">
-                  <h3 className="text-xl font-bold text-white mb-2">
-                    {liveStreams[activeVideoIndex].title}
-                  </h3>
-                  <div className="flex items-center gap-3 text-gray-200">
-                    <span className="font-medium">{liveStreams[activeVideoIndex].teacher}</span>
-                    <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
-                    <span className="text-sm">{liveStreams[activeVideoIndex].subject}</span>
+                {!loadingStreams && liveStreams[activeVideoIndex] && (
+                  <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/80 to-transparent">
+                    <h3 className="text-xl font-bold text-white mb-2">
+                      {liveStreams[activeVideoIndex].title}
+                    </h3>
+                    <div className="flex items-center gap-3 text-gray-200">
+                      <span className="font-medium">
+                        {typeof liveStreams[activeVideoIndex].teacher === 'string' 
+                          ? liveStreams[activeVideoIndex].teacher 
+                          : (typeof liveStreams[activeVideoIndex].teacher === 'object' && liveStreams[activeVideoIndex].teacher?.fullName)
+                          ? liveStreams[activeVideoIndex].teacher.fullName
+                          : 'Teacher'}
+                      </span>
+                      <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+                      <span className="text-sm">{liveStreams[activeVideoIndex].subject || 'Learning'}</span>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Floating Stats */}
@@ -384,61 +370,84 @@ export default function Home() {
             >
               <h3 className="text-2xl font-bold text-gray-900 mb-6">Ongoing Live Sessions</h3>
               
-              {liveStreams.map((stream, index) => (
-                <motion.div
-                  key={stream.id}
-                  whileHover={{ scale: 1.02, x: 10 }}
-                  onClick={() => setActiveVideoIndex(index)}
-                  className={`cursor-pointer rounded-xl p-4 transition-all duration-300 ${
-                    activeVideoIndex === index 
-                      ? 'bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-purple-300 shadow-lg' 
-                      : 'bg-white border-2 border-gray-100 hover:border-purple-200 shadow-sm'
-                  }`}
-                >
-                  <div className="flex gap-4">
-                    {/* Thumbnail */}
-                    <div className="relative w-32 h-20 rounded-lg overflow-hidden flex-shrink-0">
-                      <Image 
-                        src={stream.thumbnail}
-                        alt={stream.title}
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                      {stream.isLive && (
-                        <div className="absolute top-1 left-1 px-2 py-0.5 bg-red-600 rounded text-white text-xs font-bold">
-                          LIVE
+              {!loadingStreams && liveStreams.length === 0 ? (
+                <div className="text-center py-12">
+                  <VideoCameraIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-600 text-lg mb-6">No live sessions right now</p>
+                  <p className="text-gray-500 mb-6">Be our first teacher! Start broadcasting your knowledge to thousands of students.</p>
+                  <button 
+                    onClick={() => window.location.href = '/auth/login'}
+                    className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-semibold hover:shadow-lg transition-all"
+                  >
+                    Start Broadcasting
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {!loadingStreams && liveStreams.length > 0 && liveStreams.map((stream, index) => (
+                    <motion.div
+                      key={stream.id}
+                      whileHover={{ scale: 1.02, x: 10 }}
+                      onClick={() => setActiveVideoIndex(index)}
+                      className={`cursor-pointer rounded-xl p-4 transition-all duration-300 ${
+                        activeVideoIndex === index 
+                          ? 'bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-purple-300 shadow-lg' 
+                          : 'bg-white border-2 border-gray-100 hover:border-purple-200 shadow-sm'
+                      }`}
+                    >
+                      <div className="flex gap-4">
+                        {/* Thumbnail */}
+                        <div className="relative w-32 h-20 rounded-lg overflow-hidden flex-shrink-0">
+                          <Image 
+                            src={stream.thumbnail || 'https://images.unsplash.com/photo-1509228468518-180dd4864904?w=800&h=450&fit=crop'}
+                            alt={stream.title}
+                            fill
+                            className="object-cover"
+                            loading="lazy"
+                            sizes="(max-width: 768px) 80px, 128px"
+                          />
+                          {stream.isLive && (
+                            <div className="absolute top-1 left-1 px-2 py-0.5 bg-red-600 rounded text-white text-xs font-bold">
+                              LIVE
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
 
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-gray-900 mb-1 line-clamp-1">
-                        {stream.title}
-                      </h4>
-                      <p className="text-sm text-gray-600 mb-2">{stream.teacher}</p>
-                      <div className="flex items-center gap-3 text-xs text-gray-500">
-                        <div className="flex items-center gap-1">
-                          <UserIcon className="h-3 w-3" />
-                          <span>{stream.viewers}</span>
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold text-gray-900 mb-1 line-clamp-1">
+                            {stream.title}
+                          </h4>
+                          <p className="text-sm text-gray-600 mb-2">
+                            {typeof stream.teacher === 'string' 
+                              ? stream.teacher 
+                              : (typeof stream.teacher === 'object' && stream.teacher?.fullName)
+                              ? stream.teacher.fullName
+                              : 'Teacher'}
+                          </p>
+                          <div className="flex items-center gap-3 text-xs text-gray-500">
+                            <div className="flex items-center gap-1">
+                              <UserIcon className="h-3 w-3" />
+                              <span>{stream.viewers}</span>
+                            </div>
+                            <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full font-medium">
+                              {stream.subject}
+                            </span>
+                          </div>
                         </div>
-                        <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full font-medium">
-                          {stream.subject}
-                        </span>
                       </div>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
+                    </motion.div>
+                  ))}
 
-              {/* View All Button */}
-              <button 
-                onClick={() => window.location.href = getStudentRoute('dashboard')}
-                className="w-full mt-4 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-300"
-              >
-                View All Livestreams
-              </button>
+                  {/* View All Button */}
+                  <button 
+                    onClick={() => window.location.href = getStudentRoute('dashboard')}
+                    className="w-full mt-4 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-300"
+                  >
+                    View All Livestreams
+                  </button>
+                </>
+              )}
             </motion.div>
           </div>
         </div>
@@ -543,101 +552,10 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Testimonials Section */}
-      <section className="py-20 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="text-center mb-16"
-          >
-            <h2 className="text-4xl font-extrabold text-gray-900 mb-4">
-              What Students Say About Us
-            </h2>
-            <p className="text-xl text-gray-600">
-              Thousands of students have trusted and succeeded with StreamLand
-            </p>
-          </motion.div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            {testimonials.map((testimonial, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: index * 0.1 }}
-                viewport={{ once: true }}
-                whileHover={{ y: -10 }}
-                className="bg-gradient-to-br from-white to-gray-50 p-8 rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 border border-gray-100"
-              >
-                {/* Stars */}
-                <div className="flex gap-1 mb-4">
-                  {[...Array(testimonial.rating)].map((_, i) => (
-                    <StarIconSolid key={i} className="h-5 w-5 text-yellow-400" />
-                  ))}
-                </div>
-
-                {/* Comment */}
-                <p className="text-gray-700 mb-6 italic leading-relaxed">
-                  &quot;{testimonial.comment}&quot;
-                </p>
-
-                {/* User Info */}
-                <div className="flex items-center gap-4">
-                  <div className="relative w-12 h-12">
-                    <Image 
-                      src={testimonial.avatar}
-                      alt={testimonial.name}
-                      fill
-                      className="rounded-full object-cover"
-                      unoptimized
-                    />
-                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-white"></div>
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-gray-900">{testimonial.name}</h4>
-                    <p className="text-sm text-gray-500">{testimonial.role}</p>
-                  </div>
-                </div>
-
-                {/* Decoration */}
-                <div className="absolute top-6 right-6 text-6xl text-purple-100 font-serif">&quot;</div>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Success Stories Counter */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.4 }}
-            viewport={{ once: true }}
-            className="mt-16 text-center"
-          >
-            <div className="inline-flex items-center gap-6 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-full shadow-xl">
-              <div className="flex -space-x-2">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className="relative w-10 h-10">
-                    <Image 
-                      src={`https://i.pravatar.cc/40?img=${i + 10}`}
-                      alt={`User ${i}`}
-                      fill
-                      className="rounded-full border-2 border-white object-cover"
-                      unoptimized
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="text-left">
-                <p className="font-bold text-lg">10,000+ Satisfied Students</p>
-                <p className="text-sm text-blue-100">Join the community today</p>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      </section>
+      {/* Testimonials Section - Commented for performance */}
+      {/* <section className="py-20 bg-white">
+        ...testimonials code...
+      </section> */}
 
       {/* CTA Section */}
       <section className="py-20 bg-gradient-to-r from-blue-600 to-purple-600">
@@ -686,27 +604,39 @@ export default function Home() {
         </div>
       </footer>
 
-      {/* Modals */}
-      <LoginModal 
-        isOpen={isLoginModalOpen}
-        closeModal={closeLoginModal}
-        openRegisterModal={openRegisterModal} openForgotPasswordModal={function (): void {
-          throw new Error('Function not implemented.');
-        } }      />
+      {/* Modals - Lazy loaded */}
+      {isLoginModalOpen && (
+        <Suspense fallback={null}>
+          <LoginModal 
+            isOpen={isLoginModalOpen}
+            closeModal={closeLoginModal}
+            openRegisterModal={openRegisterModal} 
+            openForgotPasswordModal={() => {}}
+          />
+        </Suspense>
+      )}
       
-      <RegisterModal 
-        isOpen={isRegisterModalOpen} 
-        closeModal={closeRegisterModal} 
-        openOTPModal={openOTPModal}
-        openLoginModal={openLoginModal}
-      />
+      {isRegisterModalOpen && (
+        <Suspense fallback={null}>
+          <RegisterModal 
+            isOpen={isRegisterModalOpen} 
+            closeModal={closeRegisterModal} 
+            openOTPModal={openOTPModal}
+            openLoginModal={openLoginModal}
+          />
+        </Suspense>
+      )}
       
-      <OTPModal 
-        isOpen={isOTPModalOpen} 
-        closeModal={closeOTPModal}
-        email={otpEmail}
-        otpPurpose={otpPurpose}
-      />
+      {isOTPModalOpen && (
+        <Suspense fallback={null}>
+          <OTPModal 
+            isOpen={isOTPModalOpen} 
+            closeModal={closeOTPModal}
+            email={otpEmail}
+            otpPurpose={otpPurpose}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -90,7 +90,7 @@ export default function BroadcasterPage() {
   const [newFileName, setNewFileName] = useState('');
   const [chatMessages, setChatMessages] = useState<Array<{
     id: string;
-    username: string;
+    username: string | { fullName?: string; name?: string };
     userRole: 'teacher' | 'student';
     message: string;
     timestamp: string;
@@ -162,14 +162,20 @@ export default function BroadcasterPage() {
     socket.on("viewerCount", (count: number) => setWatcherCount(count));
     
     // Listen for chat messages
-    socket.on("chat-message", (message: {
-      id: string;
-      username: string;
-      userRole: 'teacher' | 'student';
-      message: string;
-      timestamp: string;
-      avatar?: string;
-    }) => {
+    socket.on("chat-message", (data: any) => {
+      // Safely extract username in case it's an object
+      const usernameValue = typeof data.username === 'string' 
+        ? data.username 
+        : (data.username?.fullName || data.username?.name || 'Anonymous');
+      
+      const message = {
+        id: data.id || Date.now().toString(),
+        username: usernameValue,
+        userRole: data.userRole || 'student',
+        message: data.message || '',
+        timestamp: data.timestamp || new Date().toISOString(),
+        avatar: data.avatar || (typeof data.username === 'object' && data.username?.avatar) || '/teacher-avatar.png',
+      };
       setChatMessages(prev => [...prev, message]);
     });
 
@@ -193,7 +199,56 @@ export default function BroadcasterPage() {
 
   async function startLive() {
     try {
-      // Update livestream status to LIVE in database
+      // Step 1: Request permissions explicitly
+      const permissionPrompt = await navigator.permissions.query({ name: 'camera' });
+      const micPermissionPrompt = await navigator.permissions.query({ name: 'microphone' });
+      
+      console.log('[Broadcaster] Camera permission state:', permissionPrompt.state);
+      console.log('[Broadcaster] Microphone permission state:', micPermissionPrompt.state);
+
+      // Step 2: Get media stream
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+        console.log('[Broadcaster] Media stream acquired successfully');
+      } catch (mediaError: any) {
+        const errorName = mediaError.name;
+        const errorMessage = mediaError.message;
+        
+        console.error(`[Broadcaster] Media Error (${errorName}): ${errorMessage}`);
+        
+        // Provide specific error messages
+        let userMessage = 'Could not access camera/microphone. ';
+        if (errorName === 'NotAllowedError' || errorName === 'PermissionDeniedError') {
+          userMessage += 'Please allow camera and microphone access when prompted. If you blocked it, go to browser settings to unblock StreamLand.';
+        } else if (errorName === 'NotFoundError' || errorName === 'DevicesNotFoundError') {
+          userMessage += 'No camera or microphone found. Please check your device.';
+        } else if (errorName === 'NotReadableError' || errorName === 'TrackStartError') {
+          userMessage += 'Camera/microphone is in use by another application. Please close other apps and try again.';
+        } else if (errorName === 'SecurityError') {
+          userMessage += 'This page must be accessed over HTTPS for security reasons.';
+        }
+        
+        alert(userMessage);
+        throw mediaError;
+      }
+
+      localStreamRef.current = stream;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+
+      // Step 3: Update livestream status to LIVE in database
       const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
       const startResponse = await fetch(`${API_URL}/livestream/${livestreamID}/start`, {
         method: 'PATCH',
@@ -203,35 +258,34 @@ export default function BroadcasterPage() {
         },
       });
 
+      console.log('[Broadcaster] Start livestream response status:', startResponse.status);
+      
       if (!startResponse.ok) {
-        const error = await startResponse.json();
-        throw new Error(error.message || 'Failed to start livestream');
+        const errorText = await startResponse.text();
+        console.error('[Broadcaster] Start livestream error response:', errorText);
+        try {
+          const error = JSON.parse(errorText);
+          throw new Error(error?.message || `Failed to start livestream (${startResponse.status})`);
+        } catch (e) {
+          throw new Error(`Failed to start livestream: ${errorText || startResponse.statusText}`);
+        }
       }
+      
+      const startData = await startResponse.json().catch(() => ({}));
+      console.log('[Broadcaster] Livestream status updated successfully:', startData);
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-      localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
-
-      // Start recording in browser (save to memory)
-      // Will only upload to R2 if user chooses to save
+      // Step 4: Start recording in browser
       try {
         const mediaRecorder = new MediaRecorder(stream, {
           mimeType: 'video/webm;codecs=vp8,opus',
           videoBitsPerSecond: 2500000, // 2.5 Mbps
         });
 
-        // Store video chunks in memory
         mediaRecorder.ondataavailable = async (event) => {
           if (event.data && event.data.size > 0) {
             recordedChunksRef.current.push(event.data);
             console.log(`[Broadcaster] Chunk received: ${event.data.size} bytes, Total: ${recordedChunksRef.current.length} chunks`);
             
-            // Send chunk to server during recording for backup
             try {
               const chunkBase64 = await new Promise<string>((resolve) => {
                 const reader = new FileReader();
@@ -255,17 +309,16 @@ export default function BroadcasterPage() {
           console.error('[Broadcaster] MediaRecorder error:', error);
         };
 
-        // Record continuously (will save all chunks when stopped)
-        mediaRecorder.start(10000); // 10s chunks for better memory management
+        mediaRecorder.start(10000);
         mediaRecorderRef.current = mediaRecorder;
+        console.log('[Broadcaster] MediaRecorder started');
       } catch (error) {
         console.warn('[Broadcaster] MediaRecorder not supported:', error);
       }
 
-      // Ensure socket is connected before emitting
+      // Step 5: Connect socket and emit broadcaster event
       if (!socket.connected) {
         socket.connect();
-        // Wait for connection
         await new Promise((resolve) => {
           if (socket.connected) {
             resolve(true);
@@ -281,14 +334,28 @@ export default function BroadcasterPage() {
       
       setIsLive(true);
       
-      // Share uploaded documents with new viewers
       socket.emit("sync-documents", {
         livestreamID,
         documents: documents
       });
+
+      console.log('[Broadcaster] Livestream started successfully');
     } catch (err) {
-      console.error('Failed to start livestream:', err);
-      alert('Could not access camera/microphone. Please check permissions.');
+      console.error('[Broadcaster] Failed to start livestream:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('[Broadcaster] Error details:', errMsg);
+      
+      // Don't show generic alert - specific messages already shown above
+      if (!(err instanceof Error && 
+            (err.name === 'NotAllowedError' || 
+             err.name === 'PermissionDeniedError' ||
+             err.name === 'NotFoundError' ||
+             err.name === 'DevicesNotFoundError' ||
+             err.name === 'NotReadableError' ||
+             err.name === 'TrackStartError' ||
+             err.name === 'SecurityError'))) {
+        alert(`Failed to start livestream: ${errMsg}`);
+      }
     }
   }
 
@@ -475,6 +542,24 @@ export default function BroadcasterPage() {
       teacherID,
       livestreamID,
     });
+    
+    // Update totalViewers in database
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+    if (token) {
+      try {
+        const currentViewers = Object.keys(peersRef.current).length;
+        await fetch(`${API_URL}/livestream/${livestreamID}/update-viewers`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ totalViewers: currentViewers }),
+        }).catch(err => console.warn('[Broadcaster] Failed to update viewers:', err));
+      } catch (error) {
+        console.warn('[Broadcaster] Error updating viewers:', error);
+      }
+    }
   }
 
   function handleAnswer({ from, sdp }: { from: string; sdp: RTCSessionDescriptionInit }) {
@@ -498,6 +583,24 @@ export default function BroadcasterPage() {
     if (pc) {
       pc.close();
       delete peersRef.current[id];
+      
+      // Update totalViewers in database when viewer disconnects
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      if (token) {
+        try {
+          const currentViewers = Object.keys(peersRef.current).length;
+          fetch(`${API_URL}/livestream/${livestreamID}/update-viewers`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ totalViewers: currentViewers }),
+          }).catch(err => console.warn('[Broadcaster] Failed to update viewers on disconnect:', err));
+        } catch (error) {
+          console.warn('[Broadcaster] Error updating viewers on disconnect:', error);
+        }
+      }
     }
   }
 
@@ -810,12 +913,15 @@ export default function BroadcasterPage() {
     
     const message = {
       id: Date.now().toString() + Math.random(),
-      username: 'Teacher', // TODO: Get from auth
+      username: 'Teacher',
       userRole: 'teacher' as const,
       message: chatInput,
       timestamp: new Date().toISOString(),
       avatar: '/teacher-avatar.png'
     };
+    
+    // Add to local messages immediately
+    setChatMessages(prev => [...prev, message]);
     
     // Emit to backend
     socket.emit("send-chat-message", {
@@ -1279,13 +1385,15 @@ export default function BroadcasterPage() {
                 "text-indigo-500/70",
               ];
               const colorClass = msg.userRole === 'teacher' ? 'text-orange-400/90' : colors[i % colors.length];
+              // Safely get username string
+              const displayName = typeof msg.username === 'string' ? msg.username : (msg.username?.fullName || 'Anonymous');
 
               return (
                 <div
                   key={msg.id}
                   className={`rounded-lg px-2 py-1 inline-block bg-white/10 backdrop-blur-sm ${colorClass}`}
                 >
-                  <b>{msg.username}:</b> {msg.message}
+                  <b>{displayName}:</b> {msg.message}
                   {msg.userRole === 'teacher' && <span className="ml-1 text-[9px] bg-red-600/80 px-1 rounded">👨‍🏫</span>}
                 </div>
               );

@@ -19,6 +19,7 @@ export class NotificationService {
   ) {}
 
   async createNotification(dto: CreateNotificationDto) {
+    console.log(`📨 Creating notification for user: ${dto.userId}, type: ${dto.type}`);
     const notification = await this.prisma.mongo.notification.create({
       data: {
         userId: dto.userId,
@@ -29,6 +30,8 @@ export class NotificationService {
         read: false,
       },
     });
+
+    console.log(`✅ Notification created in DB:`, notification.id);
 
     // Send real-time notification via WebSocket
     this.notificationGateway.sendNotificationToUser(dto.userId, notification);

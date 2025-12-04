@@ -424,7 +424,7 @@ export default function MessagePage({
   };
 
   return (
-    <div className="flex h-[calc(100vh-80px)] bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50">
+    <div className="flex h-[calc(100vh-80px)] bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 px-[5%]">
       {/* Contacts List */}
       <div className="w-80 bg-white/80 backdrop-blur-md border-r border-gray-200 flex flex-col">
         {/* Header */}

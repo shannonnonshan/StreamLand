@@ -69,3 +69,31 @@ export class UpdateTeacherProfileDto {
   @IsOptional()
   youtube?: string;
 }
+
+export class UploadTeacherCVDto {
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  subjects?: string[];
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  experience?: number;
+
+  @IsString()
+  @IsOptional()
+  education?: string;
+
+  @IsString()
+  @IsOptional()
+  website?: string;
+
+  @IsString()
+  @IsOptional()
+  linkedin?: string;
+
+  @IsString()
+  @IsOptional()
+  youtube?: string;
+}

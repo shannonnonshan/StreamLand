@@ -24,6 +24,10 @@ export interface DashboardStats {
   topLivestreams: TopLivestream[];
 }
 
+// Simple in-memory cache
+const dashboardCache = new Map<string, { data: DashboardStats; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 export function useTeacherDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,42 +46,59 @@ export function useTeacherDashboard() {
         const user = JSON.parse(userStr);
         const teacherId = user.id;
         
-        console.log('Dashboard fetch - teacherId:', teacherId, 'hasToken:', !!token);
-        
         if (!teacherId) {
           throw new Error('Teacher ID not found');
         }
 
+        // Check cache first
+        const cacheKey = `dashboard_${teacherId}`;
+        const cached = dashboardCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+          console.log('Using cached dashboard stats');
+          setStats(cached.data);
+          setLoading(false);
+          return;
+        }
+
         const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-        console.log('Fetching from:', `${API_URL}/teacher/${teacherId}/dashboard/stats`);
+        
+        // Use abort controller for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
         
         const response = await fetch(`${API_URL}/teacher/${teacherId}/dashboard/stats`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           if (response.status === 401) {
-            // Token expired or invalid - clear auth and redirect
             localStorage.removeItem('token');
             localStorage.removeItem('accessToken');
             localStorage.removeItem('user');
             throw new Error('Session expired - Please login again');
           }
           
-          const errorText = await response.text();
-          console.error('API Error:', response.status, errorText);
           throw new Error(`Failed to fetch dashboard stats: ${response.status}`);
         }
 
         const data = await response.json();
-        console.log('Dashboard stats received:', data);
+        
+        // Cache the result
+        dashboardCache.set(cacheKey, { data, timestamp: Date.now() });
+        
         setStats(data);
+        setError(null);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-        setError(errorMessage);
+        if (errorMessage !== 'This operation was aborted') {
+          setError(errorMessage);
+        }
         console.error('Dashboard stats error:', err);
       } finally {
         setLoading(false);

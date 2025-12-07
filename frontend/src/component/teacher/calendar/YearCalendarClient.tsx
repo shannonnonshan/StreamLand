@@ -61,8 +61,20 @@ export default function YearCalendarClient({
     });
 
   const openDay = (date: Date) => {
+    if (isPastDate(date)) {
+      alert('Cannot schedule events in the past. Please select a future date.');
+      return;
+    }
     setSelectedDate(date);
     setDrawerOpen(true);
+  };
+
+  const isPastDate = (date: Date) => {
+    const dateToCheck = new Date(date);
+    dateToCheck.setHours(0, 0, 0, 0);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return dateToCheck < now;
   };
 
   return (
@@ -104,13 +116,16 @@ export default function YearCalendarClient({
                   const isToday = today.toDateString() === dateObj.toDateString();
                   const isSunday = (i % 7) === 6;
 
+                  const isDateInPast = isPastDate(dateObj);
                   return (
                     <div
                       key={i}
-                      className={`relative p-1 rounded cursor-pointer hover:bg-green-100 transition-colors
+                      className={`relative p-1 rounded transition-colors
                         ${isToday ? "ring-2 ring-green-500 font-bold bg-green-50" : ""}
+                        ${isDateInPast ? "bg-gray-200 text-gray-500 cursor-not-allowed" : "cursor-pointer hover:bg-green-100"}
                         ${isSunday ? "text-[#EC255A] font-semibold" : ""}`}
-                      onClick={() => openDay(dateObj)}
+                      onClick={() => !isDateInPast && openDay(dateObj)}
+                      title={isDateInPast ? "Cannot schedule in the past" : ""}
                     >
                       <p className="text-xs">{day}</p>
                       {evs.length > 0 && (

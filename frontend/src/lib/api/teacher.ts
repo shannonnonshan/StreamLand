@@ -161,6 +161,7 @@ export async function createSchedule(teacherId: string, data: {
   location?: string;
   tags?: string[];
   notifyBefore?: number;
+  category?: string;
 }): Promise<Schedule> {
   return authenticatedFetch(`${API_URL}/livestream/schedule`, {
     method: 'POST',
@@ -198,11 +199,21 @@ export async function getTeacherLivestreams(
 }
 
 export async function getRecordedLivestreams(teacherId: string): Promise<LiveStream[]> {
-  return getTeacherLivestreams(teacherId, 'ENDED');
+  // Get all ENDED livestreams (with or without recordingUrl)
+  // Detail page will show "No Recording Available" if recordingUrl is missing
+  const url = `${API_URL}/livestream/teacher/${teacherId}/ended?limit=50`;
+  return authenticatedFetch(url);
 }
 
 export async function getLivestreamById(livestreamId: string): Promise<LiveStream> {
   return authenticatedFetch(`${API_URL}/livestream/${livestreamId}`);
+}
+
+export async function startLivestreamEarly(livestreamId: string, title: string, category?: string): Promise<LiveStream> {
+  return authenticatedFetch(`${API_URL}/livestream/${livestreamId}/start-early`, {
+    method: 'POST',
+    body: JSON.stringify({ title, category }),
+  });
 }
 
 // ============ UTILITY FUNCTIONS ============
@@ -273,6 +284,67 @@ export function groupRecordingsByMonth(recordings: LiveStream[]) {
   });
   
   return grouped;
+}
+
+// Format livestream as calendar event
+export function formatLivestreamForCalendar(livestream: LiveStream, type: 'scheduled' | 'live' | 'ended'): {
+  id: string;
+  teacherId: string;
+  title: string;
+  date: string;
+  start: string;
+  end: string;
+  color: string;
+  audience: 'public' | 'subscribers';
+  description?: string;
+  livestreamId: string;
+  type: 'livestream';
+  status: string;
+} {
+  // Determine which timestamp to use
+  let startDate: Date;
+  let endDate: Date;
+  
+  if (type === 'scheduled') {
+    startDate = new Date(livestream.scheduledAt || livestream.createdAt);
+    // Default 1 hour duration for scheduled
+    endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+  } else if (type === 'live') {
+    startDate = new Date(livestream.startedAt || livestream.createdAt);
+    // Default 1 hour from start or until now
+    endDate = new Date();
+  } else {
+    // ended
+    startDate = new Date(livestream.startedAt || livestream.createdAt);
+    endDate = new Date(livestream.endedAt || new Date());
+  }
+  
+  // Format date in local timezone (YYYY-MM-DD)
+  const year = startDate.getFullYear();
+  const month = String(startDate.getMonth() + 1).padStart(2, '0');
+  const day = String(startDate.getDate()).padStart(2, '0');
+  const dateStr = `${year}-${month}-${day}`;
+  
+  // Format time in local timezone (HH:mm)
+  const startHour = String(startDate.getHours()).padStart(2, '0');
+  const startMin = String(startDate.getMinutes()).padStart(2, '0');
+  const endHour = String(endDate.getHours()).padStart(2, '0');
+  const endMin = String(endDate.getMinutes()).padStart(2, '0');
+  
+  return {
+    id: livestream.id,
+    teacherId: livestream.teacherId,
+    title: livestream.title,
+    date: dateStr,
+    start: `${startHour}:${startMin}`,
+    end: `${endHour}:${endMin}`,
+    color: type === 'scheduled' ? 'purple' : (type === 'live' ? 'red' : 'gray'),
+    audience: livestream.isPublic ? 'public' : 'subscribers',
+    description: livestream.description,
+    livestreamId: livestream.id,
+    type: 'livestream',
+    status: type,
+  };
 }
 
 // Update teacher profile (generic - works for bio, avatar, location, etc.)

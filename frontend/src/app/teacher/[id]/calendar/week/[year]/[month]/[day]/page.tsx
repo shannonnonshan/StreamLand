@@ -106,6 +106,15 @@ export default function WeekCalendar() {
   // Filter events for this teacher
   const filteredEvents = events.filter((ev) => ev.teacherId === teacherId);
 
+  // Check if a day is in the past
+  const isPastDay = (date: Date) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const checkDate = new Date(date);
+    checkDate.setHours(0, 0, 0, 0);
+    return checkDate < today;
+  };
+
   return (
     <section className={`relative bg-white overflow-hidden ${raleway.className}`}>
       <div className="w-full overflow-x-auto">
@@ -156,8 +165,10 @@ export default function WeekCalendar() {
             </div>
 
             {/* Day columns */}
-            {daysOfWeek.map((d, i) => (
-              <div key={i} className="relative border-l border-gray-200">
+            {daysOfWeek.map((d, i) => {
+              const isDateInPast = isPastDay(d);
+              return (
+              <div key={i} className={`relative border-l border-gray-200 ${isDateInPast ? 'bg-gray-50' : ''}`}>
                 {hours.map((_, hi) => (
                   <div
                     key={hi}
@@ -208,7 +219,8 @@ export default function WeekCalendar() {
                   })}
                 <EventDrawer event={selectedEvent} isOpen={drawerOpen} onClose={closeDrawer} />
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
       </div>

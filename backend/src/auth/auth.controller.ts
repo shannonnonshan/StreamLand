@@ -12,9 +12,13 @@ import {
   Param,
   Req,
   ForbiddenException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
+import { R2StorageService } from '../r2-storage/r2-storage.service';
 
 interface OAuthResult {
   isNewUser: boolean;
@@ -35,6 +39,7 @@ import {
   UpdateUserProfileDto,
   UpdateStudentProfileDto,
   UpdateTeacherProfileDto,
+  UploadTeacherCVDto,
 } from './dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
@@ -45,7 +50,10 @@ import { Role } from '@prisma/client';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly r2StorageService: R2StorageService,
+  ) {}
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -187,10 +195,23 @@ export class AuthController {
   // Profile update routes
   @Patch('profile')
   @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('avatar'))
   async updateProfile(
     @Request() req: { user: { sub: string } },
     @Body() updateDto: UpdateUserProfileDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
+    // If avatar file is provided, upload to R2 and get the URL
+    if (file) {
+      const avatarUrl = await this.r2StorageService.uploadDocument(
+        req.user.sub,
+        file.originalname,
+        file.buffer,
+        file.mimetype,
+      );
+      updateDto.avatar = avatarUrl;
+    }
+
     return this.authService.updateUserProfile(req.user.sub, updateDto);
   }
 
@@ -214,6 +235,18 @@ export class AuthController {
     return this.authService.updateTeacherProfile(req.user.sub, updateDto);
   }
 
+  @Post('profile/teacher/upload-cv')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.TEACHER)
+  @UseInterceptors(FileInterceptor('cv'))
+  async uploadTeacherCV(
+    @Request() req: { user: { sub: string } },
+    @Body() uploadDto: UploadTeacherCVDto,
+    @UploadedFile() cvFile?: Express.Multer.File,
+  ) {
+    return this.authService.uploadTeacherCV(req.user.sub, cvFile, uploadDto);
+  }
+
   @Patch(':id/2fa')
   @UseGuards(JwtAuthGuard)
   async updateTwoFA(
@@ -222,7 +255,7 @@ export class AuthController {
     @Req() req: { user: { id: string; sub: string } }, 
   ) {
     if (req.user.sub !== id) {
-      throw new ForbiddenException("Bạn không được phép chỉnh sửa 2FA của user khác");
+      throw new ForbiddenException("You do not have permission to modify 2FA settings of another user");
     }
 
     return this.authService.updateTwoFA(id, twoFactorEnabled);

@@ -1,9 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import Overview from "@/component/teacher/dashboard/Overview";
 import Content from "@/component/teacher/dashboard/Content";
 import Audience from "@/component/teacher/dashboard/Audience";
+
+// Loading skeletons
+const TabSkeleton = () => (
+  <div className="space-y-4">
+    <div className="h-80 bg-gray-100 rounded-lg animate-pulse" />
+    <div className="grid grid-cols-4 gap-4">
+      {[...Array(4)].map((_, i) => (
+        <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />
+      ))}
+    </div>
+  </div>
+);
 
 export default function TeacherHome() {
   const [activeTab, setActiveTab] = useState("overview");
@@ -15,11 +27,23 @@ export default function TeacherHome() {
   const renderActiveTab = () => {
     switch (activeTab) {
       case "overview":
-        return <Overview filter={filter} />;
+        return (
+          <Suspense fallback={<TabSkeleton />}>
+            <Overview filter={filter} />
+          </Suspense>
+        );
       case "content":
-        return <Content filter={filter} />;
+        return (
+          <Suspense fallback={<TabSkeleton />}>
+            <Content filter={filter} />
+          </Suspense>
+        );
       case "audience":
-        return <Audience filter={filter} />;
+        return (
+          <Suspense fallback={<TabSkeleton />}>
+            <Audience filter={filter} />
+          </Suspense>
+        );
       default:
         return null;
     }

@@ -7,7 +7,7 @@ import pastelize from "@/utils/colorise";
 import EventDrawer from "@/component/teacher/calendar/EventDrawer";
 import { ScheduleEvent } from "@/component/teacher/calendar/ScheduleEventModal";
 import ScheduleEventModal from "@/component/teacher/calendar/ScheduleEventModal";
-import { getTeacherSchedules, formatScheduleForCalendar, createSchedule } from "@/lib/api/teacher";
+import { getTeacherSchedules, formatScheduleForCalendar, createSchedule, getTeacherLivestreams, formatLivestreamForCalendar } from "@/lib/api/teacher";
 
 const MONTH_NAMES = [
   "January","February","March","April","May","June",
@@ -26,6 +26,9 @@ interface CalendarEvent {
   audience: "public" | "subscribers";
   notification?: number;
   description?: string;
+  livestreamId?: string;
+  type?: 'livestream';
+  status?: string;
 }
 
 export default function MonthCalendarPage({
@@ -83,18 +86,43 @@ export default function MonthCalendarPage({
     setSelectedEvent(null);
   };
 
-  // Fetch schedules from backend
+  // Fetch schedules from backend with timeout & error recovery
   useEffect(() => {
     const fetchSchedules = async () => {
       try {
         const startDate = new Date(year, month, 1).toISOString().split('T')[0];
         const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
         
-        const schedules = await getTeacherSchedules(teacherId, startDate, endDate);
+        // Fetch both schedules and livestreams in parallel
+        const [schedules, livestreams] = await Promise.all([
+          getTeacherSchedules(teacherId, startDate, endDate).catch(() => []),
+          getTeacherLivestreams(teacherId).catch(() => [])
+        ]);
+        
+        // Format schedules
         const calendarEvents = schedules.map(formatScheduleForCalendar);
+        
+        // Format livestreams and add to events (only if no schedule is linked)
+        livestreams.forEach((ls: any) => {
+          // Skip livestreams that have a schedule (to avoid duplicates)
+          if (ls.schedule) {
+            return;
+          }
+          
+          if (ls.status === 'SCHEDULED') {
+            calendarEvents.push(formatLivestreamForCalendar(ls, 'scheduled'));
+          } else if (ls.status === 'LIVE') {
+            calendarEvents.push(formatLivestreamForCalendar(ls, 'live'));
+          } else if (ls.status === 'ENDED') {
+            calendarEvents.push(formatLivestreamForCalendar(ls, 'ended'));
+          }
+        });
+        
         setEvents(calendarEvents);
       } catch (error) {
         console.error('Failed to fetch schedules:', error);
+        // Show empty calendar on error instead of blocking
+        setEvents([]);
       }
     };
 
@@ -128,8 +156,17 @@ export default function MonthCalendarPage({
   };
 
   const showEventModal = (date: number) => {
-    setOpenModal(true);
+    // Check if selected date is in the past
     const selected = new Date(year, month, date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (selected < today) {
+      alert('Cannot schedule events in the past. Please select a future date.');
+      return;
+    }
+
+    setOpenModal(true);
 
     const localDate = new Date(selected.getTime() - selected.getTimezoneOffset() * 60000)
       .toISOString()
@@ -185,6 +222,12 @@ export default function MonthCalendarPage({
         ))}
         {noOfDays.map((date, i) => {
           const cellDate = `${year}-${String(month + 1).padStart(2, "0")}-${String(date).padStart(2, "0")}`;
+          
+          // Check if date is in the past
+          const selected = new Date(year, month, date);
+          const now = new Date();
+          now.setHours(0, 0, 0, 0);
+          const isPastDate = selected < now;
 
           const dayEvents = events
             .filter((ev) => ev.teacherId === teacherId && ev.date === cellDate) // lọc teacherId
@@ -197,22 +240,28 @@ export default function MonthCalendarPage({
           return (
             <div
               key={i}
-              className="w-1/7 border-r min-h-[150px] border-b p-1"
+              className={`w-1/7 border-r min-h-[150px] border-b p-1 ${isPastDate ? 'bg-gray-100' : ''}`}
               style={{ height: "calc((100vh - 150px) / 6)" }}
             >
               <div
-                onClick={() => showEventModal(date)}
-                className={`w-6 h-6 flex items-center justify-center rounded-full cursor-pointer ${
-                  isToday(date) ? "bg-blue-500 text-black" : "hover:bg-blue-200 text-black"
+                onClick={() => !isPastDate && showEventModal(date)}
+                className={`w-6 h-6 flex items-center justify-center rounded-full cursor-pointer transition ${
+                  isToday(date) 
+                    ? "bg-blue-500 text-white font-bold" 
+                    : isPastDate 
+                    ? "bg-gray-400 text-gray-600 cursor-not-allowed font-semibold"
+                    : "hover:bg-blue-200 text-black"
                 }`}
+                title={isPastDate ? "Cannot schedule in the past" : ""}
               >
                 {date}
               </div>
 
-              <div className="overflow-y-auto h-25 text-sm">
+              <div className={`overflow-y-auto h-25 text-sm ${isPastDate ? 'opacity-50' : ''}`}>
                 {dayEvents.map((ev, idx) => {
                   const todayStr = new Date().toISOString().split("T")[0];
                   const isPast = ev.date < todayStr;
+                  const isLivestream = ev.type === 'livestream';
 
                   return (
                     <div
@@ -220,14 +269,23 @@ export default function MonthCalendarPage({
                       className="mt-1 rounded-md p-1 cursor-pointer border-l-4"
                       onClick={() => openDrawer(ev)}
                       style={{
-                        backgroundColor: isPast ? "#f3f4f6" : pastelize(ev.color, 0.25),
-                        borderColor: isPast ? "#9ca3af" : ev.color,
-                        color: isPast ? "#6b7280" : "#111827",
+                        backgroundColor: isPastDate ? "#d1d5db" : (isPast ? "#f3f4f6" : pastelize(ev.color, 0.25)),
+                        borderColor: isPastDate ? "#9ca3af" : (isPast ? "#9ca3af" : ev.color),
+                        color: isPastDate ? "#6b7280" : (isPast ? "#6b7280" : "#111827"),
                       }}
                     >
-                      <div className="truncate font-medium">
-                        <span style={{ color: isPast ? "#9ca3af" : ev.color }}>{ev.start} </span>
-                        {ev.title}
+                      <div className="truncate font-medium flex items-center gap-1">
+                        <span style={{ color: isPastDate ? "#9ca3af" : (isPast ? "#9ca3af" : ev.color) }}>{ev.start}</span>
+                        {isLivestream && (
+                          <span className={`text-xs px-1 rounded ${
+                            ev.status === 'scheduled' ? 'bg-purple-200 text-purple-800' :
+                            ev.status === 'live' ? 'bg-red-200 text-red-800' :
+                            'bg-gray-300 text-gray-700'
+                          }`}>
+                            {ev.status === 'scheduled' ? '📅' : ev.status === 'live' ? '🔴' : '✓'}
+                          </span>
+                        )}
+                        <span className="truncate">{ev.title}</span>
                       </div>
                     </div>
                   );

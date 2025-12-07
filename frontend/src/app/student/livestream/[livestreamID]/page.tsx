@@ -377,6 +377,34 @@ export default function LivestreamViewerPage() {
     return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
   };
 
+  // Helper function to format livestream start time
+  const formatLivestreamStartTime = (date: string): string => {
+    try {
+      const startDate = new Date(date);
+      const now = new Date();
+      const diffMs = now.getTime() - startDate.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) return 'Started just now';
+      if (diffMins < 60) return `Started ${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+      if (diffHours < 24) return `Started ${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+      if (diffDays < 7) return `Started ${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+      
+      // Format as date and time for older streams
+      return startDate.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (error) {
+      return 'Just started';
+    }
+  };
+
   // Save document to student's document library
   const handleSaveDocument = (docId: string) => {
     const doc = teacherDocuments.find(d => d.id === docId);
@@ -882,12 +910,12 @@ export default function LivestreamViewerPage() {
                       <div className="flex items-center gap-2">
                         <UserGroupIcon className="h-4 w-4" />
                         <span className="font-medium">
-                          {livestreamInfo?.viewers ? livestreamInfo.viewers.toLocaleString() : '0'} watching
+                          {livestreamInfo?.viewers !== undefined ? livestreamInfo.viewers.toLocaleString('en-US') : '0'} watching
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
                         <ClockIcon className="h-4 w-4" />
-                        <span>{livestreamInfo?.startedAt || 'Just started'}</span>
+                        <span>{livestreamInfo?.startedAt ? formatLivestreamStartTime(livestreamInfo.startedAt) : 'Just started'}</span>
                       </div>
                       {livestreamInfo?.category && (
                         <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">

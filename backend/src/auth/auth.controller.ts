@@ -39,6 +39,7 @@ import {
   UpdateUserProfileDto,
   UpdateStudentProfileDto,
   UpdateTeacherProfileDto,
+  UploadTeacherCVDto,
 } from './dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
@@ -234,6 +235,18 @@ export class AuthController {
     return this.authService.updateTeacherProfile(req.user.sub, updateDto);
   }
 
+  @Post('profile/teacher/upload-cv')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.TEACHER)
+  @UseInterceptors(FileInterceptor('cv'))
+  async uploadTeacherCV(
+    @Request() req: { user: { sub: string } },
+    @Body() uploadDto: UploadTeacherCVDto,
+    @UploadedFile() cvFile?: Express.Multer.File,
+  ) {
+    return this.authService.uploadTeacherCV(req.user.sub, cvFile, uploadDto);
+  }
+
   @Patch(':id/2fa')
   @UseGuards(JwtAuthGuard)
   async updateTwoFA(
@@ -242,7 +255,7 @@ export class AuthController {
     @Req() req: { user: { id: string; sub: string } }, 
   ) {
     if (req.user.sub !== id) {
-      throw new ForbiddenException("Bạn không được phép chỉnh sửa 2FA của user khác");
+      throw new ForbiddenException("You do not have permission to modify 2FA settings of another user");
     }
 
     return this.authService.updateTwoFA(id, twoFactorEnabled);

@@ -12,6 +12,8 @@ import {
   HttpCode,
   HttpStatus,
   UnauthorizedException,
+  NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { LivestreamService } from './livestream.service';
@@ -50,6 +52,38 @@ export class LivestreamController {
   // IMPORTANT: Specific routes MUST come BEFORE generic :id routes
   // Otherwise :id will match everything
   
+  @Get('teacher/:teacherId/recordings')
+  @UseGuards(JwtAuthGuard)
+  async getTeacherRecordedLivestreams(
+    @Param('teacherId') teacherId: string,
+    @Query('limit') limit: string,
+    @Request() req: any,
+  ) {
+    // Only allow teachers to view their own recordings or admins
+    if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
+      throw new UnauthorizedException('You can only view your own recordings');
+    }
+
+    const limitNum = limit ? parseInt(limit, 10) : 50;
+    return await this.livestreamService.getTeacherRecordedLivestreams(teacherId, limitNum);
+  }
+
+  @Get('teacher/:teacherId/ended')
+  @UseGuards(JwtAuthGuard)
+  async getTeacherEndedLivestreams(
+    @Param('teacherId') teacherId: string,
+    @Query('limit') limit: string,
+    @Request() req: any,
+  ) {
+    // Only allow teachers to view their own livestreams or admins
+    if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
+      throw new UnauthorizedException('You can only view your own livestreams');
+    }
+
+    const limitNum = limit ? parseInt(limit, 10) : 50;
+    return await this.livestreamService.getTeacherEndedLivestreams(teacherId, limitNum);
+  }
+
   @Get('teacher/:teacherId')
   @UseGuards(JwtAuthGuard)
   async getTeacherLivestreams(
@@ -61,6 +95,9 @@ export class LivestreamController {
     if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
       throw new UnauthorizedException('You can only view your own livestreams');
     }
+
+    // Auto-check and cancel expired scheduled livestreams
+    await this.livestreamService.autoCheckAndCancelExpiredLivestreams(teacherId);
 
     return await this.livestreamService.getTeacherLivestreams(teacherId, status);
   }
@@ -126,6 +163,38 @@ export class LivestreamController {
     }
 
     return await this.livestreamService.startLivestream(id);
+  }
+
+  @Post(':id/start-early')
+  @UseGuards(JwtAuthGuard)
+  async startLivestreamEarly(
+    @Param('id') id: string,
+    @Body() body: { title: string; category?: string },
+    @Request() req: any,
+  ) {
+    // Get livestream (schedule's livestream) to verify ownership
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    
+    if (!livestream) {
+      throw new NotFoundException('Livestream not found');
+    }
+
+    if (livestream.teacherId !== req.user.sub && req.user.role !== 'ADMIN') {
+      throw new UnauthorizedException('You can only start your own livestreams');
+    }
+
+    // Check if scheduled livestream is in the future
+    const now = new Date();
+    if (livestream.scheduledAt && new Date(livestream.scheduledAt) <= now) {
+      throw new BadRequestException('This livestream is not in the future. Cannot start early.');
+    }
+
+    // Create a new livestream to start right now with same category
+    return await this.livestreamService.createAndStartLivestreamEarly(
+      req.user.sub,
+      body.title || livestream.title,
+      livestream.category || body.category,
+    );
   }
 
   @Patch(':id/end')
@@ -292,5 +361,25 @@ export class LivestreamController {
     @Request() req: any,
   ) {
     return await this.livestreamService.registerAttendee(id, req.user.sub as string);
+  }
+
+  // Chat Endpoints
+  @Post(':id/save-chat')
+  @UseGuards(JwtAuthGuard)
+  async saveChatMessage(
+    @Param('id') id: string,
+    @Body() body: { username: string; userAvatar?: string; message: string; type?: string },
+    @Request() req: any,
+  ) {
+    return await this.livestreamService.saveChatMessage(id, req.user.sub, body.username, body.userAvatar, body.message, body.type);
+  }
+
+  @Get(':id/get-chat')
+  async getChatMessages(
+    @Param('id') id: string,
+    @Query('limit') limit: string,
+  ) {
+    const limitNum = limit ? parseInt(limit, 10) : 100;
+    return await this.livestreamService.getChatMessages(id, limitNum);
   }
 }

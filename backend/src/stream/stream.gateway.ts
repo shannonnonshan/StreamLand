@@ -168,9 +168,18 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         // Watcher left, notify broadcaster
         channel.watchers.delete(socket.id);
         this.server.to(channel.broadcaster).emit('bye', socket.id);
+        
+        // Emit updated viewer count to broadcaster AND all remaining clients
+        const viewerCount = channel.watchers.size;
         this.server
           .to(channel.broadcaster)
-          .emit('viewerCount', channel.watchers.size);
+          .emit('viewerCount', viewerCount);
+        
+        // Also broadcast to all students still in the room
+        this.server.to(this.getKey(Object.keys(this.channels).find(
+          k => this.channels[k].watchers.has(socket.id)
+        ) || ''))
+          .emit('viewerCount', viewerCount);
         
         // Remove viewer from Redis
         const livestreamID = key; // keys are livestreamIDs
@@ -217,6 +226,9 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const channel = this.channels[key];
 
     if (channel) {
+      // Add student socket to the room so they receive all broadcasts
+      socket.join(key);
+      
       channel.watchers.add(socket.id);
       // Send watcher info to broadcaster with object format
       this.server.to(channel.broadcaster).emit('watcher', { id: socket.id });
@@ -226,10 +238,14 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.server.to(socket.id).emit('livestream-info', channel.info);
       }
 
-      // Emit current viewer count to broadcaster
+      // Emit current viewer count to BOTH broadcaster AND all clients in room
+      const viewerCount = channel.watchers.size;
       this.server
         .to(channel.broadcaster)
-        .emit('viewerCount', channel.watchers.size);
+        .emit('viewerCount', viewerCount);
+      
+      // Also broadcast to all students in this livestream room
+      this.server.to(key).emit('viewerCount', viewerCount);
 
       // Debounced Redis update (batch multiple viewers)
       if (!this.debouncedUpdateViewer.has(data.livestreamID)) {
@@ -415,7 +431,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  // Handle incoming video chunks from broadcaster
+  // Handle video chunk uploads from broadcaster
   @SubscribeMessage('video-chunk')
   handleVideoChunk(
     @MessageBody() data: { livestreamID: string; chunk: string; chunkIndex: number; totalSize: number },
@@ -445,6 +461,30 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
     } catch (error) {
       this.logger.error('Error handling video chunk:', error);
+    }
+  }
+
+  // Handle viewer count updates from broadcaster
+  @SubscribeMessage('updateCurrentViewers')
+  handleUpdateCurrentViewers(
+    @MessageBody() data: { livestreamID: string; currentViewers: number },
+    @ConnectedSocket() socket: Socket,
+  ) {
+    try {
+      const key = this.getKey(data.livestreamID);
+      const channel = this.channels[key];
+
+      if (!channel) {
+        this.logger.warn(`Viewer count update for non-existent channel: ${data.livestreamID}`);
+        return;
+      }
+
+      this.logger.log(`Viewer count update for livestream ${data.livestreamID}: ${data.currentViewers} viewers`);
+
+      // Broadcast viewer count to ALL clients in this livestream (teacher + students)
+      this.server.to(key).emit('viewerCount', data.currentViewers);
+    } catch (error) {
+      this.logger.error('Error handling viewer count update:', error);
     }
   }
 

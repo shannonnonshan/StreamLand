@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { R2StorageService } from '../r2-storage/r2-storage.service';
 import {
   LoginDto,
   RegisterDto,
@@ -19,6 +20,7 @@ import {
   UpdateUserProfileDto,
   UpdateStudentProfileDto,
   UpdateTeacherProfileDto,
+  UploadTeacherCVDto,
   Role,
 } from './dto';
 
@@ -32,6 +34,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private mailService: MailService,
+    private r2StorageService: R2StorageService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -919,7 +922,66 @@ export class AuthService {
       include: { teacherProfile: true },
     });
   }
-    async updateTwoFA(userId: string, twoFactorEnabled: boolean) {
+  
+  async uploadTeacherCV(
+    userId: string,
+    cvFile: Express.Multer.File | undefined,
+    updateDto: UploadTeacherCVDto,
+  ) {
+    // Verify user exists and is a teacher
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { teacherProfile: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.role !== 'TEACHER') {
+      throw new BadRequestException('User is not a teacher');
+    }
+
+    // Upload CV to R2
+    let cvUrl: string | null = null;
+    if (cvFile) {
+      cvUrl = await this.r2StorageService.uploadDocument(
+        userId,
+        `cv_${Date.now()}_${cvFile.originalname}`,
+        cvFile.buffer,
+        cvFile.mimetype,
+      );
+    }
+
+    // Prepare update data
+    const updateData: any = { ...updateDto };
+    if (cvUrl) {
+      updateData.cvUrl = cvUrl;
+    }
+
+    // Create or update teacher profile
+    if (!user.teacherProfile) {
+      await this.prisma.postgres.teacherProfile.create({
+        data: {
+          userId: user.id,
+          ...updateData,
+        },
+      });
+    } else {
+      await this.prisma.postgres.teacherProfile.update({
+        where: { userId: user.id },
+        data: updateData,
+      });
+    }
+
+    // Return updated profile
+    return await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { teacherProfile: true },
+    });
+  }
+
+  async updateTwoFA(userId: string, twoFactorEnabled: boolean) {
     return this.prisma.postgres.user.update({
       where: { id: userId },
       data: { twoFactorEnabled },

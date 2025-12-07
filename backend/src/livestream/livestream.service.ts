@@ -27,7 +27,7 @@ export class LivestreamService {
       }),
       this.prisma.postgres.user.findUnique({
         where: { id: teacherId },
-        select: { id: true, role: true }, // Don't need full teacherProfile
+        select: { id: true, role: true, avatar: true }, // Include avatar for thumbnail
       }),
       this.prisma.postgres.liveStream.findFirst({
         where: {
@@ -54,6 +54,9 @@ export class LivestreamService {
       throw new ConflictException('Teacher already has an active livestream');
     }
 
+    // Use teacher avatar as thumbnail, fallback to logo.png
+    const thumbnail = teacher.avatar || '/logo.png';
+
     // Create the livestream with SCHEDULED status
     const livestream = await this.prisma.postgres.liveStream.create({
       data: {
@@ -61,7 +64,7 @@ export class LivestreamService {
         teacherId,
         title,
         description: description || '',
-        thumbnail: 'https://images.unsplash.com/photo-1588072432836-e10032774350?w=800&h=450&fit=crop', // Default thumbnail
+        thumbnail,
         isPublic: isPublic !== undefined ? isPublic : true,
         allowComments: allowComments !== undefined ? allowComments : true,
         status: LiveStreamStatus.SCHEDULED,
@@ -115,6 +118,42 @@ export class LivestreamService {
     });
 
     return updatedLivestream;
+  }
+
+  async createAndStartLivestreamEarly(teacherId: string, title: string, category?: string) {
+    // Fetch teacher avatar for thumbnail
+    const teacher = await this.prisma.postgres.user.findUnique({
+      where: { id: teacherId },
+      select: { avatar: true },
+    });
+
+    if (!teacher) {
+      throw new NotFoundException('Teacher not found');
+    }
+
+    // Use teacher avatar as thumbnail, fallback to logo.png
+    const thumbnail = teacher.avatar || '/logo.png';
+
+    // Create a new livestream to start immediately
+    const newLivestream = await this.prisma.postgres.liveStream.create({
+      data: {
+        teacherId,
+        title,
+        description: '',
+        category: category || null,
+        thumbnail,
+        status: LiveStreamStatus.LIVE,
+        scheduledAt: new Date(),
+        startedAt: new Date(),
+        totalViews: 0,
+        peakViewers: 0,
+        duration: 0,
+        currentViewers: 0,
+      },
+    });
+
+    this.logger.log(`Created and started early livestream ${newLivestream.id} for teacher ${teacherId}`);
+    return newLivestream;
   }
 
   async getLivestreamById(id: string) {
@@ -219,6 +258,9 @@ export class LivestreamService {
     return await this.prisma.postgres.liveStream.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      include: {
+        schedule: true,
+      },
     });
   }
 
@@ -374,11 +416,12 @@ export class LivestreamService {
   // Schedule Management Methods
 
   async createSchedule(createScheduleDto: CreateScheduleDto) {
-    const { teacherId, title, startTime, endTime, livestreamId, isPublic, ...rest } = createScheduleDto;
+    const { teacherId, title, startTime, endTime, livestreamId, isPublic, category, ...rest } = createScheduleDto;
 
-    // Verify teacher exists
+    // Verify teacher exists and get avatar
     const teacher = await this.prisma.postgres.user.findUnique({
       where: { id: teacherId },
+      select: { id: true, role: true, avatar: true },
     });
 
     if (!teacher || teacher.role !== 'TEACHER') {
@@ -402,12 +445,16 @@ export class LivestreamService {
       }
     } else {
       // Auto-create livestream if not provided
+      // Use teacher avatar as thumbnail, fallback to logo.png
+      const thumbnail = teacher.avatar || '/logo.png';
+
       const newLivestream = await this.prisma.postgres.liveStream.create({
         data: {
           teacherId,
           title,
           description: '',
-          thumbnail: 'https://images.unsplash.com/photo-1588072432836-e10032774350?w=800&h=450&fit=crop', // Default thumbnail
+          category: category || null, // Set category from schedule
+          thumbnail,
           status: LiveStreamStatus.SCHEDULED,
           scheduledAt: new Date(startTime),
           totalViews: 0,
@@ -771,7 +818,7 @@ export class LivestreamService {
     }));
   }
 
-  // Get recorded livestreams (ENDED with recordingUrl)
+  // Get recorded livestreams (ENDED with recordingUrl) - public
   async getRecordedLivestreams(limit: number = 20) {
     const videos = await this.prisma.postgres.liveStream.findMany({
       where: {
@@ -813,6 +860,76 @@ export class LivestreamService {
       status: video.status,
       category: video.category,
     }));
+  }
+
+  // Get teacher's recorded livestreams (ENDED with recordingUrl)
+  async getTeacherRecordedLivestreams(teacherId: string, limit: number = 50) {
+    const recordings = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        teacherId,
+        status: LiveStreamStatus.ENDED,
+        recordingUrl: { not: null }, // Only include livestreams with saved recordings
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        category: true,
+        thumbnail: true,
+        recordingUrl: true,
+        status: true,
+        totalViews: true,
+        duration: true,
+        createdAt: true,
+        startedAt: true,
+        endedAt: true,
+        currentViewers: true,
+        peakViewers: true,
+        isRecorded: true,
+        isPublic: true,
+      },
+      orderBy: [
+        { endedAt: 'desc' },
+      ],
+      take: limit,
+    });
+
+    return recordings;
+  }
+
+  // Get all ENDED livestreams for a teacher (including those without recordings)
+  async getTeacherEndedLivestreams(teacherId: string, limit: number = 50) {
+    const livestreams = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        teacherId,
+        status: LiveStreamStatus.ENDED,
+        // No recordingUrl filter - show all ENDED livestreams
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        category: true,
+        thumbnail: true,
+        recordingUrl: true,
+        status: true,
+        totalViews: true,
+        duration: true,
+        createdAt: true,
+        startedAt: true,
+        endedAt: true,
+        currentViewers: true,
+        peakViewers: true,
+        isRecorded: true,
+        isPublic: true,
+      },
+      orderBy: [
+        { endedAt: 'desc' },
+      ],
+      take: limit,
+    });
+
+    return livestreams;
   }
 
   // Get upcoming scheduled livestreams
@@ -890,4 +1007,95 @@ export class LivestreamService {
       },
     });
   }
+
+  // Auto-cancel scheduled livestreams that have passed their scheduled date
+  async autoCheckAndCancelExpiredLivestreams(teacherId: string) {
+    const now = new Date();
+
+    // Find all scheduled livestreams for this teacher that are past their scheduled date
+    const expiredLivestreams = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        teacherId,
+        status: LiveStreamStatus.SCHEDULED,
+        scheduledAt: {
+          lt: now, // Scheduled date is in the past
+        },
+      },
+    });
+
+    // Update them to CANCELLED status
+    for (const livestream of expiredLivestreams) {
+      await this.prisma.postgres.liveStream.update({
+        where: { id: livestream.id },
+        data: {
+          status: LiveStreamStatus.CANCELLED,
+        },
+      });
+
+      // Also update associated schedule status
+      const schedule = await this.prisma.postgres.schedule.findUnique({
+        where: { livestreamId: livestream.id },
+      });
+
+      if (schedule) {
+        await this.prisma.postgres.schedule.update({
+          where: { id: schedule.id },
+          data: {
+            status: ScheduleStatus.CANCELLED,
+            cancelledAt: now,
+            cancelReason: 'Scheduled date has passed without starting',
+          },
+        });
+      }
+
+      this.logger.log(`Auto-cancelled expired livestream ${livestream.id} for teacher ${teacherId}`);
+    }
+
+    return expiredLivestreams;
+  }
+
+  // Chat service methods
+  async saveChatMessage(
+    livestreamId: string,
+    userId: string,
+    username: string,
+    userAvatar: string | undefined,
+    message: string,
+    type: string = 'MESSAGE',
+  ) {
+    try {
+      const chatMessage = await this.prisma.mongo.liveStreamChat.create({
+        data: {
+          livestreamId,
+          userId,
+          username,
+          userAvatar: userAvatar || null,
+          message,
+          type: type as any, // ChatType enum value
+        },
+      });
+      
+      this.logger.log(`Chat message saved for livestream ${livestreamId}`);
+      return chatMessage;
+    } catch (error) {
+      this.logger.error(`Failed to save chat message: ${error}`);
+      throw new BadRequestException('Failed to save chat message');
+    }
+  }
+
+  async getChatMessages(livestreamId: string, limit: number = 100) {
+    try {
+      const messages = await this.prisma.mongo.liveStreamChat.findMany({
+        where: { livestreamId },
+        orderBy: { createdAt: 'asc' },
+        take: limit,
+      });
+      
+      return messages;
+    } catch (error) {
+      this.logger.error(`Failed to fetch chat messages: ${error}`);
+      throw new BadRequestException('Failed to fetch chat messages');
+    }
+  }
 }
+

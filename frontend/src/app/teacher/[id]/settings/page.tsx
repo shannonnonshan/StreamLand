@@ -18,10 +18,50 @@ import {
   ChevronUp,
   ArrowLeft,
   Camera,
-  Upload
+  Upload,
+  FileText,
+  Download,
+  Trash2
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+const VIETNAM_PROVINCES = [
+  "Tuyen Quang, Vietnam",
+  "Lao Cai, Vietnam",
+  "Thai Nguyen, Vietnam",
+  "Phu Tho, Vietnam",
+  "Bac Ninh, Vietnam",
+  "Hung Yen, Vietnam",
+  "Ha Phong, Vietnam",
+  "Ninh Binh, Vietnam",
+  "Quang Tri, Vietnam",
+  "Da Nang, Vietnam",
+  "Quang Ngai, Vietnam",
+  "Gia Lai, Vietnam",
+  "Khanh Hoa, Vietnam",
+  "Lam Dong, Vietnam",
+  "Dak Lak, Vietnam",
+  "Ho Chi Minh, Vietnam",
+  "Dong Nai, Vietnam",
+  "Tay Ninh, Vietnam",
+  "Can Tho, Vietnam",
+  "Vinh Long, Vietnam",
+  "Dong Thap, Vietnam",
+  "Ca Mau, Vietnam",
+  "An Giang, Vietnam",
+  "Ha Noi, Vietnam",
+  "Hue, Vietnam",
+  "Nghe An, Vietnam",
+  "Ha Tinh, Vietnam",
+  "Thanh Hoa, Vietnam",
+  "Nam Dinh, Vietnam",
+  "Hai Duong, Vietnam",
+  "Hung Yen, Vietnam",
+  "Hai Phong, Vietnam",
+  "Quang Ninh, Vietnam",
+  "Ha Giang, Vietnam",
+];
 
 export default function SettingsPage() {
   const params = useParams();
@@ -45,10 +85,13 @@ export default function SettingsPage() {
     linkedin: "",
     twoFactorEnabled: false,
     avatar: "",
+    cvUrl: "",
+    subjects: [] as string[],
   });
 
   const [avatarPreview, setAvatarPreview] = useState<string>("");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingCV, setUploadingCV] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -74,6 +117,8 @@ export default function SettingsPage() {
             linkedin: data.teacherProfile?.linkedin || '',
             twoFactorEnabled: data.twoFactorEnabled || false,
             avatar: data.avatar || '',
+            cvUrl: data.teacherProfile?.cvUrl || '',
+            subjects: data.teacherProfile?.subjects || [],
           });
           if (data.avatar) {
             setAvatarPreview(data.avatar);
@@ -453,6 +498,196 @@ export default function SettingsPage() {
     }
   };
 
+  const handleCVSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.includes('pdf') && !file.name.endsWith('.pdf')) {
+        toast.error('Please upload a PDF file', {
+          duration: 4000,
+          position: 'top-right',
+          icon: '✕',
+          style: {
+            background: '#EF4444',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+          },
+        });
+        return;
+      }
+
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error('File size must be less than 10MB', {
+          duration: 4000,
+          position: 'top-right',
+          icon: '✕',
+          style: {
+            background: '#EF4444',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+          },
+        });
+        return;
+      }
+
+      handleCVUpload(file);
+    }
+  };
+
+  const handleCVUpload = async (file: File) => {
+    setUploadingCV(true);
+    const loadingToastId = toast.loading('Uploading CV...', {
+      position: 'top-right',
+      style: {
+        background: '#047e56ff',
+        color: '#fff',
+        padding: '16px',
+        borderRadius: '8px',
+      },
+    });
+
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const formData = new FormData();
+      formData.append('cv', file);
+
+      const response = await fetch(`${API_URL}/auth/profile/teacher/upload-cv`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSettings({
+          ...settings,
+          cvUrl: data.teacherProfile?.cvUrl || '',
+        });
+
+        toast.dismiss(loadingToastId);
+        toast.success('CV uploaded successfully!', {
+          duration: 3000,
+          position: 'top-right',
+          icon: '✓',
+          style: {
+            background: '#047e56ff',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+            fontWeight: '500',
+          },
+        });
+      } else {
+        toast.dismiss(loadingToastId);
+        toast.error('Failed to upload CV', {
+          duration: 4000,
+          position: 'top-right',
+          icon: '✕',
+          style: {
+            background: '#EF4444',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Error uploading CV:', error);
+      toast.dismiss(loadingToastId);
+      toast.error('Error uploading CV', {
+        duration: 4000,
+        position: 'top-right',
+        icon: '✕',
+        style: {
+          background: '#EF4444',
+          color: '#fff',
+          padding: '16px',
+          borderRadius: '8px',
+        },
+      });
+    } finally {
+      setUploadingCV(false);
+    }
+  };
+
+  const handleDeleteCV = async () => {
+    const confirmDelete = window.confirm('Are you sure you want to delete your CV?');
+    if (!confirmDelete) return;
+
+    const loadingToastId = toast.loading('Deleting CV...', {
+      position: 'top-right',
+      style: {
+        background: '#EF4444',
+        color: '#fff',
+        padding: '16px',
+        borderRadius: '8px',
+      },
+    });
+
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const response = await fetch(`${API_URL}/auth/profile/teacher`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          cvUrl: null,
+        }),
+      });
+
+      if (response.ok) {
+        setSettings({ ...settings, cvUrl: '' });
+        toast.dismiss(loadingToastId);
+        toast.success('CV deleted successfully!', {
+          duration: 3000,
+          position: 'top-right',
+          icon: '✓',
+          style: {
+            background: '#10B981',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+            fontWeight: '500',
+          },
+        });
+      } else {
+        toast.dismiss(loadingToastId);
+        toast.error('Failed to delete CV', {
+          duration: 4000,
+          position: 'top-right',
+          icon: '✕',
+          style: {
+            background: '#EF4444',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting CV:', error);
+      toast.dismiss(loadingToastId);
+      toast.error('Error deleting CV', {
+        duration: 4000,
+        position: 'top-right',
+        icon: '✕',
+        style: {
+          background: '#EF4444',
+          color: '#fff',
+          padding: '16px',
+          borderRadius: '8px',
+        },
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
       <Toaster />
@@ -727,13 +962,18 @@ export default function SettingsPage() {
                       <MapPin size={16} className="text-[#292C6D]" />
                       Location
                     </label>
-                    <input
-                      type="text"
+                    <select
                       value={settings.location}
                       onChange={(e) => setSettings({ ...settings, location: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
-                      placeholder="e.g., Hanoi, Vietnam"
-                    />
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900 bg-white"
+                    >
+                      <option value="">Select a province or city</option>
+                      {VIETNAM_PROVINCES.map((province) => (
+                        <option key={province} value={province}>
+                          {province}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
@@ -791,6 +1031,89 @@ export default function SettingsPage() {
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
                         placeholder="https://linkedin.com/in/..."
                       />
+                    </div>
+                  </div>
+
+                  {/* CV Upload Section */}
+                  <div className="border-t pt-6 mt-6">
+                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <FileText size={18} className="text-blue-600" />
+                      Curriculum Vitae (CV)
+                    </h3>
+                    
+                    {/* Current CV Display */}
+                    {settings.cvUrl && (
+                      <div className="p-4 bg-blue-50 rounded-lg border-2 border-blue-200 mb-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3 flex-1">
+                            <FileText className="text-blue-600 flex-shrink-0 mt-1" size={24} />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-gray-900">Your CV is uploaded</p>
+                              <p className="text-sm text-gray-500 mt-1">Click to download or view</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 flex-shrink-0">
+                            <a
+                              href={settings.cvUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-2 hover:bg-blue-100 rounded-lg transition-colors"
+                              title="Download CV"
+                            >
+                              <Download className="text-blue-600" size={20} />
+                            </a>
+                            <button
+                              onClick={handleDeleteCV}
+                              className="p-2 hover:bg-red-100 rounded-lg transition-colors"
+                              title="Delete CV"
+                            >
+                              <Trash2 className="text-red-600" size={20} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Upload Area */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-3">
+                        {settings.cvUrl ? 'Update CV' : 'Upload CV (PDF only, max 10MB)'}
+                      </label>
+                      <label
+                        htmlFor="cv-input"
+                        className={`flex flex-col items-center justify-center w-full p-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                          uploadingCV
+                            ? 'bg-gray-50 border-gray-300'
+                            : 'bg-blue-50 border-blue-300 hover:bg-blue-100'
+                        }`}
+                      >
+                        <div className="flex flex-col items-center justify-center py-2">
+                          {uploadingCV ? (
+                            <>
+                              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+                              <p className="text-sm text-gray-600">Uploading...</p>
+                            </>
+                          ) : (
+                            <>
+                              <FileText className="text-blue-600 mb-2" size={32} />
+                              <p className="text-sm font-medium text-gray-900">
+                                Click to upload or drag and drop
+                              </p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                PDF only, max 10MB
+                              </p>
+                            </>
+                          )}
+                        </div>
+                        <input
+                          id="cv-input"
+                          type="file"
+                          accept=".pdf"
+                          onChange={handleCVSelect}
+                          className="hidden"
+                          disabled={uploadingCV}
+                        />
+                      </label>
                     </div>
                   </div>
 

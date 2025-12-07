@@ -55,6 +55,7 @@ export default function BroadcasterPage() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const isLiveRef = useRef(false); // Track isLive for debugging
 
   const [isLive, setIsLive] = useState(false);
   const [watcherCount, setWatcherCount] = useState(0);
@@ -97,8 +98,15 @@ export default function BroadcasterPage() {
     avatar?: string;
   }>>([]);
   const [chatInput, setChatInput] = useState('');
+  const [livestreamEnded, setLivestreamEnded] = useState(false);
+  const viewerBroadcastIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Track isLive for internal debugging
+  useEffect(() => {
+    isLiveRef.current = isLive;
+  }, [isLive]);
 
   const fetchTeacherDocuments = useCallback(async () => {
     try {
@@ -126,12 +134,7 @@ export default function BroadcasterPage() {
           
           // Check if livestream has ended
           if (data.status === 'ENDED') {
-            // Use router.push for client-side navigation (faster)
-            if (data.isRecorded && data.recordingUrl) {
-              router.push(`/teacher/${teacherID}/recordings/${livestreamID}`);
-            } else {
-              router.push(`/teacher/${teacherID}`);
-            }
+            setLivestreamEnded(true);
             return;
           }
           
@@ -148,9 +151,34 @@ export default function BroadcasterPage() {
         console.error('Error fetching livestream info:', error);
       }
     };
+
+    // Fetch saved chat messages
+    const fetchSavedChatMessages = async () => {
+      try {
+        const response = await fetch(`${API_URL}/livestream/${livestreamID}/get-chat?limit=100`);
+        if (response.ok) {
+          const messages = await response.json();
+          // Convert MongoDB messages to UI format
+          const formattedMessages = messages.map((msg: any) => ({
+            id: msg.id || msg._id,
+            username: msg.username,
+            userRole: 'teacher',
+            message: msg.message,
+            timestamp: msg.createdAt || new Date().toISOString(),
+            avatar: msg.userAvatar || '/teacher-avatar.png',
+          }));
+          setChatMessages(formattedMessages);
+        }
+      } catch (error) {
+        console.warn('Error fetching saved chat messages:', error);
+      }
+    };
     
     // Defer fetch slightly to prioritize rendering
-    const timeoutId = setTimeout(fetchLivestreamInfo, 0);
+    const timeoutId = setTimeout(() => {
+      fetchLivestreamInfo();
+      fetchSavedChatMessages();
+    }, 0);
     return () => clearTimeout(timeoutId);
   }, [teacherID, livestreamID, router, fetchTeacherDocuments]);
 
@@ -179,7 +207,45 @@ export default function BroadcasterPage() {
       setChatMessages(prev => [...prev, message]);
     });
 
+    // Handle page unload (tab/browser close)
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isLive) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+
+    // Handle actual unload
+    const handleUnload = async () => {
+      if (isLive) {
+        const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+        if (token) {
+          try {
+            // Send end livestream request without saving recording
+            await fetch(`${API_URL}/livestream/${livestreamID}/end`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({ saveRecording: false }),
+              keepalive: true, // Important: allows request to complete even if page unloads
+            });
+          } catch (error) {
+            console.warn('[Broadcaster] Error ending livestream on unload:', error);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('unload', handleUnload);
+
     return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('unload', handleUnload);
+      
       socket.off("watcher", handleWatcher);
       socket.off("answer", handleAnswer);
       socket.off("candidate", handleCandidate);
@@ -189,13 +255,12 @@ export default function BroadcasterPage() {
 
       // Don't disconnect socket - it's a shared instance
       // socket.disconnect();
+      // Only close peer connections, NOT local stream
+      // Local stream is managed by confirmEndStream function
       Object.values(peersRef.current).forEach((pc) => pc.close());
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((t) => t.stop());
-      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isLive, livestreamID]);
 
   async function startLive() {
     try {
@@ -246,6 +311,15 @@ export default function BroadcasterPage() {
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
+        const tracksInfo = stream.getTracks().map(t => `${t.kind}(enabled:${t.enabled}, state:${t.readyState})`);
+        console.log('[Broadcaster] Video element srcObject assigned, tracks:', tracksInfo);
+        
+        // Force play immediately
+        localVideoRef.current.play().catch(err => {
+          console.error('[Broadcaster] Initial video play error:', err);
+        });
+      } else {
+        console.warn('[Broadcaster] localVideoRef.current is null!');
       }
 
       // Step 3: Update livestream status to LIVE in database
@@ -332,7 +406,39 @@ export default function BroadcasterPage() {
         livestreamID
       });
       
+      // Set camera and mic states to ON
+      const videoTrack = stream.getVideoTracks()[0];
+      const audioTrack = stream.getAudioTracks()[0];
+      
+      if (videoTrack) {
+        videoTrack.enabled = true;
+      }
+      if (audioTrack) {
+        audioTrack.enabled = true;
+      }
+      
+      setIsCameraOn(true);
+      setIsMicOn(true);
+      
+      // Set isLive LAST - after all setup is complete
       setIsLive(true);
+      
+      // Verify camera is still enabled after setting isLive
+      setTimeout(() => {
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack && !videoTrack.enabled) {
+          console.warn('[Broadcaster] Video track disabled after setIsLive, re-enabling...');
+          videoTrack.enabled = true;
+        }
+      }, 100);
+      
+      // Broadcast initial viewer count to all clients immediately
+      setTimeout(() => {
+        socket.emit('updateCurrentViewers', { 
+          livestreamID, 
+          currentViewers: Object.keys(peersRef.current).length 
+        });
+      }, 500);
       
       socket.emit("sync-documents", {
         livestreamID,
@@ -482,6 +588,12 @@ export default function BroadcasterPage() {
     setIsLive(false);
     setWatcherCount(0);
     setShowEndConfirm(false);
+    
+    // Clear viewer broadcast interval
+    if (viewerBroadcastIntervalRef.current) {
+      clearInterval(viewerBroadcastIntervalRef.current);
+      viewerBroadcastIntervalRef.current = null;
+    }
 
     // Step 11: Wait a bit for cleanup to complete
     await new Promise(resolve => setTimeout(resolve, 500));
@@ -514,6 +626,8 @@ export default function BroadcasterPage() {
     const tracks = localStreamRef.current.getTracks();
     
     tracks.forEach((track) => {
+      // Ensure track is enabled before adding
+      track.enabled = true;
       pc.addTrack(track, localStreamRef.current!);
     });
 
@@ -543,11 +657,13 @@ export default function BroadcasterPage() {
       livestreamID,
     });
     
-    // Update totalViewers in database
+    // Update currentViewers in database
     const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
     if (token) {
       try {
         const currentViewers = Object.keys(peersRef.current).length;
+        
+        // Update DB
         await fetch(`${API_URL}/livestream/${livestreamID}/update-viewers`, {
           method: 'PATCH',
           headers: {
@@ -556,6 +672,12 @@ export default function BroadcasterPage() {
           },
           body: JSON.stringify({ totalViewers: currentViewers }),
         }).catch(err => console.warn('[Broadcaster] Failed to update viewers:', err));
+        
+        // Update local state
+        setWatcherCount(currentViewers);
+        
+        // Broadcast to all clients immediately
+        socket.emit('updateCurrentViewers', { livestreamID, currentViewers: currentViewers });
       } catch (error) {
         console.warn('[Broadcaster] Error updating viewers:', error);
       }
@@ -584,11 +706,13 @@ export default function BroadcasterPage() {
       pc.close();
       delete peersRef.current[id];
       
+      const currentViewers = Object.keys(peersRef.current).length;
+      setWatcherCount(currentViewers);
+      
       // Update totalViewers in database when viewer disconnects
       const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
       if (token) {
         try {
-          const currentViewers = Object.keys(peersRef.current).length;
           fetch(`${API_URL}/livestream/${livestreamID}/update-viewers`, {
             method: 'PATCH',
             headers: {
@@ -601,6 +725,9 @@ export default function BroadcasterPage() {
           console.warn('[Broadcaster] Error updating viewers on disconnect:', error);
         }
       }
+      
+      // Broadcast updated viewer count immediately
+      socket.emit('updateCurrentViewers', { livestreamID, currentViewers: currentViewers });
     }
   }
 
@@ -618,11 +745,82 @@ export default function BroadcasterPage() {
     if (localStreamRef.current) {
       const videoTrack = localStreamRef.current.getVideoTracks()[0];
       if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsCameraOn(videoTrack.enabled);
+        const newState = !videoTrack.enabled;
+        videoTrack.enabled = newState;
+        setIsCameraOn(newState);
+        
+        // Notify viewers about camera state change
+        socket.emit('camera-toggle', {
+          livestreamID,
+          isCameraOn: newState
+        });
+      } else {
+        console.warn('[Broadcaster] No video track found to toggle');
       }
+    } else {
+      console.warn('[Broadcaster] No local stream to toggle camera');
     }
   }
+
+  // Ensure camera stays on after start (prevent auto-disable)
+  useEffect(() => {
+    if (!isLive) return; // Only monitor when live
+    
+    // Monitor camera track state and ensure it stays enabled
+    const monitorInterval = setInterval(() => {
+      if (localStreamRef.current && localVideoRef.current) {
+        const videoTrack = localStreamRef.current.getVideoTracks()[0];
+        const videoElement = localVideoRef.current;
+        
+        if (videoTrack) {
+          if (!videoTrack.enabled) {
+            videoTrack.enabled = true;
+            setIsCameraOn(true);
+          }
+          
+          // Also ensure video element is not paused
+          if (videoElement.paused && !videoElement.ended) {
+            videoElement.play().catch(err => {
+              console.error('[Broadcaster] Error playing video:', err);
+            });
+          }
+        }
+      }
+    }, 300); // Check every 300ms
+
+    return () => {
+      clearInterval(monitorInterval);
+    };
+  }, [isLive]);
+
+  // Broadcast viewer count continuously to keep students updated
+  useEffect(() => {
+    if (isLive) {
+      // Clear any existing interval
+      if (viewerBroadcastIntervalRef.current) {
+        clearInterval(viewerBroadcastIntervalRef.current);
+      }
+
+      // Broadcast viewer count every 2 seconds
+      viewerBroadcastIntervalRef.current = setInterval(() => {
+        const currentViewers = Object.keys(peersRef.current).length;
+        setWatcherCount(currentViewers);
+        
+        socket.emit('updateCurrentViewers', {
+          livestreamID,
+          currentViewers: currentViewers
+        });
+      }, 2000);
+
+      return () => {
+        if (viewerBroadcastIntervalRef.current) {
+          clearInterval(viewerBroadcastIntervalRef.current);
+          viewerBroadcastIntervalRef.current = null;
+        }
+      };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLive]);
 
   // Restart media recorder with new stream
   function restartMediaRecorder(stream: MediaStream) {
@@ -908,7 +1106,7 @@ export default function BroadcasterPage() {
     });
   };
 
-  const sendChatMessage = () => {
+  const sendChatMessage = async () => {
     if (!chatInput.trim()) return;
     
     const message = {
@@ -923,7 +1121,27 @@ export default function BroadcasterPage() {
     // Add to local messages immediately
     setChatMessages(prev => [...prev, message]);
     
-    // Emit to backend
+    // Save to MongoDB via API
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      await fetch(`${API_URL}/livestream/${livestreamID}/save-chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          username: 'Teacher',
+          userAvatar: '/teacher-avatar.png',
+          message: chatInput,
+          type: 'MESSAGE'
+        }),
+      }).catch(err => console.warn('Failed to save chat:', err));
+    } catch (error) {
+      console.warn('Failed to save chat to DB:', error);
+    }
+    
+    // Emit to all viewers in real-time
     socket.emit("send-chat-message", {
       teacherID,
       livestreamID,
@@ -957,18 +1175,54 @@ export default function BroadcasterPage() {
 
   return (
     <div className="relative w-full h-screen bg-black overflow-hidden">
+      {/* Livestream Ended Screen */}
+      {livestreamEnded && (
+        <div className="absolute inset-0 bg-gradient-to-b from-black via-gray-900 to-black flex flex-col items-center justify-center z-50">
+          <div className="text-center">
+            <div className="mb-6">
+              <Square className="w-24 h-24 text-red-500 mx-auto mb-4 opacity-80" />
+            </div>
+            <h1 className="text-4xl font-bold text-white mb-2">Livestream Ended</h1>
+            <p className="text-gray-400 text-lg mb-8">The live broadcast has finished</p>
+            
+            <button
+              onClick={() => router.push(`/teacher/${teacherID}`)}
+              className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold text-lg"
+            >
+              Back to Home
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className={`absolute inset-0 transition-all duration-300 ${showDocumentViewer ? 'w-1/2' : 'w-full'}`}>
-        <video
-          ref={localVideoRef}
-          autoPlay
-          muted
-          playsInline
-          className="w-full h-full object-cover"
-        />
+        {!livestreamEnded && (
+          <video
+            ref={localVideoRef}
+            autoPlay
+            muted
+            playsInline
+            onLoadedMetadata={() => {
+              console.log('[Broadcaster] Video metadata loaded', {
+                videoElement: !!localVideoRef.current,
+                srcObject: !!localVideoRef.current?.srcObject,
+              });
+              if (localVideoRef.current) {
+                localVideoRef.current.play().catch(err => {
+                  console.error('[Broadcaster] Video play error:', err);
+                });
+              }
+            }}
+            onError={(e) => {
+              console.error('[Broadcaster] Video element error:', e);
+            }}
+            className="w-full h-full object-cover bg-black"
+          />
+        )}
       </div>
 
       {/* Livestream Info Display */}
-      {livestreamInfo && (
+      {livestreamInfo && !livestreamEnded && (
         <div className="absolute top-4 left-4 bg-black/70 backdrop-blur-md text-white p-3 rounded-xl shadow-lg max-w-sm z-10">
           <h2 className="text-lg font-bold mb-1.5 line-clamp-1">{livestreamInfo.title}</h2>
           <div className="flex items-center gap-1.5 flex-wrap text-sm mb-2">
@@ -990,7 +1244,7 @@ export default function BroadcasterPage() {
         </div>
       )}
 
-      {showDocumentViewer && selectedDocument && (
+      {showDocumentViewer && selectedDocument && !livestreamEnded && (
         <div className="absolute top-0 right-0 w-1/2 h-full bg-white flex flex-col">
           <div className="flex items-center justify-between p-4 border-b bg-gray-50">
             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -1291,11 +1545,11 @@ export default function BroadcasterPage() {
         </div>
       )}
 
-      <div className={`absolute top-2 left-2 text-white text-sm bg-black/50 px-2 py-1 rounded transition-all duration-300 ${showDocumentViewer ? 'left-2' : 'left-2'}`}>
+      <div className={`absolute top-2 left-2 text-white text-sm bg-black/50 px-2 py-1 rounded transition-all duration-300 ${showDocumentViewer ? 'left-2' : 'left-2'} ${livestreamEnded ? 'hidden' : ''}`}>
         🔴 {watcherCount.toLocaleString()} views
       </div>
 
-      <div className={`absolute top-4 right-4 w-80 bg-white rounded-lg text-black shadow-lg max-h-[70vh] overflow-hidden flex flex-col transition-all duration-300 ${showDocumentViewer ? 'right-[calc(50%+1rem)]' : 'right-4'}`}>
+      <div className={`absolute top-4 right-4 w-80 bg-white rounded-lg text-black shadow-lg max-h-[70vh] overflow-hidden flex flex-col transition-all duration-300 ${showDocumentViewer ? 'right-[calc(50%+1rem)]' : 'right-4'} ${livestreamEnded ? 'hidden' : ''}`}>
         <div
           className="flex justify-between items-center p-3 cursor-pointer border-b"
           onClick={() => setShowFiles(!showFiles)}
@@ -1364,7 +1618,7 @@ export default function BroadcasterPage() {
         className="hidden"
       />
 
-      <div className={`absolute right-4 w-72 max-h-80 bg-transparent text-white rounded-lg shadow-lg transition-all duration-300 ${showDocumentViewer ? 'top-[calc(70vh+2rem)] right-[calc(50%+1rem)]' : 'top-[calc(70vh+2rem)]'}`}>
+      <div className={`absolute right-4 w-72 max-h-80 bg-transparent text-white rounded-lg shadow-lg transition-all duration-300 ${showDocumentViewer ? 'top-[calc(70vh+2rem)] right-[calc(50%+1rem)]' : 'top-[calc(70vh+2rem)]'} ${livestreamEnded ? 'hidden' : ''}`}>
         <div
           className="flex justify-between items-center p-2 cursor-pointer"
           onClick={() => setShowComments(!showComments)}
@@ -1428,7 +1682,8 @@ export default function BroadcasterPage() {
       </div>
 
       {/* Control bar (bottom center) */}
-      <div className="fixed bottom-4 left-3/5 -translate-x-1/2 flex gap-6 bg-white/80 p-3 rounded-full shadow-lg">
+      {!livestreamEnded && (
+        <div className="fixed bottom-4 left-3/5 -translate-x-1/2 flex gap-6 bg-white/80 p-3 rounded-full shadow-lg">
         <button 
           onClick={toggleMic}
           disabled={!isLive}
@@ -1511,6 +1766,7 @@ export default function BroadcasterPage() {
           <MoreVertical className="text-black" />
         </button>
       </div>
+      )}
     </div>
   );
 }

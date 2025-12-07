@@ -101,6 +101,30 @@ export default function RecordingDetailPage() {
     );
   }
 
+  // Check if recording has actual video file
+  if (!recording.recordingUrl) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
+        <div className="bg-white rounded-xl shadow-lg p-8 max-w-md text-center">
+          <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-3xl">⚠️</span>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">No Recording Available</h2>
+          <p className="text-gray-600 mb-6">This livestream has not been saved as a recording yet. Only livestreams with saved recordings can be viewed here.</p>
+          <button
+            onClick={() => {
+              setIsNavigating(true);
+              router.back();
+            }}
+            className="bg-[#292C6D] text-white px-6 py-2 rounded-lg hover:bg-[#1f2350] transition-colors"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
       <div className="max-w-7xl mx-auto">

@@ -23,6 +23,10 @@ export class UpdateScheduleDto {
   isPublic?: boolean;
 
   @IsOptional()
+  @IsString()
+  color?: string;
+
+  @IsOptional()
   @IsInt()
   @Min(0)
   notifyBefore?: number;

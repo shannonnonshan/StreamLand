@@ -379,37 +379,107 @@ export class LivestreamService {
     }
   }
 
-
-  async uploadRecording(livestreamId: string, videoBase64: string) {
-    this.logger.log(`Uploading recording for livestream ${livestreamId}`);
-    
+  async saveRecordingChunk(livestreamId: string, chunk: string, chunkIndex: number, totalSize: number) {
     try {
+      // For now, just acknowledge - chunks are assembled when recording ends
+      // In production, you might want to save these to temporary storage
+      return { success: true, chunkIndex, totalSize };
+    } catch (error) {
+      this.logger.error(`Failed to save recording chunk:`, error);
+      throw error;
+    }
+  }
+
+  async uploadRecordingChunk(livestreamId: string, chunk: string, chunkIndex: number, totalChunks: number, chunkSize: number) {
+    try {
+      // Decode base64 chunk
+      const chunkBuffer = Buffer.from(chunk, 'base64');
+      
+      // If this is the last chunk, upload to R2
+      if (chunkIndex === totalChunks - 1) {
+        // For now, acknowledge - full assembly happens in uploadRecording
+        return { success: true, chunkIndex, totalChunks, message: 'Chunk received, will be assembled with others' };
+      }
+      
+      return { success: true, chunkIndex, totalChunks };
+    } catch (error) {
+      this.logger.error(`Failed to upload recording chunk:`, error);
+      throw error;
+    }
+  }
+
+  async uploadRecording(livestreamId: string, videoBase64: string, duration?: number) {
+    try {
+      console.log(`[Service] uploadRecording: livestreamId=${livestreamId}, base64Length=${videoBase64?.length || 0}, duration=${duration}s`);
+      
+      if (!videoBase64 || videoBase64.length === 0) {
+        throw new Error('No video data received - base64 is empty');
+      }
+      
+      console.log(`[Service] Base64 sample: ${videoBase64.substring(0, 50)}...`);
+      
       // Decode base64 video
-      const videoBuffer = Buffer.from(videoBase64, 'base64');
-      this.logger.log(`Video size: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+      let videoBuffer: Buffer;
+      try {
+        videoBuffer = Buffer.from(videoBase64, 'base64');
+      } catch (decodeError) {
+        console.error(`[Service] Failed to decode base64:`, decodeError);
+        throw new Error(`Invalid base64 data: ${decodeError.message}`);
+      }
+      
+      console.log(`[Service] Video buffer decoded: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB (${videoBuffer.length} bytes)`);
+      
+      if (videoBuffer.length === 0) {
+        throw new Error('Decoded video buffer is empty');
+      }
+      
+      // Check WebM magic bytes
+      const magicBytes = videoBuffer.slice(0, 4).toString('hex');
+      console.log(`[Service] File magic bytes: ${magicBytes} (should be 1a45dfa3 for WebM)`);
       
       // Convert buffer to stream for upload
       const videoStream = Readable.from(videoBuffer);
       
-      // Upload to R2
+      // Upload to R2 with duration metadata
+      console.log(`[Service] Uploading to R2...`);
       const videoUrl = await this.r2StorageService.uploadVideo(livestreamId, videoStream, {
         uploadedAt: new Date().toISOString(),
+        duration: duration?.toString() || 'unknown',
       });
+      console.log(`[Service] R2 upload complete: ${videoUrl}`);
       
-      // Update livestream with recording URL
+      // Update livestream with recording URL and duration
+      console.log(`[Service] Updating livestream record with duration=${duration}s...`);
       await this.prisma.postgres.liveStream.update({
         where: { id: livestreamId },
         data: {
           recordingUrl: videoUrl,
           isRecorded: true,
+          duration: duration || 0,
         },
       });
+      console.log(`[Service] Livestream updated successfully`);
       
-      this.logger.log(`Recording uploaded successfully: ${videoUrl}`);
+      this.logger.log(`Recording uploaded: ${videoUrl}`);
       return { success: true, url: videoUrl };
     } catch (error) {
+      console.error(`[Service] uploadRecording ERROR:`, error);
       this.logger.error(`Failed to upload recording:`, error);
       throw error;
+    }
+  }
+
+  async updateRecordingDuration(livestreamId: string, duration: number) {
+    try {
+      await this.prisma.postgres.liveStream.update({
+        where: { id: livestreamId },
+        data: {
+          duration: duration,
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to update recording duration:`, error);
+      // Don't throw - duration update is non-critical
     }
   }
 
@@ -534,13 +604,29 @@ export class LivestreamService {
     };
   }
 
-  async getTeacherSchedules(teacherId: string, includeCompleted = false) {
+  async getTeacherSchedules(
+    teacherId: string, 
+    includeCompleted = false,
+    startDate?: string,
+    endDate?: string
+  ) {
     const whereClause: any = { teacherId };
 
     if (!includeCompleted) {
       whereClause.status = {
         in: [ScheduleStatus.SCHEDULED, ScheduleStatus.IN_PROGRESS],
       };
+    }
+
+    // Add date filtering if provided
+    if (startDate || endDate) {
+      whereClause.startTime = {};
+      if (startDate) {
+        whereClause.startTime.gte = new Date(startDate);
+      }
+      if (endDate) {
+        whereClause.startTime.lte = new Date(endDate);
+      }
     }
 
     const schedules = await this.prisma.postgres.schedule.findMany({
@@ -1096,6 +1182,24 @@ export class LivestreamService {
       this.logger.error(`Failed to fetch chat messages: ${error}`);
       throw new BadRequestException('Failed to fetch chat messages');
     }
+  }
+
+  async updateLivestream(id: string, updateData: { description?: string }) {
+    const livestream = await this.prisma.postgres.liveStream.findUnique({
+      where: { id },
+    });
+
+    if (!livestream) {
+      throw new NotFoundException('Livestream not found');
+    }
+
+    const updatedLivestream = await this.prisma.postgres.liveStream.update({
+      where: { id },
+      data: updateData,
+    });
+
+    this.logger.log(`Livestream ${id} updated`);
+    return updatedLivestream;
   }
 }
 

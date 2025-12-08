@@ -158,11 +158,9 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
         
         // Cleanup Redis viewers
-        this.redisService.cleanupLivestream(livestreamID).catch(err => 
-          console.error('Redis cleanup error:', err)
-        );
-        
-        this.logger.log(`Broadcaster unexpectedly disconnected from channel: ${key}`);
+        this.redisService.cleanupLivestream(livestreamID).catch(() => {
+          // Silently handle redis cleanup error
+        });
         delete this.channels[key];
       } else if (channel.watchers.has(socket.id)) {
         // Watcher left, notify broadcaster
@@ -195,7 +193,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: BroadcasterPayload,
     @ConnectedSocket() socket: Socket,
   ) {
-    this.logger.debug(`Broadcaster connected: ${data.livestreamID}, socket: ${socket.id}`);
     const key = this.getKey(data.livestreamID);
     if (!this.channels[key]) {
       this.channels[key] = { 
@@ -203,7 +200,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         watchers: new Set(),
         info: data.info 
       };
-      this.logger.log(`Created new channel: ${key}`);
     } else {
       this.channels[key].broadcaster = socket.id;
       if (data.info) {
@@ -213,7 +209,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // Notify all waiting watchers that broadcaster is online
     socket.broadcast.emit('broadcaster');
-    this.logger.log(`Broadcaster started: ${key}`);
   }
 
   @SubscribeMessage('watcher')
@@ -221,7 +216,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: WatcherPayload,
     @ConnectedSocket() socket: Socket,
   ) {
-    this.logger.debug(`Watcher attempting to join: ${data.livestreamID}, socket: ${socket.id}`);
     const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
 
@@ -267,10 +261,7 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         viewerCount: channel.watchers.size,
         timestamp: Date.now(),
       });
-
-      this.logger.log(`Watcher ${socket.id} joined ${key}, viewers: ${channel.watchers.size}`);
     } else {
-      this.logger.warn(`No broadcaster for channel: ${key}, available: ${Object.keys(this.channels).join(', ')}`);
       // Notify the watcher that the stream is not available
       this.server.to(socket.id).emit('stream-not-found', {
         livestreamID: data.livestreamID,
@@ -320,11 +311,9 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
       
       // Cleanup Redis viewers
-      this.redisService.cleanupLivestream(data.livestreamID).catch(err =>
-        console.error('Redis cleanup error:', err)
-      );
-      
-      console.log(`Stream ended for livestream ${data.livestreamID}`);
+      this.redisService.cleanupLivestream(data.livestreamID).catch(() => {
+        // Silently handle redis cleanup error
+      });
       delete this.channels[key];
     }
   }
@@ -441,7 +430,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const channel = this.channels[key];
 
       if (!channel) {
-        this.logger.warn(`Chunk received for non-existent channel: ${data.livestreamID}`);
         return;
       }
 
@@ -455,10 +443,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const chunkBuffer = Buffer.from(data.chunk, 'base64');
       channel.videoChunks[data.chunkIndex] = chunkBuffer;
       channel.chunkCount = (channel.chunkCount || 0) + 1;
-
-      this.logger.log(
-        `Video chunk ${data.chunkIndex} received for livestream ${data.livestreamID} (${(data.totalSize / 1024).toFixed(2)} KB)`
-      );
     } catch (error) {
       this.logger.error('Error handling video chunk:', error);
     }
@@ -475,11 +459,8 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const channel = this.channels[key];
 
       if (!channel) {
-        this.logger.warn(`Viewer count update for non-existent channel: ${data.livestreamID}`);
         return;
       }
-
-      this.logger.log(`Viewer count update for livestream ${data.livestreamID}: ${data.currentViewers} viewers`);
 
       // Broadcast viewer count to ALL clients in this livestream (teacher + students)
       this.server.to(key).emit('viewerCount', data.currentViewers);
@@ -568,7 +549,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
 
       if (analytics) {
-        this.logger.log(`Stream analytics - ${livestreamID}: Peak ${analytics.peakViewers}, Total ${analytics.totalViews}`);
         
         // Update PostgreSQL livestream with final peakViewers and currentViewers from MongoDB
         await this.prismaService.postgres.liveStream.update({
@@ -579,8 +559,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
             totalViews: analytics.totalViews,
           },
         });
-        
-        this.logger.log(`PostgreSQL updated: ${livestreamID} with peakViewers=${analytics.peakViewers}, currentViewers=${finalViewerCount}`);
       }
 
       // Save video chunks from memory if available
@@ -589,17 +567,13 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (channel && channel.videoChunks && channel.videoChunks.length > 0) {
         const validChunks = channel.videoChunks.filter(c => c && c.length > 0);
         if (validChunks.length > 0) {
-          this.logger.log(`Saving ${validChunks.length} video chunks to R2 for livestream ${livestreamID}`);
           try {
             await this.saveVideoToR2(livestreamID, validChunks);
-            this.logger.log(`Video chunks saved successfully for livestream ${livestreamID}`);
           } catch (error) {
             this.logger.error(`Failed to save video chunks for livestream ${livestreamID}:`, error);
           }
         }
       }
-
-      console.log(`Stream ended: ${livestreamID}, Final viewers: ${finalViewerCount}, Peak: ${analytics?.peakViewers || 0}`);
     } catch (error) {
       console.error('Error tracking stream end:', error);
       throw error;
@@ -609,7 +583,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // Save video chunks to R2
   private async saveVideoToR2(livestreamID: string, chunks: Buffer[]): Promise<string> {
     try {
-      console.log(`Saving ${chunks.length} video chunks to R2 for livestream ${livestreamID}`);
       
       // Combine all chunks into one buffer
       const completeVideo = Buffer.concat(chunks);
@@ -628,11 +601,9 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       );
       
-      console.log(`Video saved successfully to R2: ${videoUrl}`);
       return videoUrl;
       
     } catch (error) {
-      console.error('Error saving video to R2:', error);
       throw error;
     }
   }

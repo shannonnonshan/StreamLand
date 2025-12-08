@@ -59,6 +59,8 @@ export class R2StorageService {
     const key = `livestreams/${livestreamId}/recording.webm`;
 
     try {
+      console.log(`[R2] uploadVideo: streaming to ${key} with metadata:`, metadata);
+      
       const upload = new Upload({
         client: this.videoS3Client,
         params: {
@@ -71,11 +73,13 @@ export class R2StorageService {
       });
 
       await upload.done();
+      console.log(`[R2] Upload complete for ${key}`);
       this.logger.log(`Uploaded complete video for livestream ${livestreamId}`);
       
       // Return public URL (R2.dev subdomain)
       return `${this.publicUrl}/${key}`;
     } catch (error) {
+      console.error(`[R2] uploadVideo ERROR for ${livestreamId}:`, error);
       this.logger.error(`Failed to upload video for ${livestreamId}:`, error);
       throw error;
     }

@@ -170,12 +170,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
       const livestreamData = await response.json();
 
-      // Close modal immediately for better UX
+      // Close modal and prepare for redirect
+      const livestreamIdToNavigate = pendingLivestreamId;
       setShowStartLiveModal(false);
-      
-      // Navigate with data to avoid refetching
+      setPendingLivestreamId(null);
       setIsRedirecting(true);
-      router.push(`/teacher/${id}/livestream/${pendingLivestreamId}`);
+      
+      // Immediate redirect - no timeout needed
+      router.push(`/teacher/${id}/livestream/${livestreamIdToNavigate}`);
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to create livestream');
       throw error; // Re-throw to keep modal in loading state

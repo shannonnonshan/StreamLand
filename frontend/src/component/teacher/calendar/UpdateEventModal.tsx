@@ -50,7 +50,7 @@ export default function UpdateEventModal({
       }
       
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/schedule/${event.id}`,
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/livestream/schedule/${event.id}`,
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -129,32 +129,61 @@ export default function UpdateEventModal({
       const startDateTime = new Date(`${eventDate}T${eventStartTime}`).toISOString();
       const endDateTime = new Date(`${eventDate}T${eventEndTime}`).toISOString();
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/schedule/${event.id}`,
-        {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            title: eventTitle,
-            startTime: startDateTime,
-            endTime: endDateTime,
-            description: eventDescription,
-            notifyBefore: Number(eventNotification),
-            isPublic,
-            color: eventColor,
-            tags,
-          }),
-        }
+      // Prepare update requests (will execute in parallel)
+      const updateRequests = [];
+
+      // Update Schedule
+      updateRequests.push(
+        fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/livestream/schedule/${event.id}`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              title: eventTitle,
+              startTime: startDateTime,
+              endTime: endDateTime,
+              notifyBefore: Number(eventNotification),
+              isPublic,
+              color: eventColor,
+              tags,
+            }),
+          }
+        )
       );
 
-      if (!response.ok) {
-        if (response.status === 401) {
+      // Update LiveStream description if event has livestreamId
+      if (event?.livestreamId) {
+        updateRequests.push(
+          fetch(
+            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/livestream/${event.livestreamId}`,
+            {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                description: eventDescription,
+              }),
+            }
+          )
+        );
+      }
+
+      // Execute all requests in parallel
+      const responses = await Promise.all(updateRequests);
+      
+      // Check schedule response (first one is mandatory)
+      const scheduleResponse = responses[0];
+      if (!scheduleResponse.ok) {
+        if (scheduleResponse.status === 401) {
           throw new Error('Unauthorized - please log in again');
         }
-        const error = await response.json().catch(() => ({ message: 'Failed to update schedule' }));
+        const error = await scheduleResponse.json().catch(() => ({ message: 'Failed to update schedule' }));
         throw new Error(error.message || 'Failed to update schedule');
       }
 

@@ -55,6 +55,7 @@ export default function BroadcasterPage() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const recordingChunkCountRef = useRef(0); // Track ondataavailable calls
   const isLiveRef = useRef(false); // Track isLive for debugging
 
   const [isLive, setIsLive] = useState(false);
@@ -98,10 +99,14 @@ export default function BroadcasterPage() {
     avatar?: string;
   }>>([]);
   const [chatInput, setChatInput] = useState('');
+  const [showCameraSettings, setShowCameraSettings] = useState(false);
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const [livestreamEnded, setLivestreamEnded] = useState(false);
   const viewerBroadcastIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const cameraToggleByCameraStateRef = useRef(false); // Track if last toggle was from effect, not user
 
   // Track isLive for internal debugging
   useEffect(() => {
@@ -262,14 +267,72 @@ export default function BroadcasterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLive, livestreamID]);
 
+  // Get available cameras when component mounts or stream changes
+  useEffect(() => {
+    const updateAvailableCameras = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter(device => device.kind === 'videoinput');
+        setAvailableCameras(cameras);
+        if (cameras.length > 0 && !selectedCameraId) {
+          setSelectedCameraId(cameras[0].deviceId);
+        }
+      } catch (error) {
+        console.warn('Error enumerating devices:', error);
+      }
+    };
+
+    updateAvailableCameras();
+    navigator.mediaDevices.addEventListener('devicechange', updateAvailableCameras);
+    
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', updateAvailableCameras);
+    };
+  }, [selectedCameraId]);
+
+  const switchCamera = async (cameraId: string) => {
+    try {
+      if (!localStreamRef.current) return;
+
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: cameraId } },
+        audio: false,
+      });
+
+      const oldVideoTrack = localStreamRef.current.getVideoTracks()[0];
+      const newVideoTrack = newStream.getVideoTracks()[0];
+
+      // Replace track
+      localStreamRef.current.removeTrack(oldVideoTrack);
+      localStreamRef.current.addTrack(newVideoTrack);
+
+      // Update video element
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+
+      // Update peer connections
+      Object.values(peersRef.current).forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
+        if (sender) {
+          sender.replaceTrack(newVideoTrack);
+        }
+      });
+
+      oldVideoTrack.stop();
+      setSelectedCameraId(cameraId);
+      setShowCameraSettings(false);
+    } catch (error) {
+      console.error('Error switching camera:', error);
+      alert('Failed to switch camera. Please try again.');
+    }
+  };
+
   async function startLive() {
     try {
       // Step 1: Request permissions explicitly
       const permissionPrompt = await navigator.permissions.query({ name: 'camera' });
       const micPermissionPrompt = await navigator.permissions.query({ name: 'microphone' });
-      
-      console.log('[Broadcaster] Camera permission state:', permissionPrompt.state);
-      console.log('[Broadcaster] Microphone permission state:', micPermissionPrompt.state);
 
       // Step 2: Get media stream
       let stream: MediaStream;
@@ -285,7 +348,8 @@ export default function BroadcasterPage() {
             autoGainControl: true
           }
         });
-        console.log('[Broadcaster] Media stream acquired successfully');
+        
+        console.log(`[startLive] Got stream: video=${stream.getVideoTracks().length}, audio=${stream.getAudioTracks().length}`);
       } catch (mediaError: any) {
         const errorName = mediaError.name;
         const errorMessage = mediaError.message;
@@ -309,17 +373,29 @@ export default function BroadcasterPage() {
       }
 
       localStreamRef.current = stream;
+      
+      // CRITICAL: Ensure all tracks are enabled before proceeding
+      const videoTracks = stream.getVideoTracks();
+      const audioTracks = stream.getAudioTracks();
+      
+      console.log(`[Stream Init] Got ${videoTracks.length} video and ${audioTracks.length} audio tracks`);
+      
+      videoTracks.forEach(track => {
+        track.enabled = true;
+        console.log(`[Stream Init] Video track enabled: ${track.readyState}`);
+      });
+      audioTracks.forEach(track => {
+        track.enabled = true;
+        console.log(`[Stream Init] Audio track enabled: ${track.readyState}`);
+      });
+      
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
-        const tracksInfo = stream.getTracks().map(t => `${t.kind}(enabled:${t.enabled}, state:${t.readyState})`);
-        console.log('[Broadcaster] Video element srcObject assigned, tracks:', tracksInfo);
         
         // Force play immediately
-        localVideoRef.current.play().catch(err => {
-          console.error('[Broadcaster] Initial video play error:', err);
+        localVideoRef.current.play().catch(() => {
+          // Silently handle initial video play error
         });
-      } else {
-        console.warn('[Broadcaster] localVideoRef.current is null!');
       }
 
       // Step 3: Update livestream status to LIVE in database
@@ -332,11 +408,8 @@ export default function BroadcasterPage() {
         },
       });
 
-      console.log('[Broadcaster] Start livestream response status:', startResponse.status);
-      
       if (!startResponse.ok) {
         const errorText = await startResponse.text();
-        console.error('[Broadcaster] Start livestream error response:', errorText);
         try {
           const error = JSON.parse(errorText);
           throw new Error(error?.message || `Failed to start livestream (${startResponse.status})`);
@@ -346,20 +419,61 @@ export default function BroadcasterPage() {
       }
       
       const startData = await startResponse.json().catch(() => ({}));
-      console.log('[Broadcaster] Livestream status updated successfully:', startData);
 
       // Step 4: Start recording in browser
       try {
-        const mediaRecorder = new MediaRecorder(stream, {
-          mimeType: 'video/webm;codecs=vp8,opus',
-          videoBitsPerSecond: 2500000, // 2.5 Mbps
+        // Verify stream has both audio and video tracks
+        const videoTracks = stream.getVideoTracks();
+        const audioTracks = stream.getAudioTracks();
+        
+        console.log(`[Recorder] Stream diagnostics: ${videoTracks.length} video track(s), ${audioTracks.length} audio track(s)`);
+        if (videoTracks.length === 0) {
+          throw new Error('No video track available for recording');
+        }
+        
+        // Log track states
+        videoTracks.forEach((track, idx) => {
+          console.log(`[Recorder] Video track ${idx}: enabled=${track.enabled}, readyState=${track.readyState}`);
         });
+        audioTracks.forEach((track, idx) => {
+          console.log(`[Recorder] Audio track ${idx}: enabled=${track.enabled}, readyState=${track.readyState}`);
+        });
+        
+        // Find supported mimeType for MediaRecorder
+        let mimeType = 'video/webm;codecs=vp8,opus';
+        const mimeTypes = [
+          'video/webm;codecs=vp8,opus',
+          'video/webm;codecs=vp9,opus',
+          'video/webm;codecs=vp8',
+          'video/webm;codecs=vp9',
+          'video/webm',
+        ];
+        
+        for (const type of mimeTypes) {
+          if (MediaRecorder.isTypeSupported(type)) {
+            mimeType = type;
+            console.log(`[Recorder] Using supported mimeType: ${mimeType}`);
+            break;
+          }
+        }
+
+        const mediaRecorder = new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: 2500000, // 2.5 Mbps
+          audioBitsPerSecond: 128000, // 128 kbps for audio
+        });
+        
+        console.log(`[Recorder] MediaRecorder created: state=${mediaRecorder.state}, mimeType=${mediaRecorder.mimeType}`);
 
         mediaRecorder.ondataavailable = async (event) => {
           if (event.data && event.data.size > 0) {
+            recordingChunkCountRef.current++;
+            const sizeKB = (event.data.size / 1024).toFixed(2);
+            const totalChunks = recordedChunksRef.current.length + 1;
+            console.log(`[Recording #${recordingChunkCountRef.current}] ondataavailable: ${sizeKB} KB, total chunks: ${totalChunks}`);
             recordedChunksRef.current.push(event.data);
-            console.log(`[Broadcaster] Chunk received: ${event.data.size} bytes, Total: ${recordedChunksRef.current.length} chunks`);
             
+            // Try to upload chunk in real-time to server
             try {
               const chunkBase64 = await new Promise<string>((resolve) => {
                 const reader = new FileReader();
@@ -367,6 +481,27 @@ export default function BroadcasterPage() {
                 reader.readAsDataURL(event.data);
               });
               
+              // Upload chunk to server for backup
+              const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+              if (token) {
+                fetch(`${API_URL}/livestream/${livestreamID}/upload-chunk`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({
+                    chunk: chunkBase64,
+                    chunkIndex: recordedChunksRef.current.length - 1,
+                    totalSize: event.data.size,
+                  }),
+                }).catch((err) => {
+                  // Fail silently - chunk is still in local buffer
+                  console.warn('Failed to upload chunk in real-time:', err);
+                });
+              }
+              
+              // Also emit via socket
               socket.emit('video-chunk', {
                 livestreamID,
                 chunk: chunkBase64,
@@ -374,20 +509,27 @@ export default function BroadcasterPage() {
                 totalSize: event.data.size,
               });
             } catch (error) {
-              console.warn('[Broadcaster] Failed to send chunk to server:', error);
+              // Chunk still saved locally in recordedChunksRef
+              console.warn('Error processing chunk:', error);
             }
           }
         };
 
-        mediaRecorder.onerror = (error) => {
-          console.error('[Broadcaster] MediaRecorder error:', error);
+        mediaRecorder.onerror = (event) => {
+          console.error(`[Recording ERROR] ${event.error?.name || 'Unknown'}: ${event.error?.message || 'No message'}`);
         };
 
-        mediaRecorder.start(10000);
+        // Start recording with 5-second chunks
+        console.log(`[Recording] About to call .start(5000)...`);
+        recordingChunkCountRef.current = 0; // Reset counter
+        mediaRecorder.start(5000);
+        console.log(`[Recording] After .start() call - state: ${mediaRecorder.state}`);
         mediaRecorderRef.current = mediaRecorder;
-        console.log('[Broadcaster] MediaRecorder started');
+        
+        console.log(`[Recording] Started! State: ${mediaRecorder.state}, Emitting chunks every 5s`);
+        console.log(`[Recording] Stream has ${videoTracks.length} video tracks (all enabled)`);
       } catch (error) {
-        console.warn('[Broadcaster] MediaRecorder not supported:', error);
+        console.warn('MediaRecorder initialization error:', error);
       }
 
       // Step 5: Connect socket and emit broadcaster event
@@ -427,7 +569,6 @@ export default function BroadcasterPage() {
       setTimeout(() => {
         const videoTrack = stream.getVideoTracks()[0];
         if (videoTrack && !videoTrack.enabled) {
-          console.warn('[Broadcaster] Video track disabled after setIsLive, re-enabling...');
           videoTrack.enabled = true;
         }
       }, 100);
@@ -445,11 +586,9 @@ export default function BroadcasterPage() {
         documents: documents
       });
 
-      console.log('[Broadcaster] Livestream started successfully');
+
     } catch (err) {
-      console.error('[Broadcaster] Failed to start livestream:', err);
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error('[Broadcaster] Error details:', errMsg);
       
       // Don't show generic alert - specific messages already shown above
       if (!(err instanceof Error && 
@@ -479,10 +618,20 @@ export default function BroadcasterPage() {
   try {
     // Step 1: Stop media recorder
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      console.log(`[Recording Stop] Stopping recorder, current state: ${mediaRecorderRef.current.state}`);
+      console.log(`[Recording Stop] Chunks in buffer before stop: ${recordedChunksRef.current.length}`);
+      console.log(`[Recording Stop] ondataavailable fired ${recordingChunkCountRef.current} times`);
+      
       await new Promise<void>((resolve) => {
-        mediaRecorderRef.current!.onstop = () => resolve();
+        mediaRecorderRef.current!.onstop = () => {
+          console.log(`[Recording Stop] Final chunks after stop: ${recordedChunksRef.current.length}`);
+          console.log(`[Recording Stop] Total ondataavailable calls: ${recordingChunkCountRef.current}`);
+          resolve();
+        };
         mediaRecorderRef.current!.stop();
       });
+    } else {
+      console.warn(`[Recording Stop] Recorder not active or already stopped. State: ${mediaRecorderRef.current?.state || 'null'}`);
     }
 
     // Step 2: Get auth token
@@ -492,42 +641,121 @@ export default function BroadcasterPage() {
     }
 
     // Step 3: Upload recording if enabled
+    console.log(`[Upload] Checking: saveRecording=${saveRecording}, chunks=${recordedChunksRef.current.length}, ondataavailable calls=${recordingChunkCountRef.current}`);
+    
     if (saveRecording && recordedChunksRef.current.length > 0) {
-      console.log(`[Broadcaster] Uploading recording (${recordedChunksRef.current.length} chunks, ${recordedChunksRef.current.reduce((s, b) => s + b.size, 0)} bytes)...`);
+      try {
+        // Determine the mimeType that was used for recording
+        let recordingMimeType = 'video/webm';
+        if (mediaRecorderRef.current) {
+          recordingMimeType = mediaRecorderRef.current.mimeType || 'video/webm';
+          console.log(`Recording was captured with mimeType: ${recordingMimeType}`);
+        }
+        
+        // Calculate approximate duration based on recording time
+        // Each chunk was emitted every 5 seconds, plus final chunk on stop
+        const approximateDuration = recordedChunksRef.current.length * 5; // in seconds
+        console.log(`[Upload] Approximate duration from chunks: ${approximateDuration}s (${recordedChunksRef.current.length} chunks × 5s)`);
+        
+        const recordingBlob = new Blob(recordedChunksRef.current, { type: recordingMimeType });
+        const recordingSizeInMB = (recordingBlob.size / 1024 / 1024).toFixed(2);
+        const recordingSizeBytes = recordingBlob.size;
+        
+        console.log(`[Upload] Blob created: ${recordingSizeInMB} MB (${recordingSizeBytes} bytes)`);
+        console.log(`[Upload] Chunks count: ${recordedChunksRef.current.length}`);
+        
+        // Debug: Log first and last chunk size
+        if (recordedChunksRef.current.length > 0) {
+          console.log(`[Upload] First chunk: ${(recordedChunksRef.current[0].size / 1024).toFixed(2)} KB`);
+          console.log(`[Upload] Last chunk: ${(recordedChunksRef.current[recordedChunksRef.current.length - 1].size / 1024).toFixed(2)} KB`);
+        }
+        
+        if (recordingSizeBytes === 0) {
+          console.error(`[Upload CRITICAL] Blob is EMPTY despite ${recordedChunksRef.current.length} chunks!`);
+          throw new Error('Recording blob is empty - MediaRecorder did not capture any data');
+        }
+        
+        console.log(`[Upload] Preparing to upload recording: ${recordingSizeInMB} MB, ${recordedChunksRef.current.length} chunks, mimeType=${recordingMimeType}`);
 
-      const recordingBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-      console.log(`[Broadcaster] Combined blob size: ${(recordingBlob.size / 1024 / 1024).toFixed(2)} MB`);
+        // For large files, upload in chunks to avoid payload size limits
+        if (recordingBlob.size > 50 * 1024 * 1024) {
+          // File > 50MB: Upload in parts
+          const chunkSize = 10 * 1024 * 1024; // 10MB per chunk
+          const numChunks = Math.ceil(recordingBlob.size / chunkSize);
+          
+          for (let i = 0; i < numChunks; i++) {
+            const start = i * chunkSize;
+            const end = Math.min(start + chunkSize, recordingBlob.size);
+            const chunkBlob = recordingBlob.slice(start, end);
+            
+            const chunkBase64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+              reader.readAsDataURL(chunkBlob);
+            });
+            
+            const uploadResponse = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording-chunk`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({ 
+                chunk: chunkBase64,
+                chunkIndex: i,
+                totalChunks: numChunks,
+                chunkSize: end - start,
+                duration: approximateDuration, // Add duration for backend processing
+              }),
+            });
 
-      // Send full recording as final backup
-      const videoBase64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64 = (reader.result as string).split(',')[1];
-          console.log(`[Broadcaster] Base64 size: ${(base64.length / 1024 / 1024).toFixed(2)} MB`);
-          resolve(base64);
-        };
-        reader.readAsDataURL(recordingBlob);
-      });
+            if (!uploadResponse.ok) {
+              const errorData = await uploadResponse.json().catch(() => ({ message: 'Upload failed' }));
+              console.error(`Failed to upload recording chunk ${i}:`, errorData);
+              // Continue with next chunk
+            } else {
+              console.log(`Uploaded chunk ${i + 1}/${numChunks}`);
+            }
+          }
+        } else {
+          // File <= 50MB: Send as single upload
+          const videoBase64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64 = (reader.result as string).split(',')[1];
+              resolve(base64);
+            };
+            reader.readAsDataURL(recordingBlob);
+          });
 
-      const uploadResponse = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ 
-          video: videoBase64,
-          size: recordingBlob.size,
-          chunkCount: recordedChunksRef.current.length,
-        }),
-      });
+          console.log(`[Upload] Base64 length: ${videoBase64.length}, starts with: ${videoBase64.substring(0, 50)}`);
+          console.log(`[Upload] Base64 validation: length%4=${videoBase64.length % 4}`);
 
-      if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json().catch(() => ({ message: 'Unknown error' }));
-        console.error('Failed to upload recording:', errorData);
-        // Don't throw - continue ending the stream
-      } else {
-        console.log('[Broadcaster] Recording uploaded successfully');
+          const uploadResponse = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ 
+              video: videoBase64,
+              size: recordingBlob.size,
+              chunkCount: recordedChunksRef.current.length,
+              duration: approximateDuration, // Add duration in seconds
+            }),
+          });
+
+          if (!uploadResponse.ok) {
+            const errorData = await uploadResponse.json().catch(() => ({ message: 'Upload failed' }));
+            console.error('Failed to upload recording:', errorData);
+          } else {
+            const result = await uploadResponse.json();
+            console.log(`Recording uploaded successfully: ${result.url}`);
+          }
+        }
+      } catch (error) {
+        console.error('Error uploading recording:', error);
+        alert('Warning: Recording may not have been saved properly. Please check your stream later.');
       }
     }
 
@@ -549,8 +777,7 @@ export default function BroadcasterPage() {
       throw new Error(errorData.message || 'Failed to end livestream');
     }
 
-    const endData = await response.json();
-    console.log('[Broadcaster] Livestream ended:', endData);
+    await response.json();
 
     // Step 6: Notify all viewers via socket
     socket.emit('stream-ended', { livestreamID, saveRecording });
@@ -560,7 +787,7 @@ export default function BroadcasterPage() {
       try {
         pc.close();
       } catch (error) {
-        console.warn('Error closing peer connection:', error);
+        // Silently handle peer connection close error
       }
     });
     peersRef.current = {};
@@ -571,7 +798,7 @@ export default function BroadcasterPage() {
         try {
           track.stop();
         } catch (error) {
-          console.warn('Error stopping track:', error);
+          // Silently handle track stop error
         }
       });
       localStreamRef.current = null;
@@ -602,7 +829,6 @@ export default function BroadcasterPage() {
     router.push(`/teacher/${teacherID}`);
 
   } catch (error) {
-    console.error('Failed to end livestream:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to end livestream';
     alert(`Error: ${errorMessage}. Please try again.`);
     setIsEndingStream(false);
@@ -671,7 +897,9 @@ export default function BroadcasterPage() {
             'Authorization': `Bearer ${token}`,
           },
           body: JSON.stringify({ totalViewers: currentViewers }),
-        }).catch(err => console.warn('[Broadcaster] Failed to update viewers:', err));
+        }).catch(() => {
+          // Silently handle update viewers error
+        });
         
         // Update local state
         setWatcherCount(currentViewers);
@@ -679,7 +907,7 @@ export default function BroadcasterPage() {
         // Broadcast to all clients immediately
         socket.emit('updateCurrentViewers', { livestreamID, currentViewers: currentViewers });
       } catch (error) {
-        console.warn('[Broadcaster] Error updating viewers:', error);
+        // Silently handle error updating viewers
       }
     }
   }
@@ -720,9 +948,11 @@ export default function BroadcasterPage() {
               'Authorization': `Bearer ${token}`,
             },
             body: JSON.stringify({ totalViewers: currentViewers }),
-          }).catch(err => console.warn('[Broadcaster] Failed to update viewers on disconnect:', err));
+          }).catch(() => {
+            // Silently handle update viewers on disconnect error
+          });
         } catch (error) {
-          console.warn('[Broadcaster] Error updating viewers on disconnect:', error);
+          // Silently handle error updating viewers on disconnect
         }
       }
       
@@ -748,40 +978,40 @@ export default function BroadcasterPage() {
         const newState = !videoTrack.enabled;
         videoTrack.enabled = newState;
         setIsCameraOn(newState);
+        cameraToggleByCameraStateRef.current = false; // This is user action, not effect
         
         // Notify viewers about camera state change
         socket.emit('camera-toggle', {
           livestreamID,
           isCameraOn: newState
         });
-      } else {
-        console.warn('[Broadcaster] No video track found to toggle');
+        // Note: Do NOT stop the track - recording should continue
       }
-    } else {
-      console.warn('[Broadcaster] No local stream to toggle camera');
     }
   }
 
-  // Ensure camera stays on after start (prevent auto-disable)
+  // Ensure camera stays on after start (prevent auto-disable) - but respect user toggles
   useEffect(() => {
     if (!isLive) return; // Only monitor when live
     
-    // Monitor camera track state and ensure it stays enabled
+    // Monitor camera track state and ensure it stays enabled (only if not user-disabled)
     const monitorInterval = setInterval(() => {
       if (localStreamRef.current && localVideoRef.current) {
         const videoTrack = localStreamRef.current.getVideoTracks()[0];
         const videoElement = localVideoRef.current;
         
         if (videoTrack) {
-          if (!videoTrack.enabled) {
+          // Only force-enable if isCameraOn is true AND track is somehow disabled
+          // Don't force-enable if user manually toggled it off (isCameraOn would be false)
+          if (isCameraOn && !videoTrack.enabled) {
             videoTrack.enabled = true;
-            setIsCameraOn(true);
+            cameraToggleByCameraStateRef.current = true; // Mark as effect action
           }
           
           // Also ensure video element is not paused
           if (videoElement.paused && !videoElement.ended) {
-            videoElement.play().catch(err => {
-              console.error('[Broadcaster] Error playing video:', err);
+            videoElement.play().catch(() => {
+              // Silently handle video play error
             });
           }
         }
@@ -791,7 +1021,7 @@ export default function BroadcasterPage() {
     return () => {
       clearInterval(monitorInterval);
     };
-  }, [isLive]);
+  }, [isLive, isCameraOn]);
 
   // Broadcast viewer count continuously to keep students updated
   useEffect(() => {
@@ -836,12 +1066,16 @@ export default function BroadcasterPage() {
         videoBitsPerSecond: 2500000, // 2.5 Mbps
       });
 
-      mediaRecorder.ondataavailable = async (event) => {
-        if (event.data && event.data.size > 0) {
-          recordedChunksRef.current.push(event.data);
-          console.log(`[Broadcaster] Chunk received: ${event.data.size} bytes, Total: ${recordedChunksRef.current.length} chunks`);
+        mediaRecorder.ondataavailable = async (event) => {
+          const chunkSize = event.data?.size || 0;
+          const sizeKB = (chunkSize / 1024).toFixed(2);
+          const totalChunks = recordedChunksRef.current.length + 1;
           
-          // Send chunk to server during recording for backup
+          console.log(`[Recording] Chunk #${totalChunks}: ${sizeKB} KB, state=${mediaRecorder.state}`);
+          
+          if (event.data && event.data.size > 0) {
+            recordedChunksRef.current.push(event.data);
+            console.log(`[Recording] Buffered: ${recordedChunksRef.current.length} total chunks`);          // Send chunk to server during recording for backup
           try {
             const chunkBase64 = await new Promise<string>((resolve) => {
               const reader = new FileReader();
@@ -856,21 +1090,20 @@ export default function BroadcasterPage() {
               totalSize: event.data.size,
             });
           } catch (error) {
-            console.warn('[Broadcaster] Failed to send chunk to server:', error);
+            // Silently handle chunk send error
           }
         }
       };
 
-      mediaRecorder.onerror = (error) => {
-        console.error('[Broadcaster] MediaRecorder error:', error);
+      mediaRecorder.onerror = () => {
+        // Handle MediaRecorder error silently
       };
 
       // Record continuously
       mediaRecorder.start(10000); // 10s chunks
       mediaRecorderRef.current = mediaRecorder;
-      console.log('[Broadcaster] MediaRecorder restarted');
     } catch (error) {
-      console.warn('[Broadcaster] Failed to restart MediaRecorder:', error);
+      // Silently handle MediaRecorder restart error
     }
   }
 
@@ -917,7 +1150,7 @@ export default function BroadcasterPage() {
         await stopScreenShare();
       }
     } catch (error) {
-      console.error('Screen share error:', error);
+      // Silently handle screen share error
     }
   }
 
@@ -957,7 +1190,7 @@ export default function BroadcasterPage() {
       setIsScreenSharing(false);
       setIsCameraOn(true);
     } catch (error) {
-      console.error('Stop screen share error:', error);
+      // Silently handle stop screen share error
     }
   }
 
@@ -1008,7 +1241,6 @@ export default function BroadcasterPage() {
       setNewFileName(file.name.replace(/\.[^/.]+$/, '')); // Filename without extension
       
     } catch (error) {
-      console.error('Upload failed:', error);
       alert('Failed to upload document. Please try again.');
     }
 
@@ -1046,8 +1278,6 @@ export default function BroadcasterPage() {
       
       return updatedDocs;
     });
-    
-    console.log('[Broadcaster] Document added and synced:', newDoc);
     
     // Reset
     setUploadPreview(null);
@@ -1136,9 +1366,11 @@ export default function BroadcasterPage() {
           message: chatInput,
           type: 'MESSAGE'
         }),
-      }).catch(err => console.warn('Failed to save chat:', err));
+      }).catch(() => {
+        // Silently handle chat save error
+      });
     } catch (error) {
-      console.warn('Failed to save chat to DB:', error);
+      // Silently handle chat save error
     }
     
     // Emit to all viewers in real-time
@@ -1203,18 +1435,14 @@ export default function BroadcasterPage() {
             muted
             playsInline
             onLoadedMetadata={() => {
-              console.log('[Broadcaster] Video metadata loaded', {
-                videoElement: !!localVideoRef.current,
-                srcObject: !!localVideoRef.current?.srcObject,
-              });
               if (localVideoRef.current) {
-                localVideoRef.current.play().catch(err => {
-                  console.error('[Broadcaster] Video play error:', err);
+                localVideoRef.current.play().catch(() => {
+                  // Silently handle video play error
                 });
               }
             }}
-            onError={(e) => {
-              console.error('[Broadcaster] Video element error:', e);
+            onError={() => {
+              // Silently handle video element error
             }}
             className="w-full h-full object-cover bg-black"
           />
@@ -1549,7 +1777,7 @@ export default function BroadcasterPage() {
         🔴 {watcherCount.toLocaleString()} views
       </div>
 
-      <div className={`absolute top-4 right-4 w-80 bg-white rounded-lg text-black shadow-lg max-h-[70vh] overflow-hidden flex flex-col transition-all duration-300 ${showDocumentViewer ? 'right-[calc(50%+1rem)]' : 'right-4'} ${livestreamEnded ? 'hidden' : ''}`}>
+      <div className={`absolute top-4 right-4 w-80 bg-white rounded-lg text-black shadow-lg max-h-[70vh] overflow-hidden flex flex-col transition-all duration-300 ${showDocumentViewer ? 'right-[calc(50%+1rem)]' : 'right-4'} ${!isLive || livestreamEnded ? 'hidden' : ''}`}>
         <div
           className="flex justify-between items-center p-3 cursor-pointer border-b"
           onClick={() => setShowFiles(!showFiles)}
@@ -1618,7 +1846,7 @@ export default function BroadcasterPage() {
         className="hidden"
       />
 
-      <div className={`absolute right-4 w-72 max-h-80 bg-transparent text-white rounded-lg shadow-lg transition-all duration-300 ${showDocumentViewer ? 'top-[calc(70vh+2rem)] right-[calc(50%+1rem)]' : 'top-[calc(70vh+2rem)]'} ${livestreamEnded ? 'hidden' : ''}`}>
+      <div className={`absolute right-4 w-72 max-h-80 bg-transparent text-white rounded-lg shadow-lg transition-all duration-300 ${showDocumentViewer ? 'top-[calc(70vh+2rem)] right-[calc(50%+1rem)]' : 'top-[calc(70vh+2rem)]'} ${!isLive || livestreamEnded ? 'hidden' : ''}`}>
         <div
           className="flex justify-between items-center p-2 cursor-pointer"
           onClick={() => setShowComments(!showComments)}
@@ -1760,12 +1988,64 @@ export default function BroadcasterPage() {
         )}
         
         <button 
-          className="p-3 bg-white rounded-full shadow hover:bg-gray-100 transition"
-          title="More Options"
+          onClick={() => setShowCameraSettings(!showCameraSettings)}
+          disabled={!isLive}
+          className="p-3 bg-white rounded-full shadow hover:bg-gray-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Camera Settings"
         >
           <MoreVertical className="text-black" />
         </button>
       </div>
+      )}
+
+      {/* Camera Settings Modal */}
+      {showCameraSettings && isLive && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg max-w-sm w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Camera Settings</h2>
+              <button
+                onClick={() => setShowCameraSettings(false)}
+                className="p-1 hover:bg-gray-100 rounded-full transition"
+              >
+                <X className="text-gray-500" size={24} />
+              </button>
+            </div>
+
+            {availableCameras.length > 0 ? (
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700 mb-3">Select Camera</label>
+                {availableCameras.map((camera) => (
+                  <button
+                    key={camera.deviceId}
+                    onClick={() => switchCamera(camera.deviceId)}
+                    className={`w-full px-4 py-3 rounded-lg border-2 transition text-left ${
+                      selectedCameraId === camera.deviceId
+                        ? 'border-blue-600 bg-blue-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="font-medium text-gray-900">{camera.label || `Camera ${availableCameras.indexOf(camera) + 1}`}</p>
+                    {selectedCameraId === camera.deviceId && (
+                      <p className="text-sm text-blue-600 mt-1">✓ Currently Active</p>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center py-6">No cameras found</p>
+            )}
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setShowCameraSettings(false)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 transition font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

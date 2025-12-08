@@ -243,15 +243,18 @@ export default function EventDrawer({
           
           setIsStartingEarly(true);
           try {
-            await startLivestreamEarly(
+            const response = await startLivestreamEarly(
               event.livestreamId,
               event.title,
               (event as any).category
             );
             
+            // Get the new livestream ID from response
+            const newLivestreamId = response.id;
+            
             // Redirect to the new livestream
             setIsRedirecting(true);
-            window.location.href = `/teacher/${event.teacherId}/livestream`;
+            window.location.href = `/teacher/${event.teacherId}/livestream/${newLivestreamId}`;
           } catch (error) {
             console.error('Failed to start livestream early:', error);
             setIsStartingEarly(false);
@@ -317,9 +320,14 @@ export default function EventDrawer({
               throw new Error(errorData.message || `Failed to create livestream (${response.status})`);
             }
 
+            const livestreamIdToNavigate = pendingLivestreamId;
             setShowStartLiveModal(false);
-            setIsRedirecting(true);
-            window.location.href = `/teacher/${event?.teacherId}/livestream/${pendingLivestreamId}`;
+            setPendingLivestreamId(null);
+            
+            setTimeout(() => {
+              setIsRedirecting(true);
+              window.location.href = `/teacher/${event?.teacherId}/livestream/${livestreamIdToNavigate}`;
+            }, 0);
           } catch (error) {
             alert(error instanceof Error ? error.message : 'Failed to create livestream');
             throw error;

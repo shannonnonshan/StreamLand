@@ -1,29 +1,47 @@
 import { Injectable } from '@nestjs/common';
-import * as nodemailer from 'nodemailer';
 import { ConfigService } from '@nestjs/config';
+import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class MailService {
   private transporter: nodemailer.Transporter;
+  private fromEmail: string;
 
   constructor(private configService: ConfigService) {
+    this.fromEmail = `"StreamLand" <${this.configService.get('SMTP_USER')}>`;
+    
     this.transporter = nodemailer.createTransport({
       host: this.configService.get('SMTP_HOST'),
-      port: this.configService.get('SMTP_PORT'),
-      secure: false, // true for 465, false for other ports
+      port: parseInt(this.configService.get('SMTP_PORT') || '587'),
+      secure: false, // true for 465, false for other ports (587, 2525)
+      requireTLS: true, // Force TLS
       auth: {
         user: this.configService.get('SMTP_USER'),
         pass: this.configService.get('SMTP_PASS'),
       },
+      tls: {
+        // Do not fail on invalid certs (for development)
+        rejectUnauthorized: false,
+        ciphers: 'SSLv3',
+      },
+      // Connection timeout
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
+    });
+    
+    // Verify connection
+    this.transporter.verify((error, success) => {
+      if (error) {
+        console.error('❌ SMTP connection error:', error);
+      } else {
+        console.log('✅ SMTP server is ready to send emails');
+      }
     });
   }
 
   async sendOTP(email: string, otp: string, fullName?: string) {
-    const mailOptions = {
-      from: `"StreamLand" <${this.configService.get('SMTP_USER')}>`,
-      to: email,
-      subject: 'Account Verification OTP - StreamLand',
-      html: `
+    const htmlContent = `
         <!DOCTYPE html>
         <html>
         <head>
@@ -75,16 +93,21 @@ export class MailService {
           </div>
         </body>
         </html>
-      `,
+      `;
+
+    const mailOptions = {
+      from: this.fromEmail,
+      to: email,
+      subject: 'Account Verification OTP - StreamLand',
+      html: htmlContent,
     };
 
     try {
-      await this.transporter.sendMail(mailOptions);
-      console.log(`OTP email sent successfully to ${email}`);
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ OTP email sent successfully to ${email} (Message ID: ${info.messageId})`);
       return { success: true };
     } catch (error) {
-      console.error('Failed to send OTP email:', error);
-      // Don't throw error, just log it (registration should still succeed)
+      console.error('❌ Failed to send OTP email:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -93,11 +116,7 @@ export class MailService {
   }
 
   async sendPasswordResetOTP(email: string, otp: string, fullName?: string) {
-    const mailOptions = {
-      from: `"StreamLand" <${this.configService.get('SMTP_USER')}>`,
-      to: email,
-      subject: 'Password Reset OTP - StreamLand',
-      html: `
+    const htmlContent = `
         <!DOCTYPE html>
         <html>
         <head>
@@ -149,15 +168,21 @@ export class MailService {
           </div>
         </body>
         </html>
-      `,
+      `;
+
+    const mailOptions = {
+      from: this.fromEmail,
+      to: email,
+      subject: 'Password Reset OTP - StreamLand',
+      html: htmlContent,
     };
 
     try {
-      await this.transporter.sendMail(mailOptions);
-      console.log(`Password reset OTP email sent successfully to ${email}`);
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Password reset OTP email sent successfully to ${email} (Message ID: ${info.messageId})`);
       return { success: true };
     } catch (error) {
-      console.error('Failed to send password reset OTP email:', error);
+      console.error('❌ Failed to send password reset OTP email:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',

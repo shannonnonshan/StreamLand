@@ -1226,5 +1226,166 @@ export class StudentService {
       streak: student.studentProfile.studyStreak,
     };
   }
+
+  // Save document from livestream to student's notebook
+  async saveDocument(userId: string, data: {
+    livestreamId: string;
+    documentId: string;
+    title: string;
+    filename: string;
+    fileType: string;
+    fileUrl: string;
+    fileSize: number;
+    folder?: string;
+    tags?: string[];
+  }) {
+    const student = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true },
+    });
+
+    if (!student || !student.studentProfile) {
+      throw new NotFoundException('Student not found');
+    }
+
+    // Check if already saved
+    const existing = await this.prisma.mongo.studentNotebook.findFirst({
+      where: {
+        studentId: userId,
+        documentId: data.documentId,
+        livestreamId: data.livestreamId,
+      },
+    });
+
+    if (existing) {
+      throw new BadRequestException('Document already saved');
+    }
+
+    // Create saved document
+    const savedDoc = await this.prisma.mongo.studentNotebook.create({
+      data: {
+        studentId: userId,
+        livestreamId: data.livestreamId,
+        documentId: data.documentId,
+        title: data.title,
+        filename: data.filename,
+        fileType: data.fileType,
+        fileUrl: data.fileUrl,
+        fileSize: data.fileSize,
+        folder: data.folder || 'Livestream Materials',
+        tags: data.tags || [],
+        notes: '',
+        isPinned: false,
+        savedAt: new Date(),
+        lastAccessedAt: new Date(),
+      },
+    });
+
+    return savedDoc;
+  }
+
+  // Get all saved documents for student
+  async getSavedDocuments(userId: string, filters?: {
+    folder?: string;
+    isPinned?: boolean;
+    tags?: string[];
+  }) {
+    const student = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true },
+    });
+
+    if (!student || !student.studentProfile) {
+      throw new NotFoundException('Student not found');
+    }
+
+    const where: any = { studentId: userId };
+
+    if (filters?.folder) {
+      where.folder = filters.folder;
+    }
+
+    if (filters?.isPinned !== undefined) {
+      where.isPinned = filters.isPinned;
+    }
+
+    if (filters?.tags && filters.tags.length > 0) {
+      where.tags = { hasEvery: filters.tags };
+    }
+
+    const documents = await this.prisma.mongo.studentNotebook.findMany({
+      where,
+      orderBy: [
+        { isPinned: 'desc' },
+        { savedAt: 'desc' },
+      ],
+    });
+
+    return documents;
+  }
+
+  // Update saved document (notes, tags, pin status)
+  async updateSavedDocument(userId: string, documentMongoId: string, data: {
+    notes?: string;
+    tags?: string[];
+    isPinned?: boolean;
+    folder?: string;
+  }) {
+    const existing = await this.prisma.mongo.studentNotebook.findUnique({
+      where: { id: documentMongoId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Saved document not found');
+    }
+
+    if (existing.studentId !== userId) {
+      throw new ForbiddenException('Cannot update another student\'s document');
+    }
+
+    const updated = await this.prisma.mongo.studentNotebook.update({
+      where: { id: documentMongoId },
+      data: {
+        ...data,
+        lastAccessedAt: new Date(),
+      },
+    });
+
+    return updated;
+  }
+
+  // Remove saved document
+  async removeSavedDocument(userId: string, documentMongoId: string) {
+    const existing = await this.prisma.mongo.studentNotebook.findUnique({
+      where: { id: documentMongoId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Saved document not found');
+    }
+
+    if (existing.studentId !== userId) {
+      throw new ForbiddenException('Cannot delete another student\'s document');
+    }
+
+    await this.prisma.mongo.studentNotebook.delete({
+      where: { id: documentMongoId },
+    });
+
+    return { message: 'Document removed successfully' };
+  }
+
+  // Check if document is saved
+  async isDocumentSaved(userId: string, livestreamId: string, documentId: string) {
+    const saved = await this.prisma.mongo.studentNotebook.findFirst({
+      where: {
+        studentId: userId,
+        livestreamId,
+        documentId,
+      },
+    });
+
+    return { isSaved: !!saved, document: saved };
+  }
 }
 

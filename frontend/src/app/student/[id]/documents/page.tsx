@@ -7,13 +7,11 @@ import {
   DocumentIcon, 
   DocumentTextIcon, 
   TrashIcon, 
-  PencilIcon, 
   BookmarkIcon, 
   MagnifyingGlassIcon,
   ArrowDownTrayIcon,
   ChevronDownIcon,
   EyeIcon,
-  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { 
   BookmarkIcon as BookmarkSolidIcon 
@@ -53,11 +51,7 @@ export default function StudentDocumentsPage() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [showFileTypeDropdown, setShowFileTypeDropdown] = useState(false);
   
-  const [editingDocument, setEditingDocument] = useState<SavedDocument | null>(null);
-  const [editNotes, setEditNotes] = useState('');
-  const [editTags, setEditTags] = useState('');
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
   
   // Fetch saved documents from backend
   useEffect(() => {
@@ -68,7 +62,7 @@ export default function StudentDocumentsPage() {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await getSavedDocuments(selectedFileType || undefined);
+      const data = await getSavedDocuments();
       setDocuments(data);
     } catch (err) {
       console.error('Failed to fetch documents:', err);
@@ -89,8 +83,8 @@ export default function StudentDocumentsPage() {
     .filter(doc => {
       // Search filter
       if (searchQuery && 
-          !doc.document.title.toLowerCase().includes(searchQuery.toLowerCase()) && 
-          !doc.document.fileName.toLowerCase().includes(searchQuery.toLowerCase())) {
+          !doc.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
+          !doc.filename.toLowerCase().includes(searchQuery.toLowerCase())) {
         return false;
       }
       
@@ -109,10 +103,10 @@ export default function StudentDocumentsPage() {
           compareValue = new Date(a.savedAt).getTime() - new Date(b.savedAt).getTime();
           break;
         case 'title':
-          compareValue = a.document.title.localeCompare(b.document.title);
+          compareValue = a.title.localeCompare(b.title);
           break;
         case 'fileSize':
-          compareValue = a.document.fileSize - b.document.fileSize;
+          compareValue = (a.fileSize || 0) - (b.fileSize || 0);
           break;
       }
       
@@ -142,7 +136,10 @@ export default function StudentDocumentsPage() {
   // Toggle pin
   const handleTogglePin = async (id: string) => {
     try {
-      await togglePinDocument(id);
+      const doc = documents.find(d => d.id === id);
+      if (doc) {
+        await togglePinDocument(id, doc.isPinned);
+      }
       setDocuments(prev => prev.map(doc => 
         doc.id === id ? { ...doc, isPinned: !doc.isPinned } : doc
       ));
@@ -164,43 +161,6 @@ export default function StudentDocumentsPage() {
     } catch (err) {
       console.error('Failed to delete document:', err);
       toast.error('Failed to remove document');
-    }
-  };
-  
-  // Open edit modal
-  const openEditModal = (doc: SavedDocument) => {
-    setEditingDocument(doc);
-    setEditNotes(doc.notes || '');
-    setEditTags((doc.tags || []).join(', '));
-  };
-  
-  // Save edits
-  const handleSaveEdit = async () => {
-    if (!editingDocument) return;
-    
-    setIsSaving(true);
-    try {
-      const tagsArray = editTags
-        .split(',')
-        .map(tag => tag.trim())
-        .filter(tag => tag.length > 0);
-      
-      const updated = await updateSavedDocument(editingDocument.id, {
-        notes: editNotes || undefined,
-        tags: tagsArray.length > 0 ? tagsArray : undefined,
-      });
-      
-      setDocuments(prev => prev.map(doc => 
-        doc.id === editingDocument.id ? updated : doc
-      ));
-      
-      toast.success('Document updated successfully');
-      setEditingDocument(null);
-    } catch (err) {
-      console.error('Failed to update document:', err);
-      toast.error('Failed to update document');
-    } finally {
-      setIsSaving(false);
     }
   };
   
@@ -384,7 +344,7 @@ export default function StudentDocumentsPage() {
               />
             </div>
             <div className="col-span-6 sm:col-span-4 font-bold text-gray-700">Document</div>
-            <div className="hidden sm:block sm:col-span-2 font-bold text-gray-700">Teacher</div>
+            <div className="hidden sm:block sm:col-span-2 font-bold text-gray-700">Folder</div>
             <div className="hidden sm:block sm:col-span-2 font-bold text-gray-700">Saved Date</div>
             <div className="col-span-3 sm:col-span-1 font-bold text-gray-700">Size</div>
             <div className="col-span-2 font-bold text-gray-700 text-right">Actions</div>
@@ -407,7 +367,6 @@ export default function StudentDocumentsPage() {
                   isSelected={selectedDocuments.includes(doc.id)}
                   onToggleSelect={() => toggleSelectDocument(doc.id)}
                   onTogglePin={() => handleTogglePin(doc.id)}
-                  onEdit={() => openEditModal(doc)}
                   onDelete={() => handleDelete(doc.id)}
                   getFileIcon={getFileIcon}
                 />
@@ -431,7 +390,6 @@ export default function StudentDocumentsPage() {
                   isSelected={selectedDocuments.includes(doc.id)}
                   onToggleSelect={() => toggleSelectDocument(doc.id)}
                   onTogglePin={() => handleTogglePin(doc.id)}
-                  onEdit={() => openEditModal(doc)}
                   onDelete={() => handleDelete(doc.id)}
                   getFileIcon={getFileIcon}
                 />
@@ -455,98 +413,7 @@ export default function StudentDocumentsPage() {
           )}
         </div>
         
-        {/* Edit Document Modal */}
-        {editingDocument && (
-          <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50 p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-8">
-                <div className="flex items-start justify-between mb-6">
-                  <div>
-                    <h3 className="text-2xl font-bold text-gray-900 mb-1">Edit Document</h3>
-                    <p className="text-sm text-gray-500">{editingDocument.document.title}</p>
-                  </div>
-                  <button
-                    onClick={() => setEditingDocument(null)}
-                    className="text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <XMarkIcon className="w-6 h-6" />
-                  </button>
-                </div>
-                
-                <div className="space-y-5">
-                  {/* Notes */}
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      Personal Notes
-                    </label>
-                    <textarea
-                      value={editNotes}
-                      onChange={(e) => setEditNotes(e.target.value)}
-                      rows={4}
-                      placeholder="Add your notes about this document..."
-                      className="w-full rounded-xl border-gray-300 shadow-sm focus:border-[#161853] focus:ring-[#161853] transition-all"
-                    />
-                  </div>
-                  
-                  {/* Tags */}
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      Tags (comma-separated)
-                    </label>
-                    <input
-                      type="text"
-                      value={editTags}
-                      onChange={(e) => setEditTags(e.target.value)}
-                      placeholder="e.g., Math, Chapter 5, Important"
-                      className="w-full rounded-xl border-gray-300 shadow-sm focus:border-[#161853] focus:ring-[#161853] transition-all"
-                    />
-                  </div>
-                  
-                  {/* Document Info */}
-                  <div className="bg-gradient-to-br from-gray-50 to-blue-50/30 p-5 rounded-xl border border-gray-200">
-                    <h4 className="text-sm font-bold text-gray-900 mb-3">Document Information</h4>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <p className="text-gray-500 mb-1">File Name</p>
-                        <p className="font-semibold text-gray-900 truncate">{editingDocument.document.fileName}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500 mb-1">File Size</p>
-                        <p className="font-semibold text-gray-900">{(editingDocument.document.fileSize / 1024 / 1024).toFixed(2)} MB</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500 mb-1">Saved Date</p>
-                        <p className="font-semibold text-gray-900">{formatDate(editingDocument.savedAt)}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500 mb-1">Teacher</p>
-                        <p className="font-semibold text-gray-900">{editingDocument.document.teacher.fullName}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="mt-8 flex justify-end gap-3">
-                  <button
-                    onClick={() => setEditingDocument(null)}
-                    disabled={isSaving}
-                    className="px-6 py-3 text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors font-semibold disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSaveEdit}
-                    disabled={isSaving}
-                    className="px-6 py-3 bg-gradient-to-r from-[#161853] to-[#292C6D] text-white rounded-xl hover:shadow-lg transition-all font-semibold disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                    Save Changes
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+
       </div>
     </div>
   );
@@ -558,7 +425,6 @@ function DocumentRow({
   isSelected, 
   onToggleSelect, 
   onTogglePin, 
-  onEdit, 
   onDelete, 
   getFileIcon 
 }: {
@@ -566,7 +432,6 @@ function DocumentRow({
   isSelected: boolean;
   onToggleSelect: () => void;
   onTogglePin: () => void;
-  onEdit: () => void;
   onDelete: () => void;
   getFileIcon: (fileType: string) => React.ReactElement;
 }) {
@@ -583,15 +448,15 @@ function DocumentRow({
       
       <div className="col-span-6 sm:col-span-4 flex items-center">
         <div className="flex-shrink-0 mr-3">
-          {getFileIcon(doc.document.fileType)}
+          {getFileIcon(doc.fileType)}
         </div>
         <div className="min-w-0">
-          <Link href={`/student/documents/${doc.id}`}>
+          <Link href={`/student/${doc.studentId}/documents/${doc.id}`}>
             <p className="text-sm font-semibold text-gray-900 truncate hover:text-[#161853] hover:underline cursor-pointer">
-              {doc.document.title}
+              {doc.title}
             </p>
           </Link>
-          <p className="text-xs text-gray-500 truncate">{doc.document.fileName}</p>
+          <p className="text-xs text-gray-500 truncate">{doc.filename}</p>
           {doc.tags && doc.tags.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-1">
               {doc.tags.map(tag => (
@@ -605,35 +470,24 @@ function DocumentRow({
       </div>
       
       <div className="hidden sm:flex sm:col-span-2 items-center">
-        <div className="flex items-center gap-2">
-          {doc.document.teacher.avatar ? (
-            <Image
-              src={doc.document.teacher.avatar}
-              alt={doc.document.teacher.fullName}
-              width={32}
-              height={32}
-              className="w-8 h-8 rounded-full object-cover"
-            />
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#161853] to-[#292C6D] flex items-center justify-center text-white text-xs font-bold">
-              {doc.document.teacher.fullName.charAt(0)}
-            </div>
-          )}
-          <span className="text-sm text-gray-700 font-medium truncate">{doc.document.teacher.fullName}</span>
+        <div className="text-sm text-gray-700">
+          <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
+            {doc.folder || 'Livestream'}
+          </span>
         </div>
       </div>
       
       <div className="hidden sm:flex sm:col-span-2 items-center text-sm text-gray-600">
-        {formatDate(doc.savedAt)}
+        {formatDate(doc.savedAt.toString())}
       </div>
       
       <div className="col-span-3 sm:col-span-1 flex items-center text-sm text-gray-600 font-medium">
-        {(doc.document.fileSize / 1024 / 1024).toFixed(2)} MB
+        {doc.fileSize ? (doc.fileSize / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}
       </div>
       
       <div className="col-span-2 flex items-center justify-end space-x-2">
         <Link 
-          href={`/student/documents/${doc.id}`}
+          href={`/student/${doc.studentId}/documents/${doc.id}`}
           className="text-gray-400 hover:text-[#161853] transition-colors"
           title="View details"
         >
@@ -649,21 +503,13 @@ function DocumentRow({
         </button>
         
         <a 
-          href={doc.document.fileUrl} 
-          download={doc.document.fileName}
+          href={doc.fileUrl}
+          download={doc.filename}
           className="text-gray-400 hover:text-[#161853] transition-colors"
           title="Download"
         >
           <ArrowDownTrayIcon className="h-5 w-5" />
         </a>
-        
-        <button 
-          onClick={onEdit}
-          className="text-gray-400 hover:text-[#161853] transition-colors"
-          title="Edit"
-        >
-          <PencilIcon className="h-5 w-5" />
-        </button>
         
         <button 
           onClick={onDelete}

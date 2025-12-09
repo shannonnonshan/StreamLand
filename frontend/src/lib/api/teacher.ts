@@ -1,3 +1,5 @@
+import { authenticatedFetch, getAuthToken } from './fetch';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export interface Document {
@@ -52,51 +54,6 @@ export interface LiveStream {
   isPublic: boolean;
   createdAt: string;
   updatedAt: string;
-}
-
-// Helper to get auth token
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('token') || localStorage.getItem('accessToken');
-}
-
-// Helper for authenticated fetch
-async function authenticatedFetch(url: string, options: RequestInit = {}) {
-  const token = getAuthToken();
-  
-  if (!token) {
-    console.error('No auth token found in localStorage');
-    throw new Error('Authentication required');
-  }
-  
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  
-  // Merge with any additional headers from options
-  if (options.headers) {
-    Object.entries(options.headers).forEach(([key, value]) => {
-      if (typeof value === 'string') headers[key] = value;
-    });
-  }
-
-  console.log('Making authenticated request:', { url, hasToken: !!token });
-
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
-
-  if (!response.ok) {
-    console.error('API request failed:', response.status, response.statusText);
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
-  }
-
-  return response.json();
 }
 
 // ============ DOCUMENTS API ============

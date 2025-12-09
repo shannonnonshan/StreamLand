@@ -45,45 +45,87 @@ export function useAuth() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Auto-refresh token every 14 minutes (before 15min expiry)
-  useEffect(() => {
-    const refreshAccessToken = async () => {
-      const refreshToken = localStorage.getItem('refreshToken');
-      const accessToken = localStorage.getItem('accessToken');
+  // Helper function to check if token is expired or about to expire
+  const isTokenExpiringSoon = (token: string): boolean => {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const expiryTime = payload.exp * 1000; // Convert to milliseconds
+      const currentTime = Date.now();
+      const timeUntilExpiry = expiryTime - currentTime;
       
-      // Only refresh if both tokens exist and user is authenticated
-      if (!refreshToken || !accessToken || !isAuthenticated) {
+      // Return true if token expires in less than 5 minutes
+      return timeUntilExpiry < 5 * 60 * 1000;
+    } catch (error) {
+      console.error('Error parsing token:', error);
+      return true; // Treat invalid tokens as expired
+    }
+  };
+
+  // Refresh access token using refresh token
+  const refreshAccessToken = useCallback(async () => {
+    const refreshToken = localStorage.getItem('refreshToken');
+    
+    if (!refreshToken) {
+      return false;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        localStorage.setItem('accessToken', result.accessToken);
+        localStorage.setItem('refreshToken', result.refreshToken);
+        return true;
+      } else {
+        // If refresh fails, logout
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('user');
+        setUser(null);
+        setIsAuthenticated(false);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error refreshing token:', error);
+      return false;
+    }
+  }, [setUser, setIsAuthenticated]);
+
+  // Check token on mount and refresh if needed
+  useEffect(() => {
+    const checkAndRefreshToken = async () => {
+      const accessToken = localStorage.getItem('accessToken');
+      const refreshToken = localStorage.getItem('refreshToken');
+      
+      // Only check if both tokens exist
+      if (!accessToken || !refreshToken) {
         return;
       }
 
-      try {
-        const response = await fetch(`${API_URL}/auth/refresh`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ refreshToken }),
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          localStorage.setItem('accessToken', result.accessToken);
-          localStorage.setItem('refreshToken', result.refreshToken);
-        } else {
-          const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-          // If refresh fails, logout
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-          localStorage.removeItem('user');
-          setUser(null);
-          setIsAuthenticated(false);
+      // Check if token is expired or expiring soon
+      if (isTokenExpiringSoon(accessToken)) {
+        console.log('Token expiring soon, refreshing...');
+        const refreshed = await refreshAccessToken();
+        
+        if (!refreshed) {
+          console.log('Token refresh failed, logging out');
           router.push('/');
         }
-      } catch (error) {
-        console.error('Error refreshing token:', error);
       }
     };
 
+    checkAndRefreshToken();
+  }, [refreshAccessToken, router]);
+
+  // Auto-refresh token every 14 minutes (before 15min expiry)
+  useEffect(() => {
     // Only set up auto-refresh if user is authenticated
     if (!isAuthenticated) {
       return;
@@ -92,11 +134,8 @@ export function useAuth() {
     // Refresh token every 14 minutes (840000ms)
     const interval = setInterval(refreshAccessToken, 14 * 60 * 1000);
 
-    // Don't refresh on mount - only on interval
-    // This prevents issues with stale tokens on page reload
-
     return () => clearInterval(interval);
-  }, [router, setUser, setIsAuthenticated, isAuthenticated]);
+  }, [refreshAccessToken, isAuthenticated]);
 
 
   // Register
@@ -508,6 +547,7 @@ export function useAuth() {
     logout,
     getProfile,
     completeOAuthRegistration,
+    refreshAccessToken, // Export for manual refresh
     setUser, // Export setUser for manual updates
   };
 }

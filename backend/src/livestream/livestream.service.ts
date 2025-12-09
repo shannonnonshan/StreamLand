@@ -205,17 +205,36 @@ export class LivestreamService {
     // Check if livestream exists
     const livestream = await this.prisma.postgres.liveStream.findUnique({
       where: { id },
-      select: { id: true },
+      select: { 
+        id: true,
+        teacherId: true,
+      },
     });
 
     if (!livestream) {
       throw new NotFoundException('Livestream not found');
     }
 
-    // TODO: Implement document storage and retrieval
-    // For now, return empty array as documents are not yet implemented in database
-    this.logger.warn(`Documents requested for livestream ${id} but document feature is not yet implemented`);
-    return [];
+    // Get livestream documents from MongoDB
+    const livestreamDocs = await this.prisma.mongo.liveStreamDocuments.findUnique({
+      where: { livestreamId: id },
+    });
+
+    // If no documents shared for this livestream, return empty array
+    if (!livestreamDocs || !livestreamDocs.documentIds || livestreamDocs.documentIds.length === 0) {
+      return [];
+    }
+
+    // Get full document details from PostgreSQL
+    const documents = await this.prisma.postgres.document.findMany({
+      where: { 
+        id: { in: livestreamDocs.documentIds },
+        teacherId: livestream.teacherId, // Extra safety check
+      },
+      orderBy: { uploadedAt: 'desc' },
+    });
+
+    return documents;
   }
 
   async updateLivestreamStatus(id: string, status: LiveStreamStatus) {

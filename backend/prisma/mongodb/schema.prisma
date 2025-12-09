@@ -104,10 +104,10 @@ model LiveStreamDocuments {
   id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
   livestreamId String   @unique
   documentIds  String[] // Array of document IDs from PostgreSQL
-  
+
   // Metadata for each shared document
   sharedDocuments Json[] // [{documentId, sharedAt, order}, ...]
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -116,35 +116,35 @@ model LiveStreamDocuments {
 
 // Schedule Analytics and Reminders
 model ScheduleNotification {
-  id         String                  @id @default(auto()) @map("_id") @mongodb.ObjectId
-  scheduleId String                  @unique
-  
+  id         String @id @default(auto()) @map("_id") @mongodb.ObjectId
+  scheduleId String @unique
+
   // Reminder tracking
-  reminders  ScheduleReminder[]
-  
+  reminders ScheduleReminder[]
+
   // Attendee tracking
-  attendees  ScheduleAttendee[]
-  
+  attendees ScheduleAttendee[]
+
   // Engagement metrics
-  viewsCount      Int     @default(0)
-  clicksCount     Int     @default(0)
-  registeredCount Int     @default(0)
-  
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  viewsCount      Int @default(0)
+  clicksCount     Int @default(0)
+  registeredCount Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("schedule_notifications")
 }
 
 // Embedded types for schedule notifications
 type ScheduleReminder {
-  userId       String
-  sentAt       DateTime
-  method       String // email, push, sms
-  opened       Boolean  @default(false)
-  openedAt     DateTime?
-  clicked      Boolean  @default(false)
-  clickedAt    DateTime?
+  userId    String
+  sentAt    DateTime
+  method    String // email, push, sms
+  opened    Boolean   @default(false)
+  openedAt  DateTime?
+  clicked   Boolean   @default(false)
+  clickedAt DateTime?
 }
 
 type ScheduleAttendee {
@@ -277,7 +277,7 @@ model Reaction {
   id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
   livestreamId String
   userId       String
-  emoji        String 
+  emoji        String
   timestamp    DateTime @default(now())
 
   @@index([livestreamId, timestamp])
@@ -373,4 +373,35 @@ enum UserStatus {
   OFFLINE
   BUSY
   AWAY
+}
+
+// Student Notebook - Saved documents from livestreams
+model StudentNotebook {
+  id           String @id @default(auto()) @map("_id") @mongodb.ObjectId
+  studentId    String
+  livestreamId String
+  documentId   String // ID of the document (from teacher upload)
+
+  // Document metadata (cached for quick access)
+  title    String
+  filename String
+  fileType String
+  fileUrl  String
+  fileSize Int?
+
+  // Student customization
+  notes    String?
+  tags     String[]
+  isPinned Boolean  @default(false)
+  folder   String?  @default("Livestream Materials")
+
+  // Timestamps
+  savedAt        DateTime @default(now())
+  lastAccessedAt DateTime @default(now())
+
+  @@unique([studentId, documentId, livestreamId])
+  @@index([studentId])
+  @@index([livestreamId])
+  @@index([studentId, isPinned])
+  @@map("student_notebooks")
 }

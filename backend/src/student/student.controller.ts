@@ -171,4 +171,73 @@ export class StudentController {
   async getStudentStatsByUserId(@Param('userId') userId: string) {
     return this.studentService.getStudentStats(userId);
   }
+
+  // Save document from livestream
+  @Post('documents/save')
+  async saveDocument(
+    @Request() req: { user: { sub: string } },
+    @Body() data: {
+      livestreamId: string;
+      documentId: string;
+      title: string;
+      filename: string;
+      fileType: string;
+      fileUrl: string;
+      fileSize: number;
+      folder?: string;
+      tags?: string[];
+    },
+  ) {
+    return this.studentService.saveDocument(req.user.sub, data);
+  }
+
+  // Get all saved documents
+  @Get('documents/saved')
+  async getSavedDocuments(
+    @Request() req: { user: { sub: string } },
+    @Query('folder') folder?: string,
+    @Query('isPinned') isPinned?: string,
+    @Query('tags') tags?: string,
+  ) {
+    const filters: any = {};
+    if (folder) filters.folder = folder;
+    if (isPinned !== undefined) filters.isPinned = isPinned === 'true';
+    if (tags) filters.tags = tags.split(',');
+
+    return this.studentService.getSavedDocuments(req.user.sub, filters);
+  }
+
+  // Update saved document
+  @Patch('documents/saved/:documentId')
+  async updateSavedDocument(
+    @Request() req: { user: { sub: string } },
+    @Param('documentId') documentId: string,
+    @Body() data: {
+      notes?: string;
+      tags?: string[];
+      isPinned?: boolean;
+      folder?: string;
+    },
+  ) {
+    return this.studentService.updateSavedDocument(req.user.sub, documentId, data);
+  }
+
+  // Remove saved document
+  @Delete('documents/saved/:documentId')
+  async removeSavedDocument(
+    @Request() req: { user: { sub: string } },
+    @Param('documentId') documentId: string,
+  ) {
+    return this.studentService.removeSavedDocument(req.user.sub, documentId);
+  }
+
+  // Check if document is saved
+  @Get('documents/check')
+  async isDocumentSaved(
+    @Request() req: { user: { sub: string } },
+    @Query('livestreamId') livestreamId: string,
+    @Query('documentId') documentId: string,
+  ) {
+    return this.studentService.isDocumentSaved(req.user.sub, livestreamId, documentId);
+  }
 }

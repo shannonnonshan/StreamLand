@@ -12,17 +12,15 @@ export class MailService {
     
     this.transporter = nodemailer.createTransport({
       host: this.configService.get('SMTP_HOST'),
-      port: parseInt(this.configService.get('SMTP_PORT') || '587'),
-      secure: false, // true for 465, false for other ports (587, 2525)
-      requireTLS: true, // Force TLS
+      port: parseInt(this.configService.get('SMTP_PORT') || '465'),
+      secure: true, // true for 465 (SSL), false for 587 (STARTTLS)
       auth: {
         user: this.configService.get('SMTP_USER'),
         pass: this.configService.get('SMTP_PASS'),
       },
       tls: {
-        // Do not fail on invalid certs (for development)
+        // Do not fail on invalid certs
         rejectUnauthorized: false,
-        ciphers: 'SSLv3',
       },
       // Connection timeout
       connectionTimeout: 10000,

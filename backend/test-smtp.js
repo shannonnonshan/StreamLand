@@ -1,81 +1,63 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 require('dotenv').config();
 
-console.log('🔍 Testing SMTP connection...\n');
+console.log('🔍 Testing Resend API...\n');
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT) || 587,
-  secure: false, // true for 465, false for other ports
-  requireTLS: true, // Force TLS
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false,
-    ciphers: 'SSLv3',
-  },
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 10000,
-  debug: true, // Show debug logs
-  logger: true, // Enable logging
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 console.log('📧 Config:');
-console.log(`   Host: ${process.env.SMTP_HOST}`);
-console.log(`   Port: ${process.env.SMTP_PORT}`);
-console.log(`   User: ${process.env.SMTP_USER}`);
-console.log(`   Pass: ${process.env.SMTP_PASS ? '****' + process.env.SMTP_PASS.slice(-4) : 'NOT SET'}`);
+console.log(`   API Key: ${process.env.RESEND_API_KEY ? '****' + process.env.RESEND_API_KEY.slice(-8) : 'NOT SET'}`);
+console.log(`   From Email: ${process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'}`);
+console.log(`   Test To: ${process.env.TEST_EMAIL || 'Enter your email in .env as TEST_EMAIL'}`);
 console.log('');
 
-// Test 1: Verify connection
-console.log('🔐 Test 1: Verifying SMTP connection...');
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('❌ SMTP Connection Failed:', error.message);
-    console.error('\n📋 Troubleshooting:');
-    console.error('   1. Check if Gmail App Password is correct');
-    console.error('   2. Make sure 2-Step Verification is enabled in Google Account');
-    console.error('   3. Verify App Password was generated correctly');
-    console.error('   4. Check if "Less secure app access" is disabled (should use App Password instead)');
+// Test: Send test email
+console.log('📨 Sending test email...');
+
+const testEmail = async () => {
+  const testRecipient = process.env.TEST_EMAIL;
+  
+  if (!testRecipient) {
+    console.error('❌ Error: TEST_EMAIL not set in .env file');
+    console.error('   Add TEST_EMAIL=your-email@example.com to .env');
     process.exit(1);
-  } else {
-    console.log('✅ SMTP Connection Successful!');
-    console.log('   Server is ready to send emails');
-    
-    // Test 2: Send test email
-    console.log('\n📨 Test 2: Sending test email...');
-    const mailOptions = {
-      from: `"StreamLand Test" <${process.env.SMTP_USER}>`,
-      to: process.env.SMTP_USER, // Send to self
-      subject: 'SMTP Test - StreamLand',
+  }
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+      to: [testRecipient],
+      subject: 'Resend Test - StreamLand',
       html: `
-        <h1>✅ SMTP Configuration Successful!</h1>
+        <h1>✅ Resend Configuration Successful!</h1>
         <p>Your email service is working correctly.</p>
         <p><strong>Configuration:</strong></p>
         <ul>
-          <li>Host: ${process.env.SMTP_HOST}</li>
-          <li>Port: ${process.env.SMTP_PORT}</li>
-          <li>User: ${process.env.SMTP_USER}</li>
-          <li>TLS: Enabled</li>
+          <li>Provider: Resend</li>
+          <li>From: ${process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'}</li>
+          <li>API: HTTP (works on Render!)</li>
         </ul>
         <p>You can now deploy to Render with confidence! 🚀</p>
       `,
-    };
-    
-    transporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        console.error('❌ Failed to send test email:', error.message);
-        process.exit(1);
-      } else {
-        console.log('✅ Test email sent successfully!');
-        console.log(`   Message ID: ${info.messageId}`);
-        console.log(`   Response: ${info.response}`);
-        console.log('\n🎉 All tests passed! Ready for Render deployment.');
-        process.exit(0);
-      }
     });
+
+    if (error) {
+      console.error('❌ Failed to send test email:', error);
+      console.error('\n📋 Troubleshooting:');
+      console.error('   1. Check if RESEND_API_KEY is correct');
+      console.error('   2. Verify API key at https://resend.com/api-keys');
+      console.error('   3. Make sure you have emails remaining in your quota');
+      process.exit(1);
+    }
+
+    console.log('✅ Test email sent successfully!');
+    console.log(`   Email ID: ${data?.id}`);
+    console.log('\n🎉 All tests passed! Ready for Render deployment.');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error:', error.message);
+    process.exit(1);
   }
-});
+};
+
+testEmail();

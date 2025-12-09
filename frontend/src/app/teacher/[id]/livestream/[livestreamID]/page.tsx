@@ -55,8 +55,15 @@ export default function BroadcasterPage() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
-  const recordingChunkCountRef = useRef(0); // Track ondataavailable calls
-  const isLiveRef = useRef(false); // Track isLive for debugging
+  const recordingChunkCountRef = useRef(0);
+  const isLiveRef = useRef(false);
+  const recordingStartTimeRef = useRef<number | null>(null);
+  const recordingDurationRef = useRef<number | null>(null);
+  
+  // Canvas recording refs
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const recordingFrameIdRef = useRef<number | null>(null);
 
   const [isLive, setIsLive] = useState(false);
   const [watcherCount, setWatcherCount] = useState(0);
@@ -82,6 +89,8 @@ export default function BroadcasterPage() {
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [saveRecording, setSaveRecording] = useState(false);
   const [isEndingStream, setIsEndingStream] = useState(false);
+  const [recordingPreview, setRecordingPreview] = useState<Blob | null>(null);
+  const [showRecordingPreview, setShowRecordingPreview] = useState(false);
   const [uploadPreview, setUploadPreview] = useState<{
     file: File;
     url: string;
@@ -290,6 +299,159 @@ export default function BroadcasterPage() {
     };
   }, [selectedCameraId]);
 
+  // Setup canvas recording - capture exactly what student sees
+  const setupCanvasRecording = useCallback(() => {
+    try {
+      if (!containerRef.current) {
+        console.warn('[Canvas] Container not available');
+        return null;
+      }
+
+      const width = 1920;
+      const height = 1080;
+
+      // Create hidden canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvasRef.current = canvas;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('No 2D context');
+
+      console.log(`[Canvas] Created ${width}x${height} canvas for recording`);
+
+      // Draw function - captures entire UI every frame
+      let frameCount = 0;
+      const drawFrame = () => {
+        try {
+          frameCount++;
+          if (frameCount % 30 === 0) {
+            console.log(`[Canvas] Drawing frame #${frameCount}...`);
+          }
+          
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(0, 0, width, height);
+
+          // PRIMARY: Draw video element (camera/screen)
+          // When screen sharing, localVideoRef has screen track
+          // When normal, localVideoRef has camera track
+          if (localVideoRef.current && localVideoRef.current.srcObject) {
+            try {
+              const videoWidth = localVideoRef.current.videoWidth || width;
+              const videoHeight = localVideoRef.current.videoHeight || height;
+              
+              if (videoWidth > 0 && videoHeight > 0) {
+                // Calculate aspect ratio fit
+                let drawWidth = width;
+                let drawHeight = height;
+                const videoAspect = videoWidth / videoHeight;
+                const canvasAspect = width / height;
+                
+                if (videoAspect > canvasAspect) {
+                  // Video is wider - fit to width
+                  drawHeight = width / videoAspect;
+                } else {
+                  // Video is taller - fit to height
+                  drawWidth = height * videoAspect;
+                }
+                
+                const x = (width - drawWidth) / 2;
+                const y = (height - drawHeight) / 2;
+                
+                ctx.drawImage(localVideoRef.current, x, y, drawWidth, drawHeight);
+              }
+            } catch (e) {
+              // Silently handle canvas drawing error
+            }
+          }
+
+          // SECONDARY: If document viewer active - overlay it on right side
+          if (showDocumentViewer && selectedDocument) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+            ctx.fillRect(width * 0.5, 0, width * 0.5, height);
+
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 24px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(selectedDocument.name, width * 0.52, 40);
+            
+            ctx.fillStyle = '#666';
+            ctx.font = '14px Arial';
+            ctx.fillText('Document Shared', width * 0.52, 70);
+          }
+
+          // FALLBACK: If camera off - show avatar
+          if (!isCameraOn && !isScreenSharing) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.fillStyle = '#4a90e2';
+            ctx.beginPath();
+            ctx.arc(width / 2, height / 2, 100, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 80px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('T', width / 2, height / 2);
+            
+            // Show teacher name initials below avatar
+            ctx.font = 'bold 24px Arial';
+            ctx.fillStyle = '#fff';
+            ctx.fillText('Teacher', width / 2, height / 2 + 150);
+          }
+
+          recordingFrameIdRef.current = requestAnimationFrame(drawFrame);
+        } catch (e) {
+          console.error('[Canvas] Draw error:', e);
+        }
+      };
+
+      // Start drawing
+      recordingFrameIdRef.current = requestAnimationFrame(drawFrame);
+
+      // Get canvas stream - 30 FPS video + audio from mic
+      const canvasStream = canvas.captureStream(30);
+      console.log(`[Canvas] Canvas stream created with ${canvasStream.getVideoTracks().length} video tracks`);
+      
+      // Check video track state
+      const videoTrack = canvasStream.getVideoTracks()[0];
+      if (videoTrack) {
+        console.log(`[Canvas] Video track: enabled=${videoTrack.enabled}, readyState=${videoTrack.readyState}, muted=${videoTrack.muted}`);
+      } else {
+        console.error('[Canvas] ERROR: No video track in canvas stream!');
+      }
+
+      // Add audio from microphone
+      if (localStreamRef.current) {
+        const audioTracks = localStreamRef.current.getAudioTracks();
+        console.log(`[Canvas] Found ${audioTracks.length} audio tracks to add`);
+        audioTracks.forEach(track => {
+          canvasStream.addTrack(track);
+          console.log('[Canvas] Added audio track');
+        });
+      }
+
+      console.log(`[Canvas] Canvas stream ready: ${canvasStream.getTracks().length} total tracks`);
+      return canvasStream;
+    } catch (error) {
+      console.error('[Canvas] Setup failed:', error);
+      return null;
+    }
+  }, [isCameraOn, showDocumentViewer, selectedDocument, isScreenSharing]);
+
+  const stopCanvasRecording = useCallback(() => {
+    if (recordingFrameIdRef.current) {
+      cancelAnimationFrame(recordingFrameIdRef.current);
+      recordingFrameIdRef.current = null;
+    }
+    if (canvasRef.current) {
+      canvasRef.current = null;
+    }
+  }, []);
+
   const switchCamera = async (cameraId: string) => {
     try {
       if (!localStreamRef.current) return;
@@ -420,24 +582,18 @@ export default function BroadcasterPage() {
       
       const startData = await startResponse.json().catch(() => ({}));
 
-      // Step 4: Start recording in browser
+      // Step 4: Start recording - capture what students see
       try {
-        // Verify stream has both audio and video tracks
-        const videoTracks = stream.getVideoTracks();
-        const audioTracks = stream.getAudioTracks();
+        console.log(`[Recording] Setting up canvas-based recording...`);
         
-        console.log(`[Recorder] Stream diagnostics: ${videoTracks.length} video track(s), ${audioTracks.length} audio track(s)`);
-        if (videoTracks.length === 0) {
-          throw new Error('No video track available for recording');
+        // Setup canvas to capture entire UI (video + document + avatar)
+        const canvasStream = setupCanvasRecording();
+        
+        if (!canvasStream) {
+          throw new Error('Failed to setup canvas recording');
         }
-        
-        // Log track states
-        videoTracks.forEach((track, idx) => {
-          console.log(`[Recorder] Video track ${idx}: enabled=${track.enabled}, readyState=${track.readyState}`);
-        });
-        audioTracks.forEach((track, idx) => {
-          console.log(`[Recorder] Audio track ${idx}: enabled=${track.enabled}, readyState=${track.readyState}`);
-        });
+
+        console.log(`[Recording] Canvas stream ready with ${canvasStream.getTracks().length} tracks`);
         
         // Find supported mimeType for MediaRecorder
         let mimeType = 'video/webm;codecs=vp8,opus';
@@ -452,25 +608,23 @@ export default function BroadcasterPage() {
         for (const type of mimeTypes) {
           if (MediaRecorder.isTypeSupported(type)) {
             mimeType = type;
-            console.log(`[Recorder] Using supported mimeType: ${mimeType}`);
+            console.log(`[Recorder] Using mimeType: ${mimeType}`);
             break;
           }
         }
 
-        const mediaRecorder = new MediaRecorder(stream, {
+        const mediaRecorder = new MediaRecorder(canvasStream, {
           mimeType,
-          videoBitsPerSecond: 2500000, // 2.5 Mbps
-          audioBitsPerSecond: 128000, // 128 kbps for audio
+          videoBitsPerSecond: 2500000,
+          audioBitsPerSecond: 128000,
         });
         
-        console.log(`[Recorder] MediaRecorder created: state=${mediaRecorder.state}, mimeType=${mediaRecorder.mimeType}`);
+        console.log(`[Recorder] Created: ${mediaRecorder.mimeType}`);
 
         mediaRecorder.ondataavailable = async (event) => {
           if (event.data && event.data.size > 0) {
             recordingChunkCountRef.current++;
-            const sizeKB = (event.data.size / 1024).toFixed(2);
-            const totalChunks = recordedChunksRef.current.length + 1;
-            console.log(`[Recording #${recordingChunkCountRef.current}] ondataavailable: ${sizeKB} KB, total chunks: ${totalChunks}`);
+            console.log(`[Recording] Chunk #${recordingChunkCountRef.current}: ${(event.data.size / 1024).toFixed(2)} KB`);
             recordedChunksRef.current.push(event.data);
             
             // Try to upload chunk in real-time to server
@@ -512,22 +666,22 @@ export default function BroadcasterPage() {
               // Chunk still saved locally in recordedChunksRef
               console.warn('Error processing chunk:', error);
             }
+          } else {
+            console.warn('[Recording] ondataavailable fired but event.data is empty or 0 bytes');
           }
         };
 
         mediaRecorder.onerror = (event) => {
-          console.error(`[Recording ERROR] ${event.error?.name || 'Unknown'}: ${event.error?.message || 'No message'}`);
+          console.error(`[Recording ERROR] ${event.error}`);
         };
 
         // Start recording with 5-second chunks
-        console.log(`[Recording] About to call .start(5000)...`);
-        recordingChunkCountRef.current = 0; // Reset counter
+        recordingChunkCountRef.current = 0;
+        recordingStartTimeRef.current = Date.now();
         mediaRecorder.start(5000);
-        console.log(`[Recording] After .start() call - state: ${mediaRecorder.state}`);
         mediaRecorderRef.current = mediaRecorder;
         
-        console.log(`[Recording] Started! State: ${mediaRecorder.state}, Emitting chunks every 5s`);
-        console.log(`[Recording] Stream has ${videoTracks.length} video tracks (all enabled)`);
+        console.log(`[Recording] Started - recording what students see`);
       } catch (error) {
         console.warn('MediaRecorder initialization error:', error);
       }
@@ -613,232 +767,295 @@ export default function BroadcasterPage() {
   }
 
   async function confirmEndStream() {
-  setIsEndingStream(true);
+    setIsEndingStream(true);
 
-  try {
-    // Step 1: Stop media recorder
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      console.log(`[Recording Stop] Stopping recorder, current state: ${mediaRecorderRef.current.state}`);
-      console.log(`[Recording Stop] Chunks in buffer before stop: ${recordedChunksRef.current.length}`);
-      console.log(`[Recording Stop] ondataavailable fired ${recordingChunkCountRef.current} times`);
+    try {
+      // Step 0: Stop canvas recording
+      stopCanvasRecording();
       
-      await new Promise<void>((resolve) => {
-        mediaRecorderRef.current!.onstop = () => {
-          console.log(`[Recording Stop] Final chunks after stop: ${recordedChunksRef.current.length}`);
-          console.log(`[Recording Stop] Total ondataavailable calls: ${recordingChunkCountRef.current}`);
-          resolve();
-        };
-        mediaRecorderRef.current!.stop();
-      });
-    } else {
-      console.warn(`[Recording Stop] Recorder not active or already stopped. State: ${mediaRecorderRef.current?.state || 'null'}`);
-    }
-
-    // Step 2: Get auth token
-    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-    if (!token) {
-      throw new Error('Authentication required');
-    }
-
-    // Step 3: Upload recording if enabled
-    console.log(`[Upload] Checking: saveRecording=${saveRecording}, chunks=${recordedChunksRef.current.length}, ondataavailable calls=${recordingChunkCountRef.current}`);
-    
-    if (saveRecording && recordedChunksRef.current.length > 0) {
-      try {
-        // Determine the mimeType that was used for recording
-        let recordingMimeType = 'video/webm';
-        if (mediaRecorderRef.current) {
-          recordingMimeType = mediaRecorderRef.current.mimeType || 'video/webm';
-          console.log(`Recording was captured with mimeType: ${recordingMimeType}`);
-        }
+      // Step 1: Stop media recorder
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        console.log(`[Recording] Stopping recorder with ${recordedChunksRef.current.length} chunks`);
         
-        // Calculate approximate duration based on recording time
-        // Each chunk was emitted every 5 seconds, plus final chunk on stop
-        const approximateDuration = recordedChunksRef.current.length * 5; // in seconds
-        console.log(`[Upload] Approximate duration from chunks: ${approximateDuration}s (${recordedChunksRef.current.length} chunks × 5s)`);
-        
-        const recordingBlob = new Blob(recordedChunksRef.current, { type: recordingMimeType });
-        const recordingSizeInMB = (recordingBlob.size / 1024 / 1024).toFixed(2);
-        const recordingSizeBytes = recordingBlob.size;
-        
-        console.log(`[Upload] Blob created: ${recordingSizeInMB} MB (${recordingSizeBytes} bytes)`);
-        console.log(`[Upload] Chunks count: ${recordedChunksRef.current.length}`);
-        
-        // Debug: Log first and last chunk size
-        if (recordedChunksRef.current.length > 0) {
-          console.log(`[Upload] First chunk: ${(recordedChunksRef.current[0].size / 1024).toFixed(2)} KB`);
-          console.log(`[Upload] Last chunk: ${(recordedChunksRef.current[recordedChunksRef.current.length - 1].size / 1024).toFixed(2)} KB`);
-        }
-        
-        if (recordingSizeBytes === 0) {
-          console.error(`[Upload CRITICAL] Blob is EMPTY despite ${recordedChunksRef.current.length} chunks!`);
-          throw new Error('Recording blob is empty - MediaRecorder did not capture any data');
-        }
-        
-        console.log(`[Upload] Preparing to upload recording: ${recordingSizeInMB} MB, ${recordedChunksRef.current.length} chunks, mimeType=${recordingMimeType}`);
-
-        // For large files, upload in chunks to avoid payload size limits
-        if (recordingBlob.size > 50 * 1024 * 1024) {
-          // File > 50MB: Upload in parts
-          const chunkSize = 10 * 1024 * 1024; // 10MB per chunk
-          const numChunks = Math.ceil(recordingBlob.size / chunkSize);
-          
-          for (let i = 0; i < numChunks; i++) {
-            const start = i * chunkSize;
-            const end = Math.min(start + chunkSize, recordingBlob.size);
-            const chunkBlob = recordingBlob.slice(start, end);
-            
-            const chunkBase64 = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-              reader.readAsDataURL(chunkBlob);
-            });
-            
-            const uploadResponse = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording-chunk`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-              },
-              body: JSON.stringify({ 
-                chunk: chunkBase64,
-                chunkIndex: i,
-                totalChunks: numChunks,
-                chunkSize: end - start,
-                duration: approximateDuration, // Add duration for backend processing
-              }),
-            });
-
-            if (!uploadResponse.ok) {
-              const errorData = await uploadResponse.json().catch(() => ({ message: 'Upload failed' }));
-              console.error(`Failed to upload recording chunk ${i}:`, errorData);
-              // Continue with next chunk
-            } else {
-              console.log(`Uploaded chunk ${i + 1}/${numChunks}`);
-            }
-          }
-        } else {
-          // File <= 50MB: Send as single upload
-          const videoBase64 = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64 = (reader.result as string).split(',')[1];
-              resolve(base64);
-            };
-            reader.readAsDataURL(recordingBlob);
-          });
-
-          console.log(`[Upload] Base64 length: ${videoBase64.length}, starts with: ${videoBase64.substring(0, 50)}`);
-          console.log(`[Upload] Base64 validation: length%4=${videoBase64.length % 4}`);
-
-          const uploadResponse = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify({ 
-              video: videoBase64,
-              size: recordingBlob.size,
-              chunkCount: recordedChunksRef.current.length,
-              duration: approximateDuration, // Add duration in seconds
-            }),
-          });
-
-          if (!uploadResponse.ok) {
-            const errorData = await uploadResponse.json().catch(() => ({ message: 'Upload failed' }));
-            console.error('Failed to upload recording:', errorData);
-          } else {
-            const result = await uploadResponse.json();
-            console.log(`Recording uploaded successfully: ${result.url}`);
-          }
-        }
-      } catch (error) {
-        console.error('Error uploading recording:', error);
-        alert('Warning: Recording may not have been saved properly. Please check your stream later.');
+        await new Promise<void>((resolve) => {
+          mediaRecorderRef.current!.onstop = () => {
+            console.log(`[Recording] Stopped - total chunks: ${recordedChunksRef.current.length}`);
+            resolve();
+          };
+          mediaRecorderRef.current!.stop();
+        });
       }
-    }
 
-    // Step 4: Update viewer count
-    socket.emit('updateCurrentViewers', { livestreamID, currentViewers: watcherCount });
-
-    // Step 5: End livestream in database
-    const response = await fetch(`${API_URL}/livestream/${livestreamID}/end`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({ saveRecording }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-      throw new Error(errorData.message || 'Failed to end livestream');
-    }
-
-    await response.json();
-
-    // Step 6: Notify all viewers via socket
-    socket.emit('stream-ended', { livestreamID, saveRecording });
-
-    // Step 7: Close all WebRTC peer connections
-    Object.values(peersRef.current).forEach((pc) => {
-      try {
-        pc.close();
-      } catch (error) {
-        // Silently handle peer connection close error
+      // Step 2: Check if should show preview
+      console.log(`[Upload] Checking: saveRecording=${saveRecording}, chunks=${recordedChunksRef.current.length}`);
+      
+      // Log chunk details for debugging
+      if (recordedChunksRef.current.length > 0) {
+        let totalSize = 0;
+        recordedChunksRef.current.forEach((chunk, i) => {
+          console.log(`[Upload] Chunk ${i}: ${chunk.size} bytes, type: ${chunk.type}`);
+          totalSize += chunk.size;
+        });
+        console.log(`[Upload] Total chunks size: ${(totalSize / 1024 / 1024).toFixed(2)} MB`);
       }
-    });
-    peersRef.current = {};
-
-    // Step 8: Stop local media stream
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
+      
+      if (saveRecording && recordedChunksRef.current.length > 0) {
         try {
-          track.stop();
+          // Determine the mimeType that was used for recording
+          let recordingMimeType = 'video/webm';
+          if (mediaRecorderRef.current) {
+            recordingMimeType = mediaRecorderRef.current.mimeType || 'video/webm';
+            console.log(`Recording was captured with mimeType: ${recordingMimeType}`);
+          }
+          
+          // Calculate duration based on actual chunks recorded
+          // MediaRecorder.start(5000) = 5 second chunks, so each chunk = 5 seconds
+          let durationInSeconds = 0;
+          
+          // Primary: Use chunk count (most accurate)
+          // Each chunk interval is 5000ms, but last chunk may be partial
+          // Estimate: (chunks - 1) * 5 + partial last chunk
+          if (recordedChunksRef.current.length > 0) {
+            durationInSeconds = recordedChunksRef.current.length * 5;
+            console.log(`[Upload] Duration (from chunks): ${durationInSeconds}s (${recordedChunksRef.current.length} chunks × 5s)`);
+          } else {
+            // Fallback: use timestamps if no chunks
+            durationInSeconds = recordingStartTimeRef.current 
+              ? Math.floor((Date.now() - recordingStartTimeRef.current) / 1000)
+              : 0;
+            console.log(`[Upload] Duration (fallback from timestamp): ${durationInSeconds}s`);
+          }
+          
+          // Ensure minimum 1 second for safety
+          if (durationInSeconds < 1) {
+            durationInSeconds = 1;
+          }
+          
+          // Store duration so it can be used later in confirmRecordingUpload
+          recordingDurationRef.current = durationInSeconds;
+          console.log(`[DEBUG] Stored duration in ref: ${recordingDurationRef.current}s`);
+          
+          const recordingBlob = new Blob(recordedChunksRef.current, { type: recordingMimeType });
+          const recordingSizeInMB = (recordingBlob.size / 1024 / 1024).toFixed(2);
+          console.log(`[Upload] Recording blob: ${recordingSizeInMB} MB, ${recordedChunksRef.current.length} chunks`);
+          
+          if (recordingBlob.size === 0) {
+            console.error('[Upload] ERROR: Recording blob is empty (0 bytes)! This means no chunks were recorded.');
+            console.error('[Upload] Check console for canvas drawing and MediaRecorder ondataavailable events.');
+          }
+          
+          // Show preview - BEFORE uploading
+          console.log(`[Preview] Showing recording preview to user...`);
+          setRecordingPreview(recordingBlob);
+          setShowRecordingPreview(true);
+          
+          // Stop here - wait for user to confirm or cancel in preview modal
+          return;
         } catch (error) {
-          // Silently handle track stop error
+          console.error('Error preparing recording:', error);
+          alert('Error preparing recording preview. Please try again.');
+          setIsEndingStream(false);
+          return;
+        }
+      }
+
+      // If not saving recording, proceed to finish ending stream
+      await finishEndingStream();
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to end livestream';
+      alert(`Error: ${errorMessage}. Please try again.`);
+      setIsEndingStream(false);
+    }
+  }
+
+  // Handle recording preview - confirm or cancel upload
+  const confirmRecordingUpload = async () => {
+    if (!recordingPreview) return;
+
+    setShowRecordingPreview(false);
+    console.log('[Upload] User confirmed - uploading recording...');
+
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      if (!token) throw new Error('No auth token');
+
+      // Calculate duration
+      let durationInSeconds = 0;
+      console.log(`[DEBUG] confirmRecordingUpload - recordingDurationRef.current = ${recordingDurationRef.current}`);
+      if (recordingDurationRef.current && recordingDurationRef.current > 0) {
+        durationInSeconds = recordingDurationRef.current;
+        console.log(`[DEBUG] Using stored duration: ${durationInSeconds}s`);
+      } else if (recordingStartTimeRef.current && recordingStartTimeRef.current > 0) {
+        const recordingEndTime = Date.now();
+        durationInSeconds = Math.floor((recordingEndTime - recordingStartTimeRef.current) / 1000);
+        console.log(`[DEBUG] Duration from timestamps (fallback): ${durationInSeconds}s`);
+      } else {
+        durationInSeconds = recordedChunksRef.current.length * 5;
+        console.log(`[DEBUG] Duration from chunks (fallback): ${durationInSeconds}s (${recordedChunksRef.current.length} chunks)`);
+      }
+      console.log(`[DEBUG] Final durationInSeconds to send: ${durationInSeconds}s`);
+
+      // Determine mimeType
+      let recordingMimeType = 'video/webm';
+      if (mediaRecorderRef.current) {
+        recordingMimeType = mediaRecorderRef.current.mimeType || 'video/webm';
+      }
+
+      // Upload recording blob - always use single upload (backend doesn't support chunk assembly yet)
+      console.log('[Upload] Uploading recording...');
+      const videoBase64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const dataUrl = reader.result as string;
+          // Find the actual base64 data after "base64,"
+          const base64Index = dataUrl.indexOf('base64,');
+          if (base64Index === -1) {
+            console.error('[Upload] ERROR: Invalid data URL format - no base64 marker found');
+            resolve('');
+            return;
+          }
+          const base64 = dataUrl.substring(base64Index + 7); // 7 = length of "base64,"
+          console.log(`[Upload] Data URL prefix: ${dataUrl.substring(0, base64Index + 7)}`);
+          console.log(`[Upload] Base64 created: ${base64.substring(0, 100)}... (length: ${base64.length})`);
+          if (!base64 || base64.length === 0) {
+            console.error('[Upload] ERROR: Base64 is empty! Recording blob likely had no data.');
+          }
+          resolve(base64);
+        };
+        reader.readAsDataURL(recordingPreview);
+      });
+
+      console.log(`[Upload] File size: ${(recordingPreview.size / 1024 / 1024).toFixed(2)} MB`);
+      if (recordingPreview.size === 0) {
+        console.error('[Upload] ERROR: recordingPreview.size is 0 bytes!');
+        throw new Error('Recording file is empty - no video data was captured');
+      }
+      
+      console.log(`[Upload] Sending to backend: duration: ${durationInSeconds}s`);
+      console.log(`[Upload] API URL: ${API_URL}/livestream/${livestreamID}/upload-recording`);
+      console.log(`[Upload] Token available: ${!!token}`);
+      console.log(`[Upload] Body size: ${JSON.stringify({
+        video: videoBase64,
+        size: recordingPreview.size,
+        duration: durationInSeconds,
+      }).length} bytes`);
+
+      const uploadResp = await fetch(`${API_URL}/livestream/${livestreamID}/upload-recording`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          video: videoBase64,
+          size: recordingPreview.size,
+          duration: durationInSeconds,
+        }),
+      });
+
+      console.log(`[Upload] Response status: ${uploadResp.status}`);
+      if (!uploadResp.ok) {
+        const err = await uploadResp.json().catch(() => ({}));
+        console.error(`[Upload] Error response:`, err);
+        throw new Error(err.message || `Upload failed with status ${uploadResp.status}`);
+      }
+
+      const result = await uploadResp.json();
+      console.log('[Upload] Success:', result.url);
+      alert('Recording uploaded successfully!');
+
+      // Now finish ending stream
+      await finishEndingStream();
+    } catch (error) {
+      console.error('[Upload] Error:', error);
+      alert('Failed to upload recording: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      setIsEndingStream(false);
+    }
+  };
+
+  const cancelRecordingUpload = async () => {
+    console.log('[Upload] User cancelled - discarding recording');
+    setShowRecordingPreview(false);
+    setRecordingPreview(null);
+    await finishEndingStream();
+  };
+
+  const finishEndingStream = async () => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+
+      // Update viewer count
+      socket.emit('updateCurrentViewers', { livestreamID, currentViewers: watcherCount });
+
+      // End livestream in database
+      const response = await fetch(`${API_URL}/livestream/${livestreamID}/end`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ saveRecording }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to end livestream');
+      }
+
+      // Close all peer connections
+      Object.values(peersRef.current).forEach((pc) => {
+        try {
+          pc.close();
+        } catch (error) {
+          // ignore
         }
       });
-      localStreamRef.current = null;
+      peersRef.current = {};
+
+      // Stop local stream
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => {
+          try {
+            track.stop();
+          } catch (error) {
+            // ignore
+          }
+        });
+        localStreamRef.current = null;
+      }
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null;
+      }
+
+      // Reset states
+      recordedChunksRef.current = [];
+      mediaRecorderRef.current = null;
+      recordingStartTimeRef.current = null;
+      recordingDurationRef.current = null;
+      setIsLive(false);
+      setWatcherCount(0);
+      setShowEndConfirm(false);
+      setRecordingPreview(null);
+      setShowRecordingPreview(false);
+
+      if (viewerBroadcastIntervalRef.current) {
+        clearInterval(viewerBroadcastIntervalRef.current);
+        viewerBroadcastIntervalRef.current = null;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+      router.push(`/teacher/${teacherID}`);
+    } catch (error) {
+      console.error('[End Stream] Error:', error);
+      alert('Error ending stream: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      setIsEndingStream(false);
     }
-
-    // Step 9: Clear video element
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null;
-    }
-
-    // Step 10: Reset states
-    recordedChunksRef.current = [];
-    mediaRecorderRef.current = null;
-    setIsLive(false);
-    setWatcherCount(0);
-    setShowEndConfirm(false);
-    
-    // Clear viewer broadcast interval
-    if (viewerBroadcastIntervalRef.current) {
-      clearInterval(viewerBroadcastIntervalRef.current);
-      viewerBroadcastIntervalRef.current = null;
-    }
-
-    // Step 11: Wait a bit for cleanup to complete
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Step 12: Redirect using router.push (better for Next.js)
-    router.push(`/teacher/${teacherID}`);
-
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Failed to end livestream';
-    alert(`Error: ${errorMessage}. Please try again.`);
-    setIsEndingStream(false);
-  }
-}
+  };
 
   async function handleWatcher(data: { id: string } | string) {
-    const watcherId = typeof data === 'string' ? data : data.id;
-    
-    if (peersRef.current[watcherId]) {
+    const watcherId = typeof data === 'string' ? data : data.id;    if (peersRef.current[watcherId]) {
       return;
     }
 
@@ -1116,9 +1333,11 @@ export default function BroadcasterPage() {
         });
 
         const screenTrack = screenStream.getVideoTracks()[0];
+        console.log(`[ScreenShare] Got screen video track: ${screenTrack.readyState}`);
         
         const oldVideoTrack = localStreamRef.current?.getVideoTracks()[0];
         if (oldVideoTrack && localStreamRef.current) {
+          console.log(`[ScreenShare] Replacing camera track with screen track`);
           localStreamRef.current.removeTrack(oldVideoTrack);
           localStreamRef.current.addTrack(screenTrack);
           
@@ -1126,45 +1345,54 @@ export default function BroadcasterPage() {
             localVideoRef.current.srcObject = localStreamRef.current;
           }
 
+          // Update peer connections with screen video
           Object.values(peersRef.current).forEach((pc) => {
             const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
             if (sender) {
               sender.replaceTrack(screenTrack);
+              console.log(`[ScreenShare] Updated peer connection with screen track`);
             }
           });
 
           oldVideoTrack.stop();
           
-          // Restart recording with new screen share stream
-          if (localStreamRef.current) {
-            restartMediaRecorder(localStreamRef.current);
+          // Verify MediaRecorder is recording with screen
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            console.log(`[ScreenShare] MediaRecorder is already recording, stream now has screen`);
+            console.log(`[ScreenShare] Recording stream tracks: video=${localStreamRef.current.getVideoTracks().length}, audio=${localStreamRef.current.getAudioTracks().length}`);
           }
+          
+          setIsScreenSharing(true);
         }
 
         screenTrack.onended = async () => {
+          console.log(`[ScreenShare] Screen share ended by user`);
           await stopScreenShare();
         };
 
-        setIsScreenSharing(true);
       } else {
         await stopScreenShare();
       }
     } catch (error) {
-      // Silently handle screen share error
+      console.error(`[ScreenShare] Error:`, error);
     }
   }
 
   async function stopScreenShare() {
     try {
+      console.log(`[ScreenShare] Stopping screen share, switching back to camera`);
+      
       const cameraStream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: false,
       });
 
       const cameraTrack = cameraStream.getVideoTracks()[0];
+      console.log(`[ScreenShare] Got camera video track: ${cameraTrack.readyState}`);
       
       const oldScreenTrack = localStreamRef.current?.getVideoTracks()[0];
       if (oldScreenTrack && localStreamRef.current) {
+        console.log(`[ScreenShare] Removing screen track, adding camera track`);
         localStreamRef.current.removeTrack(oldScreenTrack);
         localStreamRef.current.addTrack(cameraTrack);
         
@@ -1172,25 +1400,29 @@ export default function BroadcasterPage() {
           localVideoRef.current.srcObject = localStreamRef.current;
         }
 
+        // Update peer connections with camera video
         Object.values(peersRef.current).forEach((pc) => {
           const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
           if (sender) {
             sender.replaceTrack(cameraTrack);
+            console.log(`[ScreenShare] Updated peer connection back to camera`);
           }
         });
 
         oldScreenTrack.stop();
         
-        // Restart recording with new camera stream
-        if (localStreamRef.current) {
-          restartMediaRecorder(localStreamRef.current);
+        // Verify MediaRecorder is still recording with camera
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          console.log(`[ScreenShare] MediaRecorder is already recording, stream now has camera`);
+          console.log(`[ScreenShare] Recording stream tracks: video=${localStreamRef.current.getVideoTracks().length}, audio=${localStreamRef.current.getAudioTracks().length}`);
         }
       }
 
       setIsScreenSharing(false);
       setIsCameraOn(true);
+      console.log(`[ScreenShare] Screen share stopped`);
     } catch (error) {
-      // Silently handle stop screen share error
+      console.error(`[ScreenShare] Error stopping screen share:`, error);
     }
   }
 
@@ -1427,25 +1659,37 @@ export default function BroadcasterPage() {
         </div>
       )}
 
-      <div className={`absolute inset-0 transition-all duration-300 ${showDocumentViewer ? 'w-1/2' : 'w-full'}`}>
+      <div ref={containerRef} className={`absolute inset-0 transition-all duration-300 ${showDocumentViewer ? 'w-1/2' : 'w-full'}`}>
         {!livestreamEnded && (
-          <video
-            ref={localVideoRef}
-            autoPlay
-            muted
-            playsInline
-            onLoadedMetadata={() => {
-              if (localVideoRef.current) {
-                localVideoRef.current.play().catch(() => {
-                  // Silently handle video play error
-                });
-              }
-            }}
-            onError={() => {
-              // Silently handle video element error
-            }}
-            className="w-full h-full object-cover bg-black"
-          />
+          <>
+            <video
+              ref={localVideoRef}
+              autoPlay
+              muted
+              playsInline
+              onLoadedMetadata={() => {
+                if (localVideoRef.current) {
+                  localVideoRef.current.play().catch(() => {
+                    // Silently handle video play error
+                  });
+                }
+              }}
+              onError={() => {
+                // Silently handle video element error
+              }}
+              className={`w-full h-full object-cover bg-black ${!isCameraOn && !isScreenSharing ? 'hidden' : ''}`}
+            />
+            {/* Avatar overlay when camera is off */}
+            {!isCameraOn && !isScreenSharing && (
+              <div className="w-full h-full bg-gradient-to-b from-gray-800 to-gray-900 flex flex-col items-center justify-center">
+                <div className="w-32 h-32 rounded-full bg-blue-600 flex items-center justify-center mb-4 shadow-lg">
+                  <span className="text-white text-5xl font-bold">T</span>
+                </div>
+                <p className="text-white text-xl font-semibold">Camera Off</p>
+                <p className="text-gray-400 text-sm mt-2">Your camera is currently disabled</p>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -1642,6 +1886,84 @@ export default function BroadcasterPage() {
                   ) : (
                     'End Livestream'
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recording Preview Modal */}
+      {showRecordingPreview && recordingPreview && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Film className="w-6 h-6 text-blue-600" />
+                  <h2 className="text-2xl font-bold text-gray-900">Recording Preview</h2>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowRecordingPreview(false);
+                    setRecordingPreview(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {/* Video Player */}
+              <div className="mb-6 bg-black rounded-lg overflow-hidden">
+                <video
+                  src={URL.createObjectURL(recordingPreview)}
+                  controls
+                  autoPlay
+                  className="w-full h-auto max-h-96"
+                />
+              </div>
+
+              {/* Recording Info */}
+              <div className="bg-gray-50 rounded-lg p-4 mb-6 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-gray-700 font-medium">File Size:</span>
+                  <span className="text-gray-900">{(recordingPreview.size / 1024 / 1024).toFixed(2)} MB</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700 font-medium">Format:</span>
+                  <span className="text-gray-900">WebM (VP8 + Opus)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700 font-medium">Chunks:</span>
+                  <span className="text-gray-900">{recordedChunksRef.current.length}</span>
+                </div>
+              </div>
+
+              {/* Info Message */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <p className="text-sm text-blue-800">
+                  ℹ️ This preview shows exactly what students saw during the livestream. 
+                  If it looks correct, click <strong>Upload & Save</strong> to save it to your stream library.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => cancelRecordingUpload()}
+                  className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium"
+                >
+                  Discard Recording
+                </button>
+                <button
+                  onClick={() => confirmRecordingUpload()}
+                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center justify-center gap-2"
+                >
+                  <Upload size={18} />
+                  Upload & Save
                 </button>
               </div>
             </div>

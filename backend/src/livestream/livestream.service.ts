@@ -410,7 +410,9 @@ export class LivestreamService {
 
   async uploadRecording(livestreamId: string, videoBase64: string, duration?: number) {
     try {
-      console.log(`[Service] uploadRecording: livestreamId=${livestreamId}, base64Length=${videoBase64?.length || 0}, duration=${duration}s`);
+      console.log(`[Service] uploadRecording START: livestreamId=${livestreamId}`);
+      console.log(`[Service] videoBase64 length: ${videoBase64?.length || 0} chars`);
+      console.log(`[Service] duration: ${duration}s`);
       
       if (!videoBase64 || videoBase64.length === 0) {
         throw new Error('No video data received - base64 is empty');

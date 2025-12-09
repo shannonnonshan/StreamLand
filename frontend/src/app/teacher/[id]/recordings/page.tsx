@@ -16,6 +16,7 @@ export default function RecordingsPage() {
   const [customTo, setCustomTo] = useState("2025-10");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [recordings, setRecordings] = useState<LiveStream[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,9 +54,14 @@ export default function RecordingsPage() {
     ? months.filter(m => m >= customFrom && m <= customTo)
     : months.slice(0, 6);
 
-  // Filter recordings by search query
+  // Filter recordings by search query and sort
   const currentMonthRecordings = (recordingsByMonth[selectedMonth] || [])
-    .filter(r => r.title.toLowerCase().includes(searchQuery.toLowerCase()));
+    .filter(r => r.title.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      const dateA = new Date(a.endedAt || a.createdAt).getTime();
+      const dateB = new Date(b.endedAt || b.createdAt).getTime();
+      return sortOrder === "newest" ? dateB - dateA : dateA - dateB;
+    });
 
   if (isLoading) {
     return (
@@ -139,6 +145,16 @@ export default function RecordingsPage() {
                 </select>
               </div>
             )}
+
+            {/* Sort Options */}
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as "newest" | "oldest")}
+              className="border border-gray-200 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900 bg-white"
+            >
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+            </select>
 
             {/* View Mode Toggle */}
             <div className="flex border border-gray-200 rounded-lg overflow-hidden">

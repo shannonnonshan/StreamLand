@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { raleway } from "@/utils/front";
 import pastelize from "@/utils/colorise";
@@ -33,13 +33,14 @@ interface CalendarEvent {
 
 export default function MonthCalendarPage({
   params,
-}: { params?: { id?: string; year?: string; month?: string } }) {
+}: { params: Promise<{ id?: string; year?: string; month?: string }> }) {
+  const { id, year: yearParam, month: monthParam } = use(params);
   const today = new Date();
   const router = useRouter();
 
-  const teacherId = params?.id ?? "1";
-  const initialYear = params?.year ? Number(params.year) : today.getFullYear();
-  const initialMonth = params?.month ? Number(params.month) - 1 : today.getMonth();
+  const teacherId = id ?? "1";
+  const initialYear = yearParam ? Number(yearParam) : today.getFullYear();
+  const initialMonth = monthParam ? Number(monthParam) - 1 : today.getMonth();
 
   const [month, setMonth] = useState<number>(initialMonth);
   const [year, setYear] = useState<number>(initialYear);

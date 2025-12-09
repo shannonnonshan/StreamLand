@@ -218,6 +218,27 @@ export class LivestreamController {
     return await this.livestreamService.endLivestream(id, body.saveRecording);
   }
 
+  @Patch(':id')
+  @UseGuards(JwtAuthGuard)
+  async updateLivestream(
+    @Param('id') id: string,
+    @Body() body: { description?: string },
+    @Request() req: any,
+  ) {
+    // Get livestream to verify ownership
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    
+    if (!livestream) {
+      throw new NotFoundException('Livestream not found');
+    }
+
+    if (livestream.teacherId !== req.user.sub && req.user.role !== 'ADMIN') {
+      throw new UnauthorizedException('You can only update your own livestreams');
+    }
+
+    return await this.livestreamService.updateLivestream(id, body);
+  }
+
   @Patch(':id/update-viewers')
   @UseGuards(JwtAuthGuard)
   async updateViewers(
@@ -239,11 +260,59 @@ export class LivestreamController {
     return await this.livestreamService.updateTotalViewers(id, body.totalViewers);
   }
 
+  @Post(':id/upload-chunk')
+  @UseGuards(JwtAuthGuard)
+  async uploadChunk(
+    @Param('id') id: string,
+    @Body() body: { chunk: string; chunkIndex: number; totalSize: number },
+    @Request() req: any,
+  ) {
+    // Get livestream to verify ownership
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    
+    if (!livestream) {
+      throw new UnauthorizedException('Livestream not found');
+    }
+
+    if (livestream.teacherId !== req.user.sub && req.user.role !== 'ADMIN') {
+      throw new UnauthorizedException('You can only upload chunks for your own livestreams');
+    }
+
+    // Save chunk for later assembly
+    return await this.livestreamService.saveRecordingChunk(id, body.chunk, body.chunkIndex, body.totalSize);
+  }
+
   @Post(':id/upload-recording')
   @UseGuards(JwtAuthGuard)
   async uploadRecording(
     @Param('id') id: string,
-    @Body() body: { video: string },
+    @Body() body: { video: string; duration?: number },
+    @Request() req: any,
+  ) {
+    console.log(`[Backend] uploadRecording called: livestreamId=${id}, videoSize=${body.video?.length || 0}, duration=${body.duration}s`);
+    
+    // Get livestream to verify ownership
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    
+    if (!livestream) {
+      throw new UnauthorizedException('Livestream not found');
+    }
+
+    if (livestream.teacherId !== req.user.sub && req.user.role !== 'ADMIN') {
+      throw new UnauthorizedException('You can only upload recordings for your own livestreams');
+    }
+
+    console.log(`[Backend] uploadRecording verified - calling service...`);
+    const result = await this.livestreamService.uploadRecording(id, body.video, body.duration);
+    console.log(`[Backend] uploadRecording result: ${JSON.stringify(result)}`);
+    return result;
+  }
+
+  @Post(':id/upload-recording-chunk')
+  @UseGuards(JwtAuthGuard)
+  async uploadRecordingChunk(
+    @Param('id') id: string,
+    @Body() body: { chunk: string; chunkIndex: number; totalChunks: number; chunkSize: number; duration?: number },
     @Request() req: any,
   ) {
     // Get livestream to verify ownership
@@ -257,7 +326,12 @@ export class LivestreamController {
       throw new UnauthorizedException('You can only upload recordings for your own livestreams');
     }
 
-    return await this.livestreamService.uploadRecording(id, body.video);
+    // On last chunk, update livestream with duration
+    if (body.chunkIndex === body.totalChunks - 1 && body.duration) {
+      await this.livestreamService.updateRecordingDuration(id, body.duration);
+    }
+
+    return await this.livestreamService.uploadRecordingChunk(id, body.chunk, body.chunkIndex, body.totalChunks, body.chunkSize);
   }
 
   // Schedule Endpoints
@@ -290,8 +364,10 @@ export class LivestreamController {
   @UseGuards(JwtAuthGuard)
   async getTeacherSchedules(
     @Param('teacherId') teacherId: string,
-    @Query('includeCompleted') includeCompleted: string,
-    @Request() req: any,
+    @Query('includeCompleted') includeCompleted?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Request() req?: any,
   ) {
     // Only allow teachers to view their own schedules or admins
     if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
@@ -299,7 +375,12 @@ export class LivestreamController {
     }
 
     const includeCompletedBool = includeCompleted === 'true';
-    return await this.livestreamService.getTeacherSchedules(teacherId, includeCompletedBool);
+    return await this.livestreamService.getTeacherSchedules(
+      teacherId, 
+      includeCompletedBool,
+      startDate,
+      endDate
+    );
   }
 
   @Get('schedule/upcoming/all')

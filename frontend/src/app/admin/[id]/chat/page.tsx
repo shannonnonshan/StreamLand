@@ -184,48 +184,60 @@ export default function ChatPage() {
   return (
     <div className="h-[calc(100vh-4rem)] flex">
       {/* Pending Chats List */}
-      <div className="w-80 border-r flex flex-col bg-white">
-        <div className="p-4 border-b">
-          <h2 className="text-lg font-semibold text-[#161853]">Pending Messages</h2>
+      <div className="w-72 border-r flex flex-col bg-white shadow-sm">
+        <div className="px-4 py-3 border-b bg-gradient-to-r from-[#161853] to-[#0f1038]">
+          <h2 className="text-base font-semibold text-white">Pending Messages</h2>
+          {pendingChats.length > 0 && (
+            <p className="text-xs text-gray-300 mt-1">{pendingChats.length} conversation{pendingChats.length !== 1 ? 's' : ''}</p>
+          )}
         </div>
         <div className="overflow-y-auto flex-1">
-          {pendingChats.map((chat) => (
-            <button
-              key={chat.id}
-              onClick={() => setSelectedUser(chat.id)}
-              className={`w-full p-4 flex items-start gap-3 hover:bg-gray-50 transition-colors ${
-                selectedUser === chat.id ? "bg-gray-50" : ""
-              }`}
-            >
-              <div className="relative">
-                <div className="w-10 h-10 bg-[#161853] rounded-full flex items-center justify-center text-white">
-                  <User className="w-5 h-5" />
+          {pendingChats.length === 0 ? (
+            <div className="flex items-center justify-center h-32 text-gray-400">
+              <p className="text-sm">No pending messages</p>
+            </div>
+          ) : (
+            pendingChats.map((chat) => (
+              <button
+                key={chat.id}
+                onClick={() => setSelectedUser(chat.id)}
+                className={`w-full px-3 py-3 flex items-start gap-3 border-b transition-all duration-200 hover:bg-blue-50 ${
+                  selectedUser === chat.id ? "bg-blue-50 border-l-4 border-l-[#161853]" : "border-gray-100"
+                }`}
+              >
+                <div className="relative flex-shrink-0">
+                  <div className="w-11 h-11 bg-gradient-to-br from-[#161853] to-[#0f1038] rounded-full flex items-center justify-center text-white shadow-sm">
+                    <User className="w-5 h-5" />
+                  </div>
+                  {chat.status === "online" && (
+                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white shadow-md" />
+                  )}
                 </div>
-                {chat.status === "online" && (
-                  <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <span className="font-medium truncate">{chat.name}</span>
-                  <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <span className="font-medium truncate text-gray-900 text-sm">{chat.name}</span>
                     {chat.unreadCount > 0 && (
-                      <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-medium bg-[#EC255A] text-white rounded-full">
+                      <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold bg-[#EC255A] text-white rounded-full flex-shrink-0 shadow-md">
                         {chat.unreadCount}
                       </span>
                     )}
-                    <span className="text-xs text-gray-500 whitespace-nowrap">
+                  </div>
+                  <p className="text-xs text-gray-600 truncate mb-1.5">{chat.lastMessage}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400">
                       {new Date(chat.timestamp).toLocaleTimeString([], { 
                         hour: '2-digit', 
                         minute: '2-digit' 
                       })}
                     </span>
+                    {chat.status === "online" && (
+                      <span className="text-xs text-green-600 font-medium">Online</span>
+                    )}
                   </div>
                 </div>
-                <p className="text-sm text-gray-500 truncate">{chat.lastMessage}</p>
-              </div>
-            </button>
-          ))}
+              </button>
+            ))
+          )}
         </div>
       </div>
 

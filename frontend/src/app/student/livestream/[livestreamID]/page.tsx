@@ -121,7 +121,7 @@ export default function LivestreamViewerPage() {
 
   // Set mounted state
   useEffect(() => {
-    setIsMuted(true);
+    setIsMuted(false); // Default unmuted so students can hear
   }, []);
 
   // Track watch activity when livestream loads
@@ -509,7 +509,12 @@ export default function LivestreamViewerPage() {
     const newVolume = parseInt(e.target.value);
     setVolume(newVolume);
     setIsMuted(newVolume === 0);
-      };
+    
+    // Update video volume in real-time
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.volume = newVolume / 100;
+    }
+  };
 
       const handleLike = () => {
         setIsLiked(!isLiked);
@@ -564,11 +569,12 @@ export default function LivestreamViewerPage() {
                       ref={remoteVideoRef}
                       autoPlay
                       playsInline
-                      muted
+                      muted={isMuted}
                       className="absolute inset-0 w-full h-full object-contain bg-gray-900"
                       onLoadedMetadata={(e) => {
                         // Handle play promise to avoid AbortError
                         const video = e.currentTarget;
+                        video.volume = volume / 100;
                         const playPromise = video.play();
                         if (playPromise !== undefined) {
                           playPromise.catch(error => {

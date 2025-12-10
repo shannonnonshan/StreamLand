@@ -6,7 +6,12 @@ import { useParams } from 'next/navigation';
 import { useLivestreamViewer } from '@/hooks/useLivestreamViewer';
 import { trackWatchActivity } from '@/utils/trackActivity';
 import { useAuth } from '@/hooks/useAuth';
-import { getLivestreamDocuments } from '@/lib/api/student';
+import { 
+  getLivestreamDocuments, 
+  saveDocument, 
+  removeSavedDocument, 
+  isDocumentSaved 
+} from '@/lib/api/student';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
   PlayIcon, 
@@ -178,7 +183,8 @@ export default function LivestreamViewerPage() {
                 doc.fileType.includes('doc') ? 'doc' : 
                 doc.fileType.includes('ppt') ? 'ppt' : 
                 doc.fileType.includes('xls') ? 'xls' : 'file',
-          size: formatFileSize(doc.fileSize),
+          size: formatFileSize(doc.fileSize), // Formatted for display
+          rawSize: doc.fileSize, // Raw bytes for saving
           uploadedAt: formatTimeAgo(doc.uploadedAt),
           description: doc.description || '',
           downloadUrl: doc.fileUrl,
@@ -196,10 +202,38 @@ export default function LivestreamViewerPage() {
     fetchDocuments();
   }, [livestreamID]);
 
+  // Load saved document IDs for current livestream
+  useEffect(() => {
+    const loadSavedDocuments = async () => {
+      if (!livestreamID || teacherDocuments.length === 0) return;
+
+      try {
+        // Check each document if it's saved
+        const checkPromises = teacherDocuments.map(doc => 
+          isDocumentSaved(livestreamID, doc.id)
+        );
+        const results = await Promise.all(checkPromises);
+        
+        const savedIds = results
+          .filter(result => result.isSaved)
+          .map((result, index) => teacherDocuments[index].id);
+        
+        setSavedDocuments(savedIds);
+      } catch (error) {
+        console.error('Error loading saved documents:', error);
+      }
+    };
+
+    loadSavedDocuments();
+  }, [livestreamID, teacherDocuments]);
+
   // Listen for livestream info from backend
   useEffect(() => {
     import('@/socket').then((module) => {
       const socket = module.default;
+      
+      // Request document sync when joining
+      socket.emit('sync-documents', { livestreamId: livestreamID });
       
       socket.on('livestream-info', (info: LivestreamInfo) => {
         setLivestreamInfo(info);
@@ -254,6 +288,7 @@ export default function LivestreamViewerPage() {
             filename: doc.name,
             type: doc.type,
             size: doc.size ? formatFileSize(doc.size) : 'Unknown',
+            rawSize: doc.size || 0, // Raw bytes
             uploadedAt: 'Just now',
             description: '',
             downloadUrl: doc.url,
@@ -271,6 +306,7 @@ export default function LivestreamViewerPage() {
           filename: data.document.name,
           type: data.document.type,
           size: data.document.size ? formatFileSize(data.document.size) : 'Unknown',
+          rawSize: data.document.size || 0, // Raw bytes
           uploadedAt: 'Just now',
           description: '',
           downloadUrl: data.document.url,
@@ -406,43 +442,40 @@ export default function LivestreamViewerPage() {
   };
 
   // Save document to student's document library
-  const handleSaveDocument = (docId: string) => {
+  const handleSaveDocument = async (docId: string) => {
     const doc = teacherDocuments.find(d => d.id === docId);
     if (!doc) return;
 
-    // Toggle save status
-    if (savedDocuments.includes(docId)) {
-      setSavedDocuments(savedDocuments.filter(id => id !== docId));
-      // Remove from localStorage
-      const saved = JSON.parse(localStorage.getItem('studentDocuments') || '[]');
-      const filtered = saved.filter((d: { livestreamDocId?: string }) => d.livestreamDocId !== docId);
-      localStorage.setItem('studentDocuments', JSON.stringify(filtered));
-    } else {
-      setSavedDocuments([...savedDocuments, docId]);
-  
-      // Save to student documents
-      const savedDocs = JSON.parse(localStorage.getItem('studentDocuments') || '[]');
-  
-      const docData = {
-        id: Date.now().toString(),
-        title: doc.title,
-        filename: doc.filename,
-        type: doc.type,
-        size: doc.size,
-        uploadDate: new Date().toLocaleDateString('en-CA'),
-        lastModified: new Date().toLocaleDateString('en-CA'),
-        pinnedAt: null,
-        tags: ['livestream', livestreamInfo?.category || 'education', 'teacher-shared'],
-        folder: 'Livestream Materials',
-        downloadUrl: doc.downloadUrl,
-        description: doc.description,
-        livestreamDocId: docId,
-        livestreamId: livestreamID,
-        livestreamTitle: livestreamInfo?.title || 'Livestream',
-      };
-  
-      savedDocs.push(docData);
-      localStorage.setItem('studentDocuments', JSON.stringify(savedDocs));
+    try {
+      // Toggle save status
+      if (savedDocuments.includes(docId)) {
+        // Unsave - need to get MongoDB ID first
+        const checkResult = await isDocumentSaved(livestreamID, String(docId));
+        if (checkResult.isSaved && checkResult.document) {
+          await removeSavedDocument(checkResult.document.id);
+          setSavedDocuments(savedDocuments.filter(id => id !== docId));
+          toast.success('Đã xóa khỏi tài liệu đã lưu');
+        }
+      } else {
+        // Save document to MongoDB
+        const savedDoc = await saveDocument({
+          livestreamId: livestreamID,
+          documentId: String(docId), // Convert to string
+          title: doc.title || doc.filename,
+          filename: doc.filename,
+          fileType: doc.type,
+          fileUrl: doc.downloadUrl,
+          fileSize: doc.rawSize || 0, // Use raw bytes, not formatted string
+          folder: 'Livestream Materials',
+          tags: ['livestream', livestreamInfo?.category || 'education'],
+        });
+
+        setSavedDocuments([...savedDocuments, docId]);
+        toast.success('Đã lưu tài liệu thành công');
+      }
+    } catch (error) {
+      console.error('Error saving document:', error);
+      toast.error('Không thể lưu tài liệu');
     }
   };
 

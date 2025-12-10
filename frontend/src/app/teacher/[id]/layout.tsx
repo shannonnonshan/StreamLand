@@ -26,6 +26,8 @@ import RegisterModal from "@/component/(modal)/register";
 import ForgotPasswordModal from "@/component/(modal)/forgotPassword";
 import OTPModal from "@/component/(modal)/verifyOtp";
 import StartLivestreamModal, { LivestreamData } from "@/component/teacher/StartLivestreamModal";
+import NotificationBell from "@/component/NotificationBell";
+import { NotificationProvider } from '@/contexts/NotificationContext';
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -315,6 +317,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   );
 
   return (
+    <NotificationProvider userId={user?.id || null}>
       <>
         {/* Start Livestream Modal */}
         {renderStartLiveModal()}
@@ -376,20 +379,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   </span>
                 </a>
               </li>
-              <li className="relative group">
-                <a
-                  href={`/teacher/${id}/notifications`}
-                  className={`flex items-center ${
-                    pathname === `/teacher/${id}/notifications`
-                      ? "text-blue-500"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`}
-                >
-                  <Bell className="mr-2 flex-shrink-0" />
-                  <span className="absolute right-0 top-8 hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 transform translate-x-8">
-                    Notifications
-                  </span>
-                </a>
+              <li>
+                <NotificationBell />
               </li>
               <li>
                 <AuthButton 
@@ -429,5 +420,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         </div>
         </div>
       </>
+    </NotificationProvider>
   );
 }

@@ -368,14 +368,57 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('document-uploaded')
-  handleDocumentUploaded(
-    @MessageBody() data: { livestreamID: string; document: unknown },
+  async handleDocumentUploaded(
+    @MessageBody() data: { livestreamID: string; document: { id: string; [key: string]: any } },
     @ConnectedSocket() socket: Socket,
   ) {
     const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
     
     if (channel && channel.broadcaster === socket.id) {
+      // Save document to MongoDB livestream documents
+      try {
+        const livestreamDocs = await this.prismaService.mongo.liveStreamDocuments.findUnique({
+          where: { livestreamId: data.livestreamID },
+        });
+
+        if (livestreamDocs) {
+          // Update existing
+          await this.prismaService.mongo.liveStreamDocuments.update({
+            where: { livestreamId: data.livestreamID },
+            data: {
+              documentIds: {
+                push: data.document.id,
+              },
+              sharedDocuments: {
+                push: {
+                  documentId: data.document.id,
+                  sharedAt: new Date(),
+                  order: livestreamDocs.documentIds.length,
+                },
+              },
+            },
+          });
+        } else {
+          // Create new
+          await this.prismaService.mongo.liveStreamDocuments.create({
+            data: {
+              livestreamId: data.livestreamID,
+              documentIds: [data.document.id],
+              sharedDocuments: [
+                {
+                  documentId: data.document.id,
+                  sharedAt: new Date(),
+                  order: 0,
+                },
+              ],
+            },
+          });
+        }
+      } catch (error) {
+        this.logger.error(`Error saving document to MongoDB: ${error.message}`);
+      }
+
       // Broadcast new document to all watchers
       this.server.to([...channel.watchers]).emit('document-uploaded', {
         document: data.document,

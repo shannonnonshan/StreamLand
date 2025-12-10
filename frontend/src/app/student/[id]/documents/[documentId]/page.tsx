@@ -17,6 +17,7 @@ import {
   ChevronLeftIcon,
   EyeIcon,
   PencilIcon,
+  FolderIcon,
 } from '@heroicons/react/24/outline';
 import { 
   BookmarkIcon as BookmarkSolidIcon,
@@ -97,7 +98,7 @@ export default function DocumentDetailPage() {
     if (!document) return;
     
     try {
-      await togglePinDocument(document.id);
+      await togglePinDocument(document.id, document.isPinned);
       setIsPinned(!isPinned);
       toast.success(isPinned ? 'Document unpinned' : 'Document pinned');
     } catch (err) {
@@ -136,8 +137,8 @@ export default function DocumentDetailPage() {
     if (!document) return;
     
     const link = window.document.createElement('a');
-    link.href = document.document.fileUrl;
-    link.download = document.document.fileName;
+    link.href = document.fileUrl;
+    link.download = document.filename;
     link.click();
     
     toast.success('Download started');
@@ -193,7 +194,7 @@ export default function DocumentDetailPage() {
             My Documents
           </Link>
           <span className="mx-2">/</span>
-          <span className="text-gray-900 font-semibold truncate max-w-md">{document.document.title}</span>
+          <span className="text-gray-900 font-semibold truncate max-w-md">{document.title}</span>
         </div>
         
         {/* Document Info Section */}
@@ -202,7 +203,7 @@ export default function DocumentDetailPage() {
             {/* Left: Icon and Actions */}
             <div className="flex-shrink-0 flex flex-col items-center lg:w-64">
               <div className="bg-gradient-to-br from-gray-50 to-blue-50/30 p-8 rounded-2xl mb-6 border border-gray-100 shadow-sm">
-                {getFileIcon(document.document.fileType)}
+                {getFileIcon(document.fileType)}
               </div>
               
               <div className="flex flex-col w-full space-y-3">
@@ -250,14 +251,10 @@ export default function DocumentDetailPage() {
             
             {/* Right: Document Details */}
             <div className="flex-1">
-              <h1 className="text-3xl font-bold text-gray-900 mb-3 leading-tight">{document.document.title}</h1>
-              <p className="text-gray-500 mb-6 text-lg">{document.document.fileName}</p>
+              <h1 className="text-3xl font-bold text-gray-900 mb-3 leading-tight">{document.title}</h1>
+              <p className="text-gray-500 mb-6 text-lg">{document.filename}</p>
               
-              {document.document.description && (
-                <div className="bg-gradient-to-br from-gray-50 to-blue-50/30 rounded-xl p-5 mb-6 border border-gray-100">
-                  <p className="text-gray-700 leading-relaxed">{document.document.description}</p>
-                </div>
-              )}
+              {/* Description not available in SavedDocument schema */}
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
                 <div className="flex items-start gap-3">
@@ -266,17 +263,17 @@ export default function DocumentDetailPage() {
                   </div>
                   <div>
                     <p className="text-sm font-bold text-gray-900 mb-1">Saved Date</p>
-                    <p className="text-sm text-gray-600">{formatDate(document.savedAt)}</p>
+                    <p className="text-sm text-gray-600">{formatDate(document.savedAt.toString())}</p>
                   </div>
                 </div>
                 
                 <div className="flex items-start gap-3">
                   <div className="p-2.5 bg-purple-50 rounded-xl">
-                    <ClockIcon className="h-5 w-5 text-purple-600" />
+                    <FolderIcon className="h-5 w-5 text-purple-600" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-gray-900 mb-1">Uploaded Date</p>
-                    <p className="text-sm text-gray-600">{formatDate(document.document.uploadedAt)}</p>
+                    <p className="text-sm font-bold text-gray-900 mb-1">Folder</p>
+                    <p className="text-sm text-gray-600">{document.folder || 'Livestream Materials'}</p>
                   </div>
                 </div>
                 
@@ -286,7 +283,7 @@ export default function DocumentDetailPage() {
                   </div>
                   <div>
                     <p className="text-sm font-bold text-gray-900 mb-1">File Size</p>
-                    <p className="text-sm text-gray-600">{(document.document.fileSize / 1024 / 1024).toFixed(2)} MB</p>
+                    <p className="text-sm text-gray-600">{document.fileSize ? (document.fileSize / 1024 / 1024).toFixed(2) + ' MB' : 'N/A'}</p>
                   </div>
                 </div>
                 
@@ -296,35 +293,12 @@ export default function DocumentDetailPage() {
                   </div>
                   <div>
                     <p className="text-sm font-bold text-gray-900 mb-1">File Type</p>
-                    <p className="text-sm text-gray-600">{document.document.mimeType}</p>
+                    <p className="text-sm text-gray-600">{document.fileType}</p>
                   </div>
                 </div>
               </div>
               
-              {/* Teacher Info */}
-              <div className="flex items-center justify-between p-5 bg-gradient-to-r from-gray-50 to-blue-50/50 rounded-2xl border border-gray-100 shadow-sm">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#161853] to-[#292C6D] overflow-hidden shadow-lg">
-                    {document.document.teacher.avatar ? (
-                      <Image
-                        src={document.document.teacher.avatar}
-                        alt={document.document.teacher.fullName}
-                        width={56}
-                        height={56}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-white text-lg font-bold">
-                        {document.document.teacher.fullName.charAt(0)}
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500 mb-1">Uploaded by</p>
-                    <h3 className="text-lg font-bold text-gray-900">{document.document.teacher.fullName}</h3>
-                  </div>
-                </div>
-              </div>
+              {/* Teacher info not available in SavedDocument schema */}
               
               {/* Tags */}
               {document.tags && document.tags.length > 0 && (
@@ -375,13 +349,13 @@ export default function DocumentDetailPage() {
           
           <div className="p-8">
             {activeTab === 'preview' ? (
-              document.document.fileType.includes('pdf') ? (
+              document.fileType.includes('pdf') ? (
                 <div className="w-full h-[700px] bg-gray-100 rounded-xl overflow-hidden shadow-inner border border-gray-200">
                   <iframe 
                     ref={iframeRef}
-                    src={document.document.fileUrl} 
+                    src={document.fileUrl} 
                     className="w-full h-full border-0"
-                    title={document.document.title}
+                    title={document.title}
                     onError={() => {
                       if (iframeRef.current) {
                         iframeRef.current.srcdoc = `
@@ -389,7 +363,7 @@ export default function DocumentDetailPage() {
                             <svg width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="color:#9CA3AF;margin-bottom:24px;">
                               <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                             </svg>
-                            <h3 style="margin:0 0 12px;color:#111827;font-size:20px;font-weight:700;">${document.document.title}</h3>
+                            <h3 style="margin:0 0 12px;color:#111827;font-size:20px;font-weight:700;">${document.title}</h3>
                             <p style="margin:0;color:#6B7280;text-align:center;max-width:400px;line-height:1.6;">Preview not available. Please download the file to view full content.</p>
                           </div>
                         `;
@@ -397,11 +371,11 @@ export default function DocumentDetailPage() {
                     }}
                   />
                 </div>
-              ) : document.document.fileType.includes('image') ? (
+              ) : document.fileType.includes('image') ? (
                 <div className="w-full max-h-[700px] bg-gray-100 rounded-xl overflow-hidden shadow-inner border border-gray-200 flex items-center justify-center">
                   <Image
-                    src={document.document.fileUrl}
-                    alt={document.document.title}
+                    src={document.fileUrl}
+                    alt={document.title}
                     width={1200}
                     height={700}
                     className="max-w-full max-h-[700px] object-contain"
@@ -410,11 +384,11 @@ export default function DocumentDetailPage() {
               ) : (
                 <div className="w-full h-[400px] bg-gradient-to-br from-gray-50 to-blue-50/30 rounded-xl flex flex-col justify-center items-center border border-gray-200">
                   <div className="bg-white p-8 rounded-2xl shadow-lg">
-                    {getFileIcon(document.document.fileType)}
+                    {getFileIcon(document.fileType)}
                   </div>
-                  <h3 className="text-xl font-bold text-gray-900 mt-6">{document.document.title}</h3>
+                  <h3 className="text-xl font-bold text-gray-900 mt-6">{document.title}</h3>
                   <p className="text-gray-600 mt-3 text-center max-w-lg px-4">
-                    Preview not available for {document.document.mimeType} files. 
+                    Preview not available for {document.fileType} files. 
                     Please download to view the full content.
                   </p>
                   <button

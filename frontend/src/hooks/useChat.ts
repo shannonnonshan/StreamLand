@@ -53,6 +53,11 @@ export const useChat = (userId: string | null) => {
       // Socket connection error
     });
 
+    // Listen for online status updates
+    newSocket.on('onlineStatus', (data: { onlineUsers: string[] }) => {
+      setOnlineUsers(data.onlineUsers);
+    });
+
     setSocket(newSocket);
 
     return () => {

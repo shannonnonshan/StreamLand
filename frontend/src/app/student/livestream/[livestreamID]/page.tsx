@@ -119,9 +119,9 @@ export default function LivestreamViewerPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
 
-  // Set mounted state
+  // Set mounted state - try unmuted first, fallback to muted if blocked
   useEffect(() => {
-    setIsMuted(false); // Default unmuted so students can hear
+    setIsMuted(false); // Try unmuted by default, video will handle fallback
   }, []);
 
   // Track watch activity when livestream loads
@@ -502,7 +502,13 @@ export default function LivestreamViewerPage() {
   };
 
   const handleToggleMute = () => {
-    setIsMuted(!isMuted);
+    const newMuted = !isMuted;
+    setIsMuted(newMuted);
+    
+    // Update video element directly
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.muted = newMuted;
+    }
   };
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -575,13 +581,25 @@ export default function LivestreamViewerPage() {
                         // Handle play promise to avoid AbortError
                         const video = e.currentTarget;
                         video.volume = volume / 100;
+                        
+                        // Try to play with sound
+                        video.muted = false;
                         const playPromise = video.play();
                         if (playPromise !== undefined) {
-                          playPromise.catch(error => {
-                            // Auto-play was prevented or interrupted
-                            if (error.name !== 'AbortError') {
-                              console.warn('Video play interrupted:', error);
-                            }
+                          playPromise.then(() => {
+                            // Successfully played with audio
+                            console.log('[Student] Video playing with audio');
+                            setIsMuted(false);
+                          }).catch(error => {
+                            // Auto-play with audio was prevented, try muted
+                            console.warn('[Student] Autoplay with audio blocked, playing muted');
+                            video.muted = true;
+                            video.play().then(() => {
+                              console.log('[Student] Video playing muted - user needs to unmute');
+                              setIsMuted(true);
+                            }).catch(err => {
+                              console.error('[Student] Video play failed:', err);
+                            });
                           });
                         }
                       }}

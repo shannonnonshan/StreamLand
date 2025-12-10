@@ -31,6 +31,14 @@ export function useLivestreamViewer({
     pcRef.current = pc;
 
     pc.ontrack = (event) => {
+      console.log(`[Student WebRTC] ontrack fired - received ${event.streams.length} streams`);
+      if (event.streams[0]) {
+        console.log(`[Student WebRTC] Stream has ${event.streams[0].getTracks().length} tracks`);
+        event.streams[0].getTracks().forEach((track, i) => {
+          console.log(`[Student WebRTC] Track ${i}: kind=${track.kind}, enabled=${track.enabled}, readyState=${track.readyState}`);
+        });
+      }
+      
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = event.streams[0];
         
@@ -40,11 +48,12 @@ export function useLivestreamViewer({
         
         // Force play the video
         remoteVideoRef.current.play().catch((error) => {
-          console.error('Video play error:', error);
+          console.error('[Student WebRTC] Video play error:', error);
         });
         
         setIsConnected(true);
         setIsLoading(false);
+        console.log('[Student WebRTC] Stream connected and playing!');
         // Clear timeout since stream was received
         if (loadingTimeoutRef.current) {
           clearTimeout(loadingTimeoutRef.current);
@@ -64,6 +73,7 @@ export function useLivestreamViewer({
     };
 
     pc.onconnectionstatechange = () => {
+      console.log(`[Student WebRTC] Connection state: ${pc.connectionState}`);
       if (pc.connectionState === 'connected') {
         setIsConnected(true);
         setIsLoading(false);
@@ -78,6 +88,7 @@ export function useLivestreamViewer({
     };
 
     const handleBroadcaster = () => {
+      console.log('[Student WebRTC] Received broadcaster event, emitting watcher');
       socket.emit('watcher', { livestreamID });
     };
 
@@ -89,18 +100,21 @@ export function useLivestreamViewer({
       sdp: RTCSessionDescriptionInit;
     }) => {
       try {
+        console.log(`[Student WebRTC] Received offer from broadcaster: ${from}`);
         broadcasterIdRef.current = from;
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        console.log('[Student WebRTC] Remote description set');
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
+        console.log('[Student WebRTC] Sending answer back to broadcaster');
         socket.emit('answer', {
           to: from,
           sdp: pc.localDescription,
           livestreamID,
         });
       } catch (error) {
-        console.error('Offer error:', error);
+        console.error('[Student WebRTC] Offer error:', error);
         onError?.(error as Error);
         setIsLoading(false);
       }

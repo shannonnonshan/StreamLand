@@ -1055,22 +1055,31 @@ export default function BroadcasterPage() {
   };
 
   async function handleWatcher(data: { id: string } | string) {
-    const watcherId = typeof data === 'string' ? data : data.id;    if (peersRef.current[watcherId]) {
+    const watcherId = typeof data === 'string' ? data : data.id;
+    console.log(`[WebRTC] handleWatcher called for: ${watcherId}`);
+    
+    if (peersRef.current[watcherId]) {
+      console.log(`[WebRTC] Peer ${watcherId} already exists, skipping`);
       return;
     }
 
     if (!localStreamRef.current) {
+      console.error(`[WebRTC] ERROR: localStreamRef is null! Cannot send stream to watcher ${watcherId}`);
       return;
     }
+    
+    console.log(`[WebRTC] localStreamRef has ${localStreamRef.current.getTracks().length} tracks`);
 
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     peersRef.current[watcherId] = pc;
 
     const tracks = localStreamRef.current.getTracks();
+    console.log(`[WebRTC] Adding ${tracks.length} tracks to peer connection for ${watcherId}`);
     
-    tracks.forEach((track) => {
+    tracks.forEach((track, index) => {
       // Ensure track is enabled before adding
       track.enabled = true;
+      console.log(`[WebRTC] Adding track ${index}: kind=${track.kind}, enabled=${track.enabled}, readyState=${track.readyState}`);
       pc.addTrack(track, localStreamRef.current!);
     });
 

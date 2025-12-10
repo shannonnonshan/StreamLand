@@ -11,10 +11,11 @@ const socket = io(URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:40
 });
 
 socket.on('connect', () => {
-  // Socket connected
+  console.log('[Socket] Connected! Socket ID:', socket.id);
 });
 
 socket.on('disconnect', (reason: string) => {
+  console.log('[Socket] Disconnected. Reason:', reason);
   if (reason === 'io server disconnect') {
     socket.connect();
   }

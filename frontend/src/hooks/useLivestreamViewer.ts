@@ -40,20 +40,38 @@ export function useLivestreamViewer({
       }
       
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
+        const video = remoteVideoRef.current;
+        video.srcObject = event.streams[0];
         
-        // Optimize video playback
-        remoteVideoRef.current.preload = 'auto';
-        remoteVideoRef.current.playsInline = true;
+        // Set initial properties
+        video.muted = true; // Start muted for autoplay
+        video.playsInline = true;
         
-        // Force play the video
-        remoteVideoRef.current.play().catch((error) => {
-          console.error('[Student WebRTC] Video play error:', error);
-        });
+        // Wait for loadedmetadata before playing
+        const handleLoadedMetadata = () => {
+          console.log('[Student WebRTC] Video metadata loaded, attempting play');
+          video.play()
+            .then(() => {
+              console.log('[Student WebRTC] Video playing successfully');
+              // Try to unmute after successful play
+              setTimeout(() => {
+                video.muted = false;
+                console.log('[Student WebRTC] Audio unmuted');
+              }, 100);
+            })
+            .catch((error) => {
+              console.warn('[Student WebRTC] Autoplay blocked, keeping muted:', error.name);
+            });
+          
+          video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        };
+        
+        video.addEventListener('loadedmetadata', handleLoadedMetadata);
         
         setIsConnected(true);
         setIsLoading(false);
-        console.log('[Student WebRTC] Stream connected and playing!');
+        console.log('[Student WebRTC] Stream connected!');
+        
         // Clear timeout since stream was received
         if (loadingTimeoutRef.current) {
           clearTimeout(loadingTimeoutRef.current);

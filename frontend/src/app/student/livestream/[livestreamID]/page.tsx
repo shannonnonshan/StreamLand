@@ -575,34 +575,7 @@ export default function LivestreamViewerPage() {
                       ref={remoteVideoRef}
                       autoPlay
                       playsInline
-                      muted={isMuted}
                       className="absolute inset-0 w-full h-full object-contain bg-gray-900"
-                      onLoadedMetadata={(e) => {
-                        // Handle play promise to avoid AbortError
-                        const video = e.currentTarget;
-                        video.volume = volume / 100;
-                        
-                        // Try to play with sound
-                        video.muted = false;
-                        const playPromise = video.play();
-                        if (playPromise !== undefined) {
-                          playPromise.then(() => {
-                            // Successfully played with audio
-                            console.log('[Student] Video playing with audio');
-                            setIsMuted(false);
-                          }).catch(error => {
-                            // Auto-play with audio was prevented, try muted
-                            console.warn('[Student] Autoplay with audio blocked, playing muted');
-                            video.muted = true;
-                            video.play().then(() => {
-                              console.log('[Student] Video playing muted - user needs to unmute');
-                              setIsMuted(true);
-                            }).catch(err => {
-                              console.error('[Student] Video play failed:', err);
-                            });
-                          });
-                        }
-                      }}
                     />
                   </div>
 

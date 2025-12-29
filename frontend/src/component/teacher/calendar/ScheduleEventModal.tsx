@@ -104,31 +104,64 @@ export default function ScheduleEventModal({
   };
 
   const handleSave = () => {
-    if (!eventTitle || !eventStartTime || !eventEndTime) return;
+    // Validate required fields
+    if (!eventTitle.trim()) {
+      alert('❌ Event title is required!');
+      return;
+    }
+    
+    if (!eventCategory) {
+      alert('❌ Please select a category for your livestream!');
+      return;
+    }
+    
+    if (!eventStartTime) {
+      alert('❌ Start time is required!');
+      return;
+    }
+    
+    if (!eventEndTime) {
+      alert('❌ End time is required!');
+      return;
+    }
     
     // Combine date and time into ISO datetime
     const startDateTime = new Date(`${eventDate}T${eventStartTime}`).toISOString();
     const endDateTime = new Date(`${eventDate}T${eventEndTime}`).toISOString();
     
-    // Check if event is in the past
-    const now = new Date();
-    if (new Date(startDateTime) < now) {
-      alert('Cannot schedule events in the past. Please select a future date and time.');
+    // Validate times
+    if (new Date(startDateTime) >= new Date(endDateTime)) {
+      alert('❌ End time must be after start time!');
       return;
     }
     
+    // Check if event is in the past
+    const now = new Date();
+    if (new Date(startDateTime) < now) {
+      alert('❌ Cannot schedule events in the past. Please select a future date and time.');
+      return;
+    }
+    
+    // Check if event is too long (e.g., more than 12 hours)
+    const durationHours = (new Date(endDateTime).getTime() - new Date(startDateTime).getTime()) / (1000 * 60 * 60);
+    if (durationHours > 12) {
+      alert('⚠️ Event duration is longer than 12 hours. Are you sure this is correct?');
+      // Continue anyway, just a warning
+    }
+    
     const newEvent: ScheduleEvent = {
-      title: eventTitle,
+      title: eventTitle.trim(),
       startTime: startDateTime,
       endTime: endDateTime,
       isPublic,
       color: eventColor,
-      description: eventDescription,
+      description: eventDescription.trim(),
       notifyBefore: Number(eventNotification),
       teacherId,
       tags,
       category: eventCategory,
     };
+    
     onSave(newEvent);
     onClose();
   };

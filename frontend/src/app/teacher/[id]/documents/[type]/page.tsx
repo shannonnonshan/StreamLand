@@ -54,18 +54,28 @@ export default function DocumentsTypePage() {
     try {
       const uploadedDocs: Document[] = [];
       for (const file of Array.from(files)) {
+        console.log('Uploading file:', {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+        });
+        
         const data = await uploadDocument(teacherId, file);
+        console.log('Upload response:', data);
         uploadedDocs.push(data);
       }
       
       // Add new documents to list
       setDocuments([...uploadedDocs, ...documents]);
-      alert('Documents uploaded successfully!');
+      alert(`${uploadedDocs.length} document(s) uploaded successfully!`);
     } catch (error) {
       console.error('Upload failed:', error);
-      alert('Failed to upload documents. Please try again.');
+      const errorMsg = error instanceof Error ? error.message : 'Failed to upload documents';
+      alert(`Upload failed: ${errorMsg}. Please try again.`);
     } finally {
       setIsUploading(false);
+      // Reset input to allow re-upload same file
+      event.target.value = '';
     }
   };
 

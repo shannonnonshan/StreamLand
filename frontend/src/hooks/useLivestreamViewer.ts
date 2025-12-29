@@ -39,10 +39,23 @@ export function useLivestreamViewer({
         });
       }
       
+      console.log(`[Student WebRTC] ontrack fired - received ${event.streams.length} streams`);
+      if (event.streams[0]) {
+        console.log(`[Student WebRTC] Stream has ${event.streams[0].getTracks().length} tracks`);
+        event.streams[0].getTracks().forEach((track, i) => {
+          console.log(`[Student WebRTC] Track ${i}: kind=${track.kind}, enabled=${track.enabled}, readyState=${track.readyState}`);
+        });
+      }
+      
       if (remoteVideoRef.current) {
         const video = remoteVideoRef.current;
         video.srcObject = event.streams[0];
+        const video = remoteVideoRef.current;
+        video.srcObject = event.streams[0];
         
+        // Set initial properties
+        video.muted = true; // Start muted for autoplay
+        video.playsInline = true;
         // Set initial properties
         video.muted = true; // Start muted for autoplay
         video.playsInline = true;
@@ -67,9 +80,31 @@ export function useLivestreamViewer({
         };
         
         video.addEventListener('loadedmetadata', handleLoadedMetadata);
+        // Wait for loadedmetadata before playing
+        const handleLoadedMetadata = () => {
+          console.log('[Student WebRTC] Video metadata loaded, attempting play');
+          video.play()
+            .then(() => {
+              console.log('[Student WebRTC] Video playing successfully');
+              // Try to unmute after successful play
+              setTimeout(() => {
+                video.muted = false;
+                console.log('[Student WebRTC] Audio unmuted');
+              }, 100);
+            })
+            .catch((error) => {
+              console.warn('[Student WebRTC] Autoplay blocked, keeping muted:', error.name);
+            });
+          
+          video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        };
+        
+        video.addEventListener('loadedmetadata', handleLoadedMetadata);
         
         setIsConnected(true);
         setIsLoading(false);
+        console.log('[Student WebRTC] Stream connected!');
+        
         console.log('[Student WebRTC] Stream connected!');
         
         // Clear timeout since stream was received
@@ -115,6 +150,7 @@ export function useLivestreamViewer({
 
     pc.onconnectionstatechange = () => {
       console.log(`[Student WebRTC] Connection state: ${pc.connectionState}`);
+      console.log(`[Student WebRTC] Connection state: ${pc.connectionState}`);
       if (pc.connectionState === 'connected') {
         setIsConnected(true);
         setIsLoading(false);
@@ -125,11 +161,13 @@ export function useLivestreamViewer({
         }
       } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         console.error('[Student WebRTC] Connection failed or disconnected');
+        console.error('[Student WebRTC] Connection failed or disconnected');
         setIsConnected(false);
       }
     };
 
     const handleBroadcaster = () => {
+      console.log('[Student WebRTC] Received broadcaster event, emitting watcher');
       console.log('[Student WebRTC] Received broadcaster event, emitting watcher');
       socket.emit('watcher', { livestreamID });
     };
@@ -143,12 +181,15 @@ export function useLivestreamViewer({
     }) => {
       try {
         console.log(`[Student WebRTC] Received offer from broadcaster: ${from}`);
+        console.log(`[Student WebRTC] Received offer from broadcaster: ${from}`);
         broadcasterIdRef.current = from;
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        console.log('[Student WebRTC] Remote description set');
         console.log('[Student WebRTC] Remote description set');
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
+        console.log('[Student WebRTC] Sending answer back to broadcaster');
         console.log('[Student WebRTC] Sending answer back to broadcaster');
         socket.emit('answer', {
           to: from,
@@ -156,6 +197,7 @@ export function useLivestreamViewer({
           livestreamID,
         });
       } catch (error) {
+        console.error('[Student WebRTC] Offer error:', error);
         console.error('[Student WebRTC] Offer error:', error);
         onError?.(error as Error);
         setIsLoading(false);

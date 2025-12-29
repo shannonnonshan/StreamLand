@@ -1076,9 +1076,10 @@ export default function BroadcasterPage() {
     const tracks = localStreamRef.current.getTracks();
     console.log(`[WebRTC] Adding ${tracks.length} tracks to peer connection for ${watcherId}`);
     
-    tracks.forEach((track, index) => {
+    tracks.forEach((track, index, index) => {
       // Ensure track is enabled before adding
       track.enabled = true;
+      console.log(`[WebRTC] Adding track ${index}: kind=${track.kind}, enabled=${track.enabled}, readyState=${track.readyState}`);
       console.log(`[WebRTC] Adding track ${index}: kind=${track.kind}, enabled=${track.enabled}, readyState=${track.readyState}`);
       pc.addTrack(track, localStreamRef.current!);
     });
@@ -1091,6 +1092,13 @@ export default function BroadcasterPage() {
           address: event.candidate.address,
           port: event.candidate.port,
           relayProtocol: event.candidate.relayProtocol,
+        });
+        
+        console.log(`[Teacher WebRTC] ICE candidate for ${watcherId}:`, {
+          type: event.candidate.type,
+          protocol: event.candidate.protocol,
+          address: event.candidate.address,
+          port: event.candidate.port,
         });
         
         socket.emit("candidate", {

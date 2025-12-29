@@ -63,11 +63,22 @@ export default function MonthCalendarPage({
       const startDate = new Date(year, month, 1).toISOString().split('T')[0];
       const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
       
+      console.log('Fetching schedules for date range:', { startDate, endDate, teacherId });
+      
       // Fetch both schedules and livestreams in parallel
       const [schedules, livestreams] = await Promise.all([
-        getTeacherSchedules(teacherId, startDate, endDate).catch(() => []),
-        getTeacherLivestreams(teacherId).catch(() => [])
+        getTeacherSchedules(teacherId, startDate, endDate).catch((err) => {
+          console.error('Error fetching schedules:', err);
+          return [];
+        }),
+        getTeacherLivestreams(teacherId).catch((err) => {
+          console.error('Error fetching livestreams:', err);
+          return [];
+        })
       ]);
+      
+      console.log('Fetched schedules:', schedules);
+      console.log('Fetched livestreams:', livestreams);
       
       // Format schedules
       const calendarEvents = schedules.map(formatScheduleForCalendar);
@@ -76,11 +87,14 @@ export default function MonthCalendarPage({
       livestreams.forEach((ls: any) => {
         // Skip livestreams that have a schedule (to avoid duplicates)
         if (ls.schedule) {
+          console.log('Skipping livestream with schedule:', ls.id);
           return;
         }
         
         if (ls.status === 'SCHEDULED') {
-          calendarEvents.push(formatLivestreamForCalendar(ls, 'scheduled'));
+          const event = formatLivestreamForCalendar(ls, 'scheduled');
+          console.log('Adding scheduled livestream to calendar:', event);
+          calendarEvents.push(event);
         } else if (ls.status === 'LIVE') {
           calendarEvents.push(formatLivestreamForCalendar(ls, 'live'));
         } else if (ls.status === 'ENDED') {
@@ -88,6 +102,7 @@ export default function MonthCalendarPage({
         }
       });
       
+      console.log('Final calendar events:', calendarEvents);
       setEvents(calendarEvents);
     } catch (error) {
       console.error('Failed to fetch schedules:', error);
@@ -294,7 +309,7 @@ export default function MonthCalendarPage({
                             ev.status === 'live' ? 'bg-red-200 text-red-800' :
                             'bg-gray-300 text-gray-700'
                           }`}>
-                            {ev.status === 'scheduled' ? '📅' : ev.status === 'live' ? '🔴' : '✓'}
+                            {ev.status === 'scheduled' ? '🕛' : ev.status === 'live' ? '🔴' : '✓'}
                           </span>
                         )}
                         <span className="truncate">{ev.title}</span>

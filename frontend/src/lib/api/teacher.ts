@@ -295,7 +295,7 @@ export function formatLivestreamForCalendar(livestream: LiveStream, type: 'sched
     date: dateStr,
     start: `${startHour}:${startMin}`,
     end: `${endHour}:${endMin}`,
-    color: type === 'scheduled' ? 'purple' : (type === 'live' ? 'red' : 'gray'),
+    color: (livestream as any).color || (type === 'scheduled' ? '#8B5CF6' : (type === 'live' ? '#EF4444' : '#6B7280')),
     audience: livestream.isPublic ? 'public' : 'subscribers',
     description: livestream.description,
     livestreamId: livestream.id,

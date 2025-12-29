@@ -16,6 +16,7 @@ import {
   ArrowLeft,
   Loader2
 } from "lucide-react";
+import { useToast } from "@/hooks/useToast";
 
 // Import mock recordings
 import { mockRecordings } from "@/utils/data/teacher/mockRecordings";
@@ -43,6 +44,7 @@ export default function TeacherProfilePage() {
   const params = useParams();
   const router = useRouter();
   const teacherId = params?.id as string;
+  const { success, error: showError, ToastComponent } = useToast();
 
   const [teacher, setTeacher] = useState<TeacherProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,19 +103,19 @@ export default function TeacherProfilePage() {
       if (response.ok) {
         setTeacher({ ...teacher, bio: editedBio });
         setIsEditingBio(false);
-        alert('Bio updated successfully!');
+        success('Bio updated successfully!');
       } else {
-        alert('Failed to update bio');
+        showError('Failed to update bio');
       }
     } catch (error) {
       console.error('Error updating bio:', error);
-      alert('Error updating bio');
+      showError('Error updating bio');
     }
   };
 
   const handleChangeAvatar = () => {
     // TODO: Implement avatar upload
-    alert("Avatar upload will be implemented");
+    showError("Avatar upload will be implemented");
   };
 
   if (loading) {
@@ -144,6 +146,7 @@ export default function TeacherProfilePage() {
   }
 
   return (
+    <>
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Cover Banner */}
       <div className="h-48 bg-gradient-to-r from-[#292C6D] to-[#1f2350]"></div>
@@ -393,5 +396,7 @@ export default function TeacherProfilePage() {
         </div>
       </div>
     </div>
+    {ToastComponent}
+    </>
   );
 }

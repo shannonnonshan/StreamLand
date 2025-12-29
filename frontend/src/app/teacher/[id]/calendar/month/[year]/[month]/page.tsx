@@ -8,6 +8,7 @@ import EventDrawer from "@/component/teacher/calendar/EventDrawer";
 import { ScheduleEvent } from "@/component/teacher/calendar/ScheduleEventModal";
 import ScheduleEventModal from "@/component/teacher/calendar/ScheduleEventModal";
 import { getTeacherSchedules, formatScheduleForCalendar, createSchedule, getTeacherLivestreams, formatLivestreamForCalendar } from "@/lib/api/teacher";
+import { useToast } from "@/hooks/useToast";
 
 const MONTH_NAMES = [
   "January","February","March","April","May","June",
@@ -37,6 +38,7 @@ export default function MonthCalendarPage({
   const { id, year: yearParam, month: monthParam } = use(params);
   const today = new Date();
   const router = useRouter();
+  const { success, error: showError, ToastComponent } = useToast();
 
   const teacherId = id ?? "1";
   const initialYear = yearParam ? Number(yearParam) : today.getFullYear();
@@ -76,11 +78,11 @@ export default function MonthCalendarPage({
       setEvents([...events, calendarEvent]);
       
       // Show success message
-      alert('✅ Schedule created successfully!');
+      success('Schedule created successfully!');
     } catch (error) {
       console.error('Failed to create schedule:', error);
       const message = error instanceof Error ? error.message : 'Failed to create schedule';
-      alert(`❌ Failed to create schedule: ${message}`);
+      showError(`Failed to create schedule: ${message}`);
     }
   };
 
@@ -314,6 +316,8 @@ export default function MonthCalendarPage({
         teacherId={teacherId}
         defaultDate={eventDate}
       />
+
+      {ToastComponent}
     </div>
   );
 }

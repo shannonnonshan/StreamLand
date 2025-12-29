@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import toast, { Toaster } from 'react-hot-toast';
+import { useConfirm } from "@/hooks/useConfirm";
 import { 
   Shield, 
   Mail, 
@@ -68,6 +69,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const { getProfile } = useAuth();
   const teacherId = params?.id as string;
+  const { confirm, ConfirmComponent } = useConfirm();
 
   const [openSections, setOpenSections] = useState({
     security: false,
@@ -616,35 +618,36 @@ export default function SettingsPage() {
   };
 
   const handleDeleteCV = async () => {
-    const confirmDelete = window.confirm('Are you sure you want to delete your CV?');
-    if (!confirmDelete) return;
+    confirm(
+      'Delete CV',
+      'Are you sure you want to delete your CV? This action cannot be undone.',
+      async () => {
+        const loadingToastId = toast.loading('Deleting CV...', {
+          position: 'top-right',
+          style: {
+            background: '#EF4444',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+          },
+        });
 
-    const loadingToastId = toast.loading('Deleting CV...', {
-      position: 'top-right',
-      style: {
-        background: '#EF4444',
-        color: '#fff',
-        padding: '16px',
-        borderRadius: '8px',
-      },
-    });
+        try {
+          const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+          const response = await fetch(`${API_URL}/auth/profile/teacher`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              cvUrl: null,
+            }),
+          });
 
-    try {
-      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/auth/profile/teacher`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          cvUrl: null,
-        }),
-      });
-
-      if (response.ok) {
-        setSettings({ ...settings, cvUrl: '' });
-        toast.dismiss(loadingToastId);
+          if (response.ok) {
+            setSettings({ ...settings, cvUrl: '' });
+            toast.dismiss(loadingToastId);
         toast.success('CV deleted successfully!', {
           duration: 3000,
           position: 'top-right',
@@ -686,11 +689,15 @@ export default function SettingsPage() {
         },
       });
     }
+      },
+      { type: 'danger', confirmText: 'Delete', cancelText: 'Cancel' }
+    );
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
       <Toaster />
+      {ConfirmComponent}
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
           <button

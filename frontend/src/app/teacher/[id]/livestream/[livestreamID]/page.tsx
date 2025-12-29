@@ -1060,33 +1060,59 @@ export default function BroadcasterPage() {
     }
 
     if (!localStreamRef.current) {
+      console.error(`[WebRTC] ERROR: localStreamRef is null! Cannot send stream to watcher ${watcherId}`);
       return;
     }
+    
+    console.log(`[WebRTC] localStreamRef has ${localStreamRef.current.getTracks().length} tracks`);
 
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     peersRef.current[watcherId] = pc;
 
     const tracks = localStreamRef.current.getTracks();
+    console.log(`[WebRTC] Adding ${tracks.length} tracks to peer connection for ${watcherId}`);
     
-    tracks.forEach((track) => {
+    tracks.forEach((track, index) => {
       // Ensure track is enabled before adding
       track.enabled = true;
+      console.log(`[WebRTC] Adding track ${index}: kind=${track.kind}, enabled=${track.enabled}, readyState=${track.readyState}`);
       pc.addTrack(track, localStreamRef.current!);
     });
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log(`[Teacher WebRTC] ICE candidate for ${watcherId}:`, {
+          type: event.candidate.type,
+          protocol: event.candidate.protocol,
+          address: event.candidate.address,
+          port: event.candidate.port,
+        });
+        
         socket.emit("candidate", {
           to: watcherId,
           candidate: event.candidate,
           livestreamID,
         });
+      } else {
+        console.log(`[Teacher WebRTC] ICE gathering complete for ${watcherId}`);
+      }
+    };
+    
+    pc.onicegatheringstatechange = () => {
+      console.log(`[Teacher WebRTC] ICE gathering state for ${watcherId}: ${pc.iceGatheringState}`);
+    };
+    
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[Teacher WebRTC] ICE connection state for ${watcherId}: ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'failed') {
+        console.error(`[Teacher WebRTC] ICE connection failed for ${watcherId} - may need TURN server`);
       }
     };
 
     pc.onconnectionstatechange = () => {
+      console.log(`[Teacher WebRTC] Connection state for ${watcherId}: ${pc.connectionState}`);
       if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        // Connection failed
+        console.error(`[Teacher WebRTC] Connection failed/disconnected for ${watcherId}`);
       }
     };
 

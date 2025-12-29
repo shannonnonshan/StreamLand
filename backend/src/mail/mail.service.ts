@@ -1,18 +1,25 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Resend } from 'resend';
+import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class MailService {
-  private resend: Resend;
+  private transporter: nodemailer.Transporter;
   private fromEmail: string;
 
   constructor(private configService: ConfigService) {
-    const apiKey = this.configService.get('RESEND_API_KEY');
-    this.resend = new Resend(apiKey);
-    this.fromEmail = this.configService.get('RESEND_FROM_EMAIL') || 'onboarding@resend.dev';
+    this.transporter = nodemailer.createTransport({
+      host: this.configService.get('SMTP_HOST'),
+      port: this.configService.get('SMTP_PORT'),
+      secure: false,
+      auth: {
+        user: this.configService.get('SMTP_USER'),
+        pass: this.configService.get('SMTP_PASS'),
+      },
+    });
     
-    console.log('✅ Resend email service initialized');
+    this.fromEmail = this.configService.get('SMTP_USER') || 'noreply@streamland.com';
+    console.log('✅ SMTP email service initialized');
   }
 
   async sendOTP(email: string, otp: string, fullName?: string) {
@@ -71,19 +78,14 @@ export class MailService {
       `;
 
     try {
-      const { data, error } = await this.resend.emails.send({
+      const info = await this.transporter.sendMail({
         from: this.fromEmail,
         to: email,
         subject: 'Account Verification OTP - StreamLand',
         html: htmlContent,
       });
 
-      if (error) {
-        console.error('❌ Failed to send OTP email:', error);
-        return { success: false, error: error.message };
-      }
-
-      console.log(`✅ OTP email sent successfully to ${email} (ID: ${data?.id})`);
+      console.log(`✅ OTP email sent successfully to ${email} (ID: ${info.messageId})`);
       return { success: true };
     } catch (error) {
       console.error('❌ Failed to send OTP email:', error);
@@ -150,19 +152,14 @@ export class MailService {
       `;
 
     try {
-      const { data, error } = await this.resend.emails.send({
+      const info = await this.transporter.sendMail({
         from: this.fromEmail,
         to: email,
         subject: 'Password Reset OTP - StreamLand',
         html: htmlContent,
       });
 
-      if (error) {
-        console.error('❌ Failed to send password reset OTP email:', error);
-        return { success: false, error: error.message };
-      }
-
-      console.log(`✅ Password reset OTP email sent successfully to ${email} (ID: ${data?.id})`);
+      console.log(`✅ Password reset OTP email sent successfully to ${email} (ID: ${info.messageId})`);
       return { success: true };
     } catch (error) {
       console.error('❌ Failed to send password reset OTP email:', error);

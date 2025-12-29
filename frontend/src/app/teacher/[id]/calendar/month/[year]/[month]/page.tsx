@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { raleway } from "@/utils/front";
 import pastelize from "@/utils/colorise";
@@ -57,6 +57,45 @@ export default function MonthCalendarPage({
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // Fetch schedules function (extracted for reuse)
+  const fetchSchedules = useCallback(async () => {
+    try {
+      const startDate = new Date(year, month, 1).toISOString().split('T')[0];
+      const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
+      
+      // Fetch both schedules and livestreams in parallel
+      const [schedules, livestreams] = await Promise.all([
+        getTeacherSchedules(teacherId, startDate, endDate).catch(() => []),
+        getTeacherLivestreams(teacherId).catch(() => [])
+      ]);
+      
+      // Format schedules
+      const calendarEvents = schedules.map(formatScheduleForCalendar);
+      
+      // Format livestreams and add to events (only if no schedule is linked)
+      livestreams.forEach((ls: any) => {
+        // Skip livestreams that have a schedule (to avoid duplicates)
+        if (ls.schedule) {
+          return;
+        }
+        
+        if (ls.status === 'SCHEDULED') {
+          calendarEvents.push(formatLivestreamForCalendar(ls, 'scheduled'));
+        } else if (ls.status === 'LIVE') {
+          calendarEvents.push(formatLivestreamForCalendar(ls, 'live'));
+        } else if (ls.status === 'ENDED') {
+          calendarEvents.push(formatLivestreamForCalendar(ls, 'ended'));
+        }
+      });
+      
+      setEvents(calendarEvents);
+    } catch (error) {
+      console.error('Failed to fetch schedules:', error);
+      // Show empty calendar on error instead of blocking
+      setEvents([]);
+    }
+  }, [teacherId, year, month]);
+
   const handleSaveEvent = async (newEvent: ScheduleEvent) => {
     try {
       console.log('Creating schedule:', newEvent);
@@ -74,8 +113,9 @@ export default function MonthCalendarPage({
       });
 
       console.log('Schedule created successfully:', schedule);
-      const calendarEvent = formatScheduleForCalendar(schedule);
-      setEvents([...events, calendarEvent]);
+      
+      // Refetch schedules to show the new one
+      await fetchSchedules();
       
       // Show success message
       success('Schedule created successfully!');
@@ -98,46 +138,8 @@ export default function MonthCalendarPage({
 
   // Fetch schedules from backend with timeout & error recovery
   useEffect(() => {
-    const fetchSchedules = async () => {
-      try {
-        const startDate = new Date(year, month, 1).toISOString().split('T')[0];
-        const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
-        
-        // Fetch both schedules and livestreams in parallel
-        const [schedules, livestreams] = await Promise.all([
-          getTeacherSchedules(teacherId, startDate, endDate).catch(() => []),
-          getTeacherLivestreams(teacherId).catch(() => [])
-        ]);
-        
-        // Format schedules
-        const calendarEvents = schedules.map(formatScheduleForCalendar);
-        
-        // Format livestreams and add to events (only if no schedule is linked)
-        livestreams.forEach((ls: any) => {
-          // Skip livestreams that have a schedule (to avoid duplicates)
-          if (ls.schedule) {
-            return;
-          }
-          
-          if (ls.status === 'SCHEDULED') {
-            calendarEvents.push(formatLivestreamForCalendar(ls, 'scheduled'));
-          } else if (ls.status === 'LIVE') {
-            calendarEvents.push(formatLivestreamForCalendar(ls, 'live'));
-          } else if (ls.status === 'ENDED') {
-            calendarEvents.push(formatLivestreamForCalendar(ls, 'ended'));
-          }
-        });
-        
-        setEvents(calendarEvents);
-      } catch (error) {
-        console.error('Failed to fetch schedules:', error);
-        // Show empty calendar on error instead of blocking
-        setEvents([]);
-      }
-    };
-
     fetchSchedules();
-  }, [teacherId, year, month]);
+  }, [fetchSchedules]);
 
   // khi đổi tháng/năm → tính lại số ngày
   useEffect(() => {

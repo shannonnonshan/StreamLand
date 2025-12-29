@@ -1085,17 +1085,39 @@ export default function BroadcasterPage() {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log(`[Teacher WebRTC] ICE candidate for ${watcherId}:`, {
+          type: event.candidate.type,
+          protocol: event.candidate.protocol,
+          address: event.candidate.address,
+          port: event.candidate.port,
+          relayProtocol: event.candidate.relayProtocol,
+        });
+        
         socket.emit("candidate", {
           to: watcherId,
           candidate: event.candidate,
           livestreamID,
         });
+      } else {
+        console.log(`[Teacher WebRTC] ICE gathering complete for ${watcherId}`);
+      }
+    };
+    
+    pc.onicegatheringstatechange = () => {
+      console.log(`[Teacher WebRTC] ICE gathering state for ${watcherId}: ${pc.iceGatheringState}`);
+    };
+    
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[Teacher WebRTC] ICE connection state for ${watcherId}: ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'failed') {
+        console.error(`[Teacher WebRTC] ICE connection failed for ${watcherId} - may need TURN server`);
       }
     };
 
     pc.onconnectionstatechange = () => {
+      console.log(`[Teacher WebRTC] Connection state for ${watcherId}: ${pc.connectionState}`);
       if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        // Connection failed
+        console.error(`[Teacher WebRTC] Connection failed/disconnected for ${watcherId}`);
       }
     };
 

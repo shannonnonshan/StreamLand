@@ -81,12 +81,35 @@ export function useLivestreamViewer({
     };
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && broadcasterIdRef.current) {
-        socket.emit('candidate', {
-          to: broadcasterIdRef.current,
-          candidate: event.candidate,
-          livestreamID,
+      if (event.candidate) {
+        console.log(`[Student WebRTC] ICE candidate:`, {
+          type: event.candidate.type,
+          protocol: event.candidate.protocol,
+          address: event.candidate.address,
+          port: event.candidate.port,
+          relayProtocol: event.candidate.relayProtocol,
         });
+        
+        if (broadcasterIdRef.current) {
+          socket.emit('candidate', {
+            to: broadcasterIdRef.current,
+            candidate: event.candidate,
+            livestreamID,
+          });
+        }
+      } else {
+        console.log('[Student WebRTC] ICE gathering complete (null candidate)');
+      }
+    };
+    
+    pc.onicegatheringstatechange = () => {
+      console.log(`[Student WebRTC] ICE gathering state: ${pc.iceGatheringState}`);
+    };
+    
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[Student WebRTC] ICE connection state: ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'failed') {
+        console.error('[Student WebRTC] ICE connection failed - may need TURN server');
       }
     };
 
@@ -101,6 +124,7 @@ export function useLivestreamViewer({
           loadingTimeoutRef.current = null;
         }
       } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        console.error('[Student WebRTC] Connection failed or disconnected');
         setIsConnected(false);
       }
     };

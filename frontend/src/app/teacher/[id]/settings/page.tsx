@@ -94,6 +94,9 @@ export default function SettingsPage() {
   const [avatarPreview, setAvatarPreview] = useState<string>("");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingCV, setUploadingCV] = useState(false);
+  const [showAvatarPreview, setShowAvatarPreview] = useState(false);
+  const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string>("");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -343,16 +346,68 @@ export default function SettingsPage() {
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Preview image
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        toast.error('Please select an image file', {
+          duration: 4000,
+          position: 'top-right',
+          icon: '✕',
+          style: {
+            background: '#EF4444',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+          },
+        });
+        return;
+      }
+
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('Image size must be less than 5MB', {
+          duration: 4000,
+          position: 'top-right',
+          icon: '✕',
+          style: {
+            background: '#EF4444',
+            color: '#fff',
+            padding: '16px',
+            borderRadius: '8px',
+          },
+        });
+        return;
+      }
+
+      // Create preview URL
       const reader = new FileReader();
       reader.onloadend = () => {
-        setAvatarPreview(reader.result as string);
+        setPreviewUrl(reader.result as string);
+        setSelectedAvatarFile(file);
+        setShowAvatarPreview(true);
       };
       reader.readAsDataURL(file);
-      
-      // Upload immediately
-      handleAvatarUpload(file);
     }
+  };
+
+  const handleConfirmAvatar = async () => {
+    if (!selectedAvatarFile) return;
+    
+    setShowAvatarPreview(false);
+    await handleAvatarUpload(selectedAvatarFile);
+    
+    // Clear preview state
+    setSelectedAvatarFile(null);
+    setPreviewUrl("");
+  };
+
+  const handleCancelAvatar = () => {
+    setShowAvatarPreview(false);
+    setSelectedAvatarFile(null);
+    setPreviewUrl("");
+    
+    // Clear file input
+    const fileInput = document.getElementById('avatar-upload') as HTMLInputElement;
+    if (fileInput) fileInput.value = '';
   };
 
   const handleAvatarUpload = async (file: File) => {
@@ -881,12 +936,12 @@ export default function SettingsPage() {
                   
                   {/* Upload Button Overlay */}
                   <label
-                    htmlFor="avatar-input"
+                    htmlFor="avatar-upload"
                     className="absolute bottom-0 right-0 bg-[#047e56ff] hover:bg-[#036644ff] text-white rounded-full p-3 cursor-pointer shadow-lg transition-colors"
                   >
                     <Upload size={20} />
                     <input
-                      id="avatar-input"
+                      id="avatar-upload"
                       type="file"
                       accept="image/*"
                       onChange={handleAvatarSelect}
@@ -1151,6 +1206,49 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Avatar Preview Modal */}
+      {showAvatarPreview && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-bold text-gray-900 mb-4 text-center">Preview Avatar</h3>
+            
+            <div className="flex justify-center mb-6">
+              <div className="w-48 h-48 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 border-gray-100 shadow-lg">
+                {previewUrl ? (
+                  <img
+                    src={previewUrl}
+                    alt="Avatar Preview"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <User size={96} className="text-gray-400" />
+                )}
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-600 text-center mb-6">
+              Do you want to update your avatar with this image?
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleCancelAvatar}
+                className="flex-1 px-4 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmAvatar}
+                className="flex-1 px-4 py-3 bg-[#047e56ff] hover:bg-[#036644ff] text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                <Upload size={18} />
+                Upload
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

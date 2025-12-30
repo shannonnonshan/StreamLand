@@ -35,8 +35,23 @@ export default function UpdateEventModal({
 
   // Load schedule data when modal opens
   useEffect(() => {
-    if (open && event?.id) {
-      fetchScheduleData();
+    if (open && event) {
+      // Check if this is a livestream event without a schedule
+      if ((event as any).type === 'livestream' && !(event as any).scheduleId) {
+        // Use event data directly for livestream events
+        setEventTitle(event.title || "");
+        setEventDate(event.date || "");
+        setEventStartTime(event.start || "");
+        setEventEndTime(event.end || "");
+        setEventDescription(event.description || "");
+        setEventColor(event.color || "#EC255A");
+        setIsPublic(event.audience === 'public');
+        setTags([]);
+        setLoading(false);
+      } else if (event.id) {
+        // Fetch full schedule data for schedule events
+        fetchScheduleData();
+      }
     }
   }, [open, event?.id]);
 
@@ -49,8 +64,11 @@ export default function UpdateEventModal({
         throw new Error('No authentication token found');
       }
       
+      // Use scheduleId if available, otherwise use event.id
+      const scheduleId = (event as any).scheduleId || event.id;
+      
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/livestream/schedule/${event.id}`,
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/livestream/schedule/${scheduleId}`,
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -62,6 +80,9 @@ export default function UpdateEventModal({
       if (!response.ok) {
         if (response.status === 401) {
           throw new Error('Unauthorized - please log in again');
+        }
+        if (response.status === 404) {
+          throw new Error('Schedule not found');
         }
         throw new Error('Failed to fetch schedule');
       }
@@ -116,7 +137,18 @@ export default function UpdateEventModal({
   };
 
   const handleSave = async () => {
-    if (!eventTitle || !eventStartTime || !eventEndTime || !event?.id) return;
+    if (!eventTitle || !eventStartTime || !eventEndTime) return;
+
+    // Check if this is a livestream event without schedule - show warning
+    if ((event as any).type === 'livestream' && !(event as any).scheduleId) {
+      alert('Cannot update livestream events directly. Please update the associated schedule instead.');
+      return;
+    }
+
+    if (!event?.id) {
+      alert('Invalid event - missing ID');
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -129,13 +161,16 @@ export default function UpdateEventModal({
       const startDateTime = new Date(`${eventDate}T${eventStartTime}`).toISOString();
       const endDateTime = new Date(`${eventDate}T${eventEndTime}`).toISOString();
 
+      // Use scheduleId if available, otherwise use event.id
+      const scheduleId = (event as any).scheduleId || event.id;
+
       // Prepare update requests (will execute in parallel)
       const updateRequests = [];
 
       // Update Schedule
       updateRequests.push(
         fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/livestream/schedule/${event.id}`,
+          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/livestream/schedule/${scheduleId}`,
           {
             method: 'PATCH',
             headers: {

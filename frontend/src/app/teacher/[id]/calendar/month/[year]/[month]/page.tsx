@@ -63,8 +63,6 @@ export default function MonthCalendarPage({
       const startDate = new Date(year, month, 1).toISOString().split('T')[0];
       const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
       
-      console.log('Fetching schedules for date range:', { startDate, endDate, teacherId });
-      
       // Fetch both schedules and livestreams in parallel
       const [schedules, livestreams] = await Promise.all([
         getTeacherSchedules(teacherId, startDate, endDate).catch((err) => {
@@ -77,9 +75,6 @@ export default function MonthCalendarPage({
         })
       ]);
       
-      console.log('Fetched schedules:', schedules);
-      console.log('Fetched livestreams:', livestreams);
-      
       // Format schedules
       const calendarEvents = schedules.map(formatScheduleForCalendar);
       
@@ -87,14 +82,11 @@ export default function MonthCalendarPage({
       livestreams.forEach((ls: any) => {
         // Skip livestreams that have a schedule (to avoid duplicates)
         if (ls.schedule) {
-          console.log('Skipping livestream with schedule:', ls.id);
           return;
         }
         
         if (ls.status === 'SCHEDULED') {
-          const event = formatLivestreamForCalendar(ls, 'scheduled');
-          console.log('Adding scheduled livestream to calendar:', event);
-          calendarEvents.push(event);
+          calendarEvents.push(formatLivestreamForCalendar(ls, 'scheduled'));
         } else if (ls.status === 'LIVE') {
           calendarEvents.push(formatLivestreamForCalendar(ls, 'live'));
         } else if (ls.status === 'ENDED') {
@@ -102,7 +94,6 @@ export default function MonthCalendarPage({
         }
       });
       
-      console.log('Final calendar events:', calendarEvents);
       setEvents(calendarEvents);
     } catch (error) {
       console.error('Failed to fetch schedules:', error);

@@ -196,6 +196,7 @@ export function formatScheduleForCalendar(schedule: Schedule & { liveStream?: { 
   notification?: number;
   description?: string;
   livestreamId?: string;
+  scheduleId: string;
 } {
   const startDate = new Date(schedule.startTime);
   const endDate = new Date(schedule.endTime);
@@ -224,6 +225,7 @@ export function formatScheduleForCalendar(schedule: Schedule & { liveStream?: { 
     notification: schedule.notifyBefore,
     description: schedule.liveStream?.description || '',
     livestreamId: schedule.livestreamId || schedule.liveStream?.id,
+    scheduleId: schedule.id,
   };
 }
 

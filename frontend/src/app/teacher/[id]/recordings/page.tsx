@@ -20,6 +20,7 @@ export default function RecordingsPage() {
   const [recordings, setRecordings] = useState<LiveStream[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recordingFilter, setRecordingFilter] = useState<"all" | "recorded" | "no-recording">("all");
 
   const recordingsByMonth = groupRecordingsByMonth(recordings);
   const months = Object.keys(recordingsByMonth).sort((a, b) => b.localeCompare(a));
@@ -54,9 +55,21 @@ export default function RecordingsPage() {
     ? months.filter(m => m >= customFrom && m <= customTo)
     : months.slice(0, 6);
 
-  // Filter recordings by search query and sort
+  // Filter recordings by search query, recording availability, and sort
   const currentMonthRecordings = (recordingsByMonth[selectedMonth] || [])
-    .filter(r => r.title.toLowerCase().includes(searchQuery.toLowerCase()))
+    .filter(r => {
+      // Search filter
+      const matchesSearch = r.title.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      // Recording availability filter
+      if (recordingFilter === "recorded") {
+        return matchesSearch && r.recordingUrl;
+      } else if (recordingFilter === "no-recording") {
+        return matchesSearch && !r.recordingUrl;
+      }
+      
+      return matchesSearch;
+    })
     .sort((a, b) => {
       const dateA = new Date(a.endedAt || a.createdAt).getTime();
       const dateB = new Date(b.endedAt || b.createdAt).getTime();
@@ -116,6 +129,19 @@ export default function RecordingsPage() {
                 <option value="7days">Last 7 days</option>
                 <option value="1month">Last 1 month</option>
                 <option value="custom">Custom range</option>
+              </select>
+            </div>
+
+            {/* Recording Availability Filter */}
+            <div className="flex items-center gap-2">
+              <select
+                className="border border-gray-500 rounded-lg bg-white px-4 py-2 text-sm focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
+                value={recordingFilter}
+                onChange={(e) => setRecordingFilter(e.target.value as "all" | "recorded" | "no-recording")}
+              >
+                <option value="all">All Livestreams</option>
+                <option value="recorded">Recorded</option>
+                <option value="no-recording">No Recording</option>
               </select>
             </div>
 

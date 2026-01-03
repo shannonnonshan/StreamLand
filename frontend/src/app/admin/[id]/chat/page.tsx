@@ -214,8 +214,8 @@ export default function ChatPage() {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <span className="font-medium truncate text-gray-900 text-sm">{chat.name}</span>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="font-medium truncate text-gray-900 text-sm flex-1">{chat.name}</span>
                     {chat.unreadCount > 0 && (
                       <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold bg-[#EC255A] text-white rounded-full flex-shrink-0 shadow-md">
                         {chat.unreadCount}

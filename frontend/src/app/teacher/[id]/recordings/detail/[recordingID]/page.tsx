@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Calendar, Clock, Download, Share2 } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, Download, Share2, MessageCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getLivestreamById } from "@/lib/api/teacher";
 
@@ -33,6 +33,7 @@ export default function RecordingDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
+  const [showComments, setShowComments] = useState(true);
 
   useEffect(() => {
     const fetchRecording = async () => {
@@ -195,6 +196,30 @@ export default function RecordingDetailPage() {
                   <span className="inline-block px-3 py-1 bg-[#292C6D] text-white text-sm rounded-full">
                     {recording.category}
                   </span>
+                </div>
+              )}
+            </div>
+
+            {/* Comments Section */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+                  <MessageCircle size={20} />
+                  Comments
+                </h2>
+                <button
+                  onClick={() => setShowComments(!showComments)}
+                  className="text-sm text-[#292C6D] hover:underline"
+                >
+                  {showComments ? 'Hide' : 'Show'}
+                </button>
+              </div>
+              {showComments && (
+                <div className="space-y-4">
+                  <p className="text-gray-500 text-sm">Comments from the live session will appear here. This feature allows you to review viewer feedback and questions from when this was streamed live.</p>
+                  <div className="border-t pt-4">
+                    <p className="text-gray-400 text-center py-8">No comments available for this recording</p>
+                  </div>
                 </div>
               )}
             </div>

@@ -81,7 +81,7 @@ export default function YearCalendarClient({
     <div className="p-4">
       {/* Year header */}
       <h1 className="text-2xl font-bold text-black text-center mb-6">
-        {year}26
+        {year}
       </h1>
 
       {/* Year grid */}

@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { Play, Calendar, Clock, Search, Filter, Grid3x3, List } from "lucide-react";
+import { Play, Calendar, Clock, Search, Filter, Grid3x3, List, Video, Eye, TrendingUp, FileVideo } from "lucide-react";
 import { getRecordedLivestreams, LiveStream, groupRecordingsByMonth } from "@/lib/api/teacher";
+import Pagination from "@/component/Pagination";
 
 export default function RecordingsPage() {
   const params = useParams();
@@ -20,6 +21,9 @@ export default function RecordingsPage() {
   const [recordings, setRecordings] = useState<LiveStream[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recordingFilter, setRecordingFilter] = useState<"all" | "recorded" | "no-recording">("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = viewMode === "grid" ? 9 : 10;
 
   const recordingsByMonth = groupRecordingsByMonth(recordings);
   const months = Object.keys(recordingsByMonth).sort((a, b) => b.localeCompare(a));
@@ -54,14 +58,37 @@ export default function RecordingsPage() {
     ? months.filter(m => m >= customFrom && m <= customTo)
     : months.slice(0, 6);
 
-  // Filter recordings by search query and sort
-  const currentMonthRecordings = (recordingsByMonth[selectedMonth] || [])
-    .filter(r => r.title.toLowerCase().includes(searchQuery.toLowerCase()))
+  // Filter recordings by search query, recording availability, and sort
+  const filteredRecordings = (recordingsByMonth[selectedMonth] || [])
+    .filter(r => {
+      // Search filter
+      const matchesSearch = r.title.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      // Recording availability filter
+      if (recordingFilter === "recorded") {
+        return matchesSearch && r.recordingUrl;
+      } else if (recordingFilter === "no-recording") {
+        return matchesSearch && !r.recordingUrl;
+      }
+      
+      return matchesSearch;
+    })
     .sort((a, b) => {
       const dateA = new Date(a.endedAt || a.createdAt).getTime();
       const dateB = new Date(b.endedAt || b.createdAt).getTime();
       return sortOrder === "newest" ? dateB - dateA : dateA - dateB;
     });
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredRecordings.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentMonthRecordings = filteredRecordings.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, recordingFilter, sortOrder, selectedMonth, viewMode]);
 
   if (isLoading) {
     return (
@@ -116,6 +143,19 @@ export default function RecordingsPage() {
                 <option value="7days">Last 7 days</option>
                 <option value="1month">Last 1 month</option>
                 <option value="custom">Custom range</option>
+              </select>
+            </div>
+
+            {/* Recording Availability Filter */}
+            <div className="flex items-center gap-2">
+              <select
+                className="border border-gray-500 rounded-lg bg-white px-4 py-2 text-sm focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
+                value={recordingFilter}
+                onChange={(e) => setRecordingFilter(e.target.value as "all" | "recorded" | "no-recording")}
+              >
+                <option value="all">All Livestreams</option>
+                <option value="recorded">Recorded</option>
+                <option value="no-recording">No Recording</option>
               </select>
             </div>
 
@@ -239,6 +279,18 @@ export default function RecordingsPage() {
                       height={225}
                       className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                     />
+                    {/* Recording Badge */}
+                    {rec.recordingUrl ? (
+                      <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1">
+                        <FileVideo size={14} />
+                        Recorded
+                      </div>
+                    ) : (
+                      <div className="absolute top-2 right-2 bg-gray-500 text-white px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1">
+                        <Video size={14} />
+                        No Recording
+                      </div>
+                    )}
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                       <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center">
                         <Play size={24} className="text-[#292C6D] ml-1" />
@@ -281,6 +333,18 @@ export default function RecordingsPage() {
                         height={112}
                         className="w-full h-full object-cover"
                       />
+                      {/* Recording Badge */}
+                      {rec.recordingUrl ? (
+                        <div className="absolute top-1 right-1 bg-green-500 text-white px-1.5 py-0.5 rounded text-xs font-medium flex items-center gap-1">
+                          <FileVideo size={12} />
+                          Recorded
+                        </div>
+                      ) : (
+                        <div className="absolute top-1 right-1 bg-gray-500 text-white px-1.5 py-0.5 rounded text-xs font-medium flex items-center gap-1">
+                          <Video size={12} />
+                          No Rec
+                        </div>
+                      )}
                       <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
                         <Play size={32} className="text-white" />
                       </div>
@@ -304,6 +368,20 @@ export default function RecordingsPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          
+          {/* Pagination */}
+          {filteredRecordings.length > 0 && (
+            <div className="mt-6">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={filteredRecordings.length}
+                itemsPerPage={itemsPerPage}
+                onPageChange={setCurrentPage}
+                showInfo={true}
+              />
             </div>
           )}
         </div>

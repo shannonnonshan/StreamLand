@@ -887,6 +887,7 @@ export class AuthService {
   async updateTeacherProfile(
     userId: string,
     updateDto: UpdateTeacherProfileDto,
+    cvFile?: Express.Multer.File,
   ) {
     const user = await this.prisma.postgres.user.findUnique({
       where: { id: userId },
@@ -901,18 +902,35 @@ export class AuthService {
       throw new BadRequestException('User is not a teacher');
     }
 
+    // Upload CV to R2 if file is provided
+    let cvUrl: string | undefined;
+    if (cvFile) {
+      cvUrl = await this.r2StorageService.uploadCV(
+        userId,
+        cvFile.originalname,
+        cvFile.buffer,
+        cvFile.mimetype,
+      );
+    }
+
+    // Prepare update data
+    const updateData = { ...updateDto };
+    if (cvUrl) {
+      updateData.cvUrl = cvUrl;
+    }
+
     // Create profile if it doesn't exist
     if (!user.teacherProfile) {
       await this.prisma.postgres.teacherProfile.create({
         data: {
           userId: user.id,
-          ...updateDto,
+          ...updateData,
         },
       });
     } else {
       await this.prisma.postgres.teacherProfile.update({
         where: { userId: user.id },
-        data: updateDto,
+        data: updateData,
       });
     }
 
@@ -945,9 +963,9 @@ export class AuthService {
     // Upload CV to R2
     let cvUrl: string | null = null;
     if (cvFile) {
-      cvUrl = await this.r2StorageService.uploadDocument(
+      cvUrl = await this.r2StorageService.uploadCV(
         userId,
-        `cv_${Date.now()}_${cvFile.originalname}`,
+        cvFile.originalname,
         cvFile.buffer,
         cvFile.mimetype,
       );

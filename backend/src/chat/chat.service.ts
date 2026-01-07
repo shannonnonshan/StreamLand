@@ -115,4 +115,27 @@ export class ChatService {
       where: { id: messageId },
     });
   }
+
+  async removeAttachment(messageId: string, userId: string, attachmentUrl: string) {
+    const message = await this.prisma.mongo.chatMessage.findUnique({
+      where: { id: messageId },
+    });
+
+    if (!message) {
+      throw new Error('Message not found');
+    }
+
+    // Allow deletion by sender or receiver (ADMIN)
+    if (message.senderId !== userId && message.receiverId !== userId) {
+      throw new Error('Unauthorized to remove this attachment');
+    }
+
+    // Remove attachment from array
+    const updatedAttachments = message.attachments.filter(url => url !== attachmentUrl);
+
+    return await this.prisma.mongo.chatMessage.update({
+      where: { id: messageId },
+      data: { attachments: updatedAttachments },
+    });
+  }
 }

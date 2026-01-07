@@ -1,4 +1,5 @@
 import { IsString, IsOptional, IsArray, IsInt, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 
 export class UpdateUserProfileDto {
   @IsString()
@@ -51,6 +52,12 @@ export class UpdateTeacherProfileDto {
   @IsInt()
   @Min(0)
   @IsOptional()
+  @Type(() => Number)
+  @Transform(({ value }) => {
+    if (value === '' || value === null || value === undefined) return undefined;
+    const num = parseInt(value, 10);
+    return isNaN(num) ? undefined : num;
+  })
   experience?: number;
 
   @IsString()
@@ -79,6 +86,12 @@ export class UploadTeacherCVDto {
   @IsInt()
   @Min(0)
   @IsOptional()
+  @Type(() => Number)
+  @Transform(({ value }) => {
+    if (value === '' || value === null || value === undefined) return undefined;
+    const num = parseInt(value, 10);
+    return isNaN(num) ? undefined : num;
+  })
   experience?: number;
 
   @IsString()

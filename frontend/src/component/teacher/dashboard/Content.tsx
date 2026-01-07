@@ -4,6 +4,7 @@ import React from "react";
 import dynamic from "next/dynamic";
 import { ApexOptions } from "apexcharts";
 import { useTeacherDashboard } from "@/hooks/useTeacherDashboard";
+import { Video, FileText, TrendingUp } from "lucide-react";
 
 const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -11,21 +12,72 @@ interface ContentProps {
   filter: string;
 }
 
+// Helper function to get categories and data based on filter
+const getChartConfig = (filter: string, stats: any) => {
+  const now = new Date();
+  
+  if (filter === 'last 7 day') {
+    const categories: string[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      categories.push(date.toLocaleDateString('en-US', { weekday: 'short' }));
+    }
+    return { categories, dataPoints: 7 };
+  }
+  
+  if (filter === 'last 30 day') {
+    const categories: string[] = [];
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      if (i % 5 === 0 || i === 29) {
+        categories.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      } else {
+        categories.push('');
+      }
+    }
+    return { categories, dataPoints: 30 };
+  }
+  
+  if (filter === 'last 90 day') {
+    const categories: string[] = [];
+    for (let i = 89; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      if (i % 15 === 0 || i === 89) {
+        categories.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      } else {
+        categories.push('');
+      }
+    }
+    return { categories, dataPoints: 90 };
+  }
+  
+  return {
+    categories: ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
+    dataPoints: 12
+  };
+};
+
 export default function Content({ filter }: ContentProps) {
-  const { stats, loading, error } = useTeacherDashboard();
+  const { stats, loading, error } = useTeacherDashboard(filter);
+  
+  const chartConfig = getChartConfig(filter, stats);
+  const viewsData = stats?.dailyViews?.slice(-chartConfig.dataPoints) || Array(chartConfig.dataPoints).fill(0);
   
   const series = [
     {
       name: "Views",
-      data: stats?.monthlyViews || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      data: viewsData.length === chartConfig.dataPoints ? viewsData : Array(chartConfig.dataPoints).fill(0),
     },
     {
       name: "Recordings",
-      data: stats ? Array(12).fill(Math.round(stats.totalRecordings / 12)) : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      data: Array(chartConfig.dataPoints).fill(Math.round((stats?.totalRecordings || 0) / chartConfig.dataPoints)),
     },
     {
       name: "Documents",
-      data: stats ? Array(12).fill(Math.round(stats.totalDocuments / 12)) : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      data: Array(chartConfig.dataPoints).fill(Math.round((stats?.totalDocuments || 0) / chartConfig.dataPoints)),
     },
   ];
 
@@ -45,10 +97,7 @@ export default function Content({ filter }: ContentProps) {
       gradient: { shadeIntensity: 1, opacityFrom: 0.1, opacityTo: 0.8 },
     },
     xaxis: {
-      categories: [
-        "Jan","Feb","Mar","Apr","May","Jun",
-        "Jul","Aug","Sep","Oct","Nov","Dec",
-      ],
+      categories: chartConfig.categories,
       labels: {
         style: { colors: "#9ca3af", fontSize: "13px" },
       },
@@ -85,17 +134,32 @@ export default function Content({ filter }: ContentProps) {
       {/* Stats Summary */}
       {stats && (
         <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-gray-900">{stats.totalRecordings}</div>
-            <div className="text-sm text-gray-600">Recordings</div>
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm text-blue-700 font-medium">Recordings</div>
+              <div className="p-2 bg-blue-200 rounded-lg">
+                <Video className="text-blue-700" size={18} />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-blue-900">{stats.totalRecordings}</div>
           </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-gray-900">{stats.totalDocuments}</div>
-            <div className="text-sm text-gray-600">Documents</div>
+          <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm text-green-700 font-medium">Documents</div>
+              <div className="p-2 bg-green-200 rounded-lg">
+                <FileText className="text-green-700" size={18} />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-green-900">{stats.totalDocuments}</div>
           </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-gray-900">{stats.avgViewsPerStream}</div>
-            <div className="text-sm text-gray-600">Avg Views/Stream</div>
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-xl">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm text-purple-700 font-medium">Avg Views/Stream</div>
+              <div className="p-2 bg-purple-200 rounded-lg">
+                <TrendingUp className="text-purple-700" size={18} />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-purple-900">{stats.avgViewsPerStream}</div>
           </div>
         </div>
       )}

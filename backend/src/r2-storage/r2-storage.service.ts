@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, DeleteObjectsCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectsCommand, ListObjectsV2Command, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'stream';
 
@@ -163,5 +163,90 @@ export class R2StorageService {
   deleteDocument(key: string): void {
     // Implementation for deleting document
     this.logger.log(`Delete requested for document ${key}`);
+  }
+
+  /**
+   * Upload chat image to R2 documents bucket (in chat-images folder)
+   */
+  async uploadChatImage(
+    fileName: string,
+    fileBuffer: Buffer,
+    contentType: string,
+  ): Promise<string> {
+    const key = `chat-images/${Date.now()}-${fileName}`;
+
+    try {
+      const command = new PutObjectCommand({
+        Bucket: this.documentBucketName,
+        Key: key,
+        Body: fileBuffer,
+        ContentType: contentType,
+      });
+
+      await this.documentS3Client.send(command);
+      this.logger.log(`Uploaded chat image ${fileName}`);
+      
+      // Return public URL
+      return `${this.documentPublicUrl}/${key}`;
+    } catch (error) {
+      this.logger.error(`Failed to upload chat image ${fileName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Upload CV to R2 documents bucket (in resume/<user-id> folder)
+   */
+  async uploadCV(
+    userId: string,
+    fileName: string,
+    fileBuffer: Buffer,
+    contentType: string,
+  ): Promise<string> {
+    const key = `resume/${userId}/${Date.now()}-${fileName}`;
+
+    try {
+      const command = new PutObjectCommand({
+        Bucket: this.documentBucketName,
+        Key: key,
+        Body: fileBuffer,
+        ContentType: contentType,
+      });
+
+      await this.documentS3Client.send(command);
+      this.logger.log(`Uploaded CV for user ${userId}`);
+      
+      // Return public URL
+      return `${this.documentPublicUrl}/${key}`;
+    } catch (error) {
+      this.logger.error(`Failed to upload CV for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete chat image from R2 by URL
+   */
+  async deleteChatImage(imageUrl: string): Promise<void> {
+    try {
+      // Extract key from URL
+      // URL format: https://pub-xxx.r2.dev/chat-images/timestamp-filename.jpg
+      const key = imageUrl.replace(`${this.documentPublicUrl}/`, '');
+      
+      if (!key.startsWith('chat-images/')) {
+        throw new Error('Invalid chat image URL');
+      }
+
+      const command = new DeleteObjectCommand({
+        Bucket: this.documentBucketName,
+        Key: key,
+      });
+
+      await this.documentS3Client.send(command);
+      this.logger.log(`Deleted chat image: ${key}`);
+    } catch (error) {
+      this.logger.error(`Failed to delete chat image ${imageUrl}:`, error);
+      throw error;
+    }
   }
 }

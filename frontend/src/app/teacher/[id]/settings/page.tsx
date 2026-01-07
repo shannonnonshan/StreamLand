@@ -93,10 +93,12 @@ export default function SettingsPage() {
 
   const [avatarPreview, setAvatarPreview] = useState<string>("");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [uploadingCV, setUploadingCV] = useState(false);
   const [showAvatarPreview, setShowAvatarPreview] = useState(false);
   const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>("");
+  const [showCVPreview, setShowCVPreview] = useState(false);
+  const [pendingCVFile, setPendingCVFile] = useState<File | null>(null);
+  const [pendingCVPreviewUrl, setPendingCVPreviewUrl] = useState<string>("");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -139,6 +141,15 @@ export default function SettingsPage() {
     fetchTeacherData();
   }, [teacherId]);
 
+  // Cleanup pending CV preview URL on unmount
+  useEffect(() => {
+    return () => {
+      if (pendingCVPreviewUrl) {
+        URL.revokeObjectURL(pendingCVPreviewUrl);
+      }
+    };
+  }, [pendingCVPreviewUrl]);
+
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
@@ -174,21 +185,28 @@ export default function SettingsPage() {
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
       
-      // Execute both API calls in parallel for faster response
-      const [userProfileResponse, teacherProfileResponse] = await Promise.all([
-        fetch(`${API_URL}/auth/profile`, {
+      // Prepare teacher profile data
+      let teacherProfileResponse;
+      
+      if (pendingCVFile) {
+        // If there's a CV file to upload, use FormData
+        const formData = new FormData();
+        formData.append('cv', pendingCVFile);
+        formData.append('education', settings.education);
+        formData.append('experience', settings.experience.toString());
+        formData.append('website', settings.website);
+        formData.append('linkedin', settings.linkedin);
+        
+        teacherProfileResponse = await fetch(`${API_URL}/auth/profile/teacher`, {
           method: 'PATCH',
           headers: {
-            'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            fullName: settings.fullName,
-            bio: settings.bio,
-            location: settings.location,
-          }),
-        }),
-        fetch(`${API_URL}/auth/profile/teacher`, {
+          body: formData,
+        });
+      } else {
+        // No CV file, use JSON
+        teacherProfileResponse = await fetch(`${API_URL}/auth/profile/teacher`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
@@ -200,10 +218,40 @@ export default function SettingsPage() {
             website: settings.website,
             linkedin: settings.linkedin,
           }),
+        });
+      }
+      
+      // Update user profile
+      const userProfileResponse = await fetch(`${API_URL}/auth/profile`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          fullName: settings.fullName,
+          bio: settings.bio,
+          location: settings.location,
         }),
-      ]);
+      });
 
       if (userProfileResponse.ok && teacherProfileResponse.ok) {
+        // If CV was uploaded, update the cvUrl from response
+        if (pendingCVFile) {
+          const teacherData = await teacherProfileResponse.json();
+          setSettings(prev => ({
+            ...prev,
+            cvUrl: teacherData.teacherProfile?.cvUrl || prev.cvUrl,
+          }));
+          
+          // Clear pending CV state
+          setPendingCVFile(null);
+          if (pendingCVPreviewUrl) {
+            URL.revokeObjectURL(pendingCVPreviewUrl);
+            setPendingCVPreviewUrl('');
+          }
+        }
+        
         // Refresh user profile to update Headerbar
         await getProfile();
         
@@ -590,89 +638,60 @@ export default function SettingsPage() {
         return;
       }
 
-      handleCVUpload(file);
-    }
-  };
-
-  const handleCVUpload = async (file: File) => {
-    setUploadingCV(true);
-    const loadingToastId = toast.loading('Uploading CV...', {
-      position: 'top-right',
-      style: {
-        background: '#047e56ff',
-        color: '#fff',
-        padding: '16px',
-        borderRadius: '8px',
-      },
-    });
-
-    try {
-      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-      const formData = new FormData();
-      formData.append('cv', file);
-
-      const response = await fetch(`${API_URL}/auth/profile/teacher/upload-cv`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setSettings({
-          ...settings,
-          cvUrl: data.teacherProfile?.cvUrl || '',
-        });
-
-        toast.dismiss(loadingToastId);
-        toast.success('CV uploaded successfully!', {
-          duration: 3000,
-          position: 'top-right',
-          icon: '✓',
-          style: {
-            background: '#047e56ff',
-            color: '#fff',
-            padding: '16px',
-            borderRadius: '8px',
-            fontWeight: '500',
-          },
-        });
-      } else {
-        toast.dismiss(loadingToastId);
-        toast.error('Failed to upload CV', {
-          duration: 4000,
-          position: 'top-right',
-          icon: '✕',
-          style: {
-            background: '#EF4444',
-            color: '#fff',
-            padding: '16px',
-            borderRadius: '8px',
-          },
-        });
-      }
-    } catch (error) {
-      console.error('Error uploading CV:', error);
-      toast.dismiss(loadingToastId);
-      toast.error('Error uploading CV', {
-        duration: 4000,
+      // Store file and create preview URL
+      setPendingCVFile(file);
+      const previewUrl = URL.createObjectURL(file);
+      setPendingCVPreviewUrl(previewUrl);
+      
+      toast.success('CV selected. Click Save Changes to upload.', {
+        duration: 3000,
         position: 'top-right',
-        icon: '✕',
+        icon: '✓',
         style: {
-          background: '#EF4444',
+          background: '#047e56ff',
           color: '#fff',
           padding: '16px',
           borderRadius: '8px',
         },
       });
-    } finally {
-      setUploadingCV(false);
     }
   };
 
+
+
   const handleDeleteCV = async () => {
+    // If there's a pending CV, just clear it
+    if (pendingCVFile) {
+      confirm(
+        'Remove Selected CV',
+        'Remove the selected CV file?',
+        () => {
+          setPendingCVFile(null);
+          if (pendingCVPreviewUrl) {
+            URL.revokeObjectURL(pendingCVPreviewUrl);
+            setPendingCVPreviewUrl('');
+          }
+          // Clear file input
+          const fileInput = document.getElementById('cv-input') as HTMLInputElement;
+          if (fileInput) fileInput.value = '';
+          
+          toast.success('CV selection removed', {
+            duration: 2000,
+            position: 'top-right',
+            icon: '✓',
+            style: {
+              background: '#10B981',
+              color: '#fff',
+              padding: '16px',
+              borderRadius: '8px',
+            },
+          });
+        }
+      );
+      return;
+    }
+    
+    // Otherwise, delete the uploaded CV
     confirm(
       'Delete CV',
       'Are you sure you want to delete your CV? This action cannot be undone.',
@@ -1103,8 +1122,44 @@ export default function SettingsPage() {
                       Curriculum Vitae (CV)
                     </h3>
                     
+                    {/* Pending CV Display (not yet saved) */}
+                    {pendingCVFile && (
+                      <div className="p-4 bg-yellow-50 rounded-lg border-2 border-yellow-300 mb-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3 flex-1">
+                            <FileText className="text-yellow-600 flex-shrink-0 mt-1" size={24} />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-gray-900">{pendingCVFile.name}</p>
+                              <p className="text-sm text-yellow-700 mt-1">
+                                ⚠️ Click "Save Changes" to upload this CV
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 flex-shrink-0">
+                            <button
+                              onClick={() => {
+                                const url = URL.createObjectURL(pendingCVFile);
+                                window.open(url, '_blank');
+                              }}
+                              className="p-2 hover:bg-yellow-100 rounded-lg transition-colors"
+                              title="Preview CV"
+                            >
+                              <Eye className="text-yellow-600" size={20} />
+                            </button>
+                            <button
+                              onClick={handleDeleteCV}
+                              className="p-2 hover:bg-red-100 rounded-lg transition-colors"
+                              title="Remove CV"
+                            >
+                              <Trash2 className="text-red-600" size={20} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
                     {/* Current CV Display */}
-                    {settings.cvUrl && (
+                    {settings.cvUrl && !pendingCVFile && (
                       <div className="p-4 bg-blue-50 rounded-lg border-2 border-blue-200 mb-4">
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-3 flex-1">
@@ -1115,6 +1170,13 @@ export default function SettingsPage() {
                             </div>
                           </div>
                           <div className="flex gap-2 flex-shrink-0">
+                            <button
+                              onClick={() => setShowCVPreview(true)}
+                              className="p-2 hover:bg-blue-100 rounded-lg transition-colors"
+                              title="Preview CV"
+                            >
+                              <Eye className="text-blue-600" size={20} />
+                            </button>
                             <a
                               href={settings.cvUrl}
                               target="_blank"
@@ -1139,33 +1201,30 @@ export default function SettingsPage() {
                     {/* Upload Area */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-3">
-                        {settings.cvUrl ? 'Update CV' : 'Upload CV (PDF only, max 10MB)'}
+                        {pendingCVFile 
+                          ? 'Change Selected CV' 
+                          : settings.cvUrl 
+                          ? 'Update CV' 
+                          : 'Upload CV (PDF only, max 10MB)'}
                       </label>
                       <label
                         htmlFor="cv-input"
                         className={`flex flex-col items-center justify-center w-full p-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
-                          uploadingCV
-                            ? 'bg-gray-50 border-gray-300'
+                          pendingCVFile
+                            ? 'bg-yellow-50 border-yellow-300 hover:bg-yellow-100'
                             : 'bg-blue-50 border-blue-300 hover:bg-blue-100'
                         }`}
                       >
                         <div className="flex flex-col items-center justify-center py-2">
-                          {uploadingCV ? (
-                            <>
-                              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
-                              <p className="text-sm text-gray-600">Uploading...</p>
-                            </>
-                          ) : (
-                            <>
-                              <FileText className="text-blue-600 mb-2" size={32} />
-                              <p className="text-sm font-medium text-gray-900">
-                                Click to upload or drag and drop
-                              </p>
-                              <p className="text-xs text-gray-500 mt-1">
-                                PDF only, max 10MB
-                              </p>
-                            </>
-                          )}
+                          <FileText className={pendingCVFile ? "text-yellow-600 mb-2" : "text-blue-600 mb-2"} size={32} />
+                          <p className="text-sm font-medium text-gray-900">
+                            Click to {pendingCVFile ? 'change' : 'select'} CV file
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {pendingCVFile 
+                              ? 'File selected - will upload when you save' 
+                              : 'PDF only, max 10MB'}
+                          </p>
                         </div>
                         <input
                           id="cv-input"
@@ -1173,7 +1232,6 @@ export default function SettingsPage() {
                           accept=".pdf"
                           onChange={handleCVSelect}
                           className="hidden"
-                          disabled={uploadingCV}
                         />
                       </label>
                     </div>
@@ -1245,6 +1303,46 @@ export default function SettingsPage() {
                 <Upload size={18} />
                 Upload
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CV Preview Modal */}
+      {showCVPreview && (pendingCVPreviewUrl || settings.cvUrl) && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setShowCVPreview(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-5xl h-[90vh] shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <FileText className="text-blue-600" size={24} />
+                CV Preview {pendingCVPreviewUrl && '(Not Saved Yet)'}
+              </h3>
+              <div className="flex gap-2">
+                {!pendingCVPreviewUrl && settings.cvUrl && (
+                  <a
+                    href={settings.cvUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2"
+                  >
+                    <Download size={18} />
+                    Download
+                  </a>
+                )}
+                <button
+                  onClick={() => setShowCVPreview(false)}
+                  className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <iframe
+                src={pendingCVPreviewUrl || settings.cvUrl}
+                className="w-full h-full border-0"
+                title="CV Preview"
+              />
             </div>
           </div>
         </div>

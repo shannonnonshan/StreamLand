@@ -228,11 +228,13 @@ export class AuthController {
   @Patch('profile/teacher')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.TEACHER)
+  @UseInterceptors(FileInterceptor('cv'))
   async updateTeacherProfile(
     @Request() req: { user: { sub: string } },
     @Body() updateDto: UpdateTeacherProfileDto,
+    @UploadedFile() cvFile?: Express.Multer.File,
   ) {
-    return this.authService.updateTeacherProfile(req.user.sub, updateDto);
+    return this.authService.updateTeacherProfile(req.user.sub, updateDto, cvFile);
   }
 
   @Post('profile/teacher/upload-cv')

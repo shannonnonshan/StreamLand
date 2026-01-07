@@ -79,7 +79,7 @@ export class TeacherService {
   }
 
   // Get dashboard stats for teacher
-  async getDashboardStats(teacherId: string) {
+  async getDashboardStats(teacherId: string, filter?: string) {
     // Run all database queries in parallel (Promise.all) instead of sequentially
     const [teacher, totalLivestreams, endedLivestreams, totalDocuments, scheduledLivestreams, allEndedStreams, topLivestreams] = await Promise.all([
       // Query 1: Get teacher with profile
@@ -172,6 +172,38 @@ export class TeacherService {
       monthlySubscribers.push(Math.round(totalFollowers / last12Months));
     });
 
+    // Calculate daily data if filter is provided
+    let dailyViews: number[] = [];
+    let dailySubscribers: number[] = [];
+    
+    if (filter) {
+      const days = filter === 'last 7 day' ? 7 : filter === 'last 30 day' ? 30 : filter === 'last 90 day' ? 90 : 0;
+      
+      if (days > 0) {
+        const dayRanges = Array.from({ length: days }, (_, i) => {
+          const start = new Date(now);
+          start.setDate(start.getDate() - (days - 1 - i));
+          start.setHours(0, 0, 0, 0);
+          const end = new Date(start);
+          end.setHours(23, 59, 59, 999);
+          return { start, end };
+        });
+        
+        // Calculate daily views
+        dayRanges.forEach(({ start, end }) => {
+          const dayViews = allEndedStreams
+            .filter(s => s.endedAt && s.endedAt >= start && s.endedAt <= end)
+            .reduce((sum, s) => sum + (s.totalViews || 0), 0);
+          dailyViews.push(dayViews);
+        });
+        
+        // Calculate daily subscribers (spread evenly for now)
+        dayRanges.forEach(() => {
+          dailySubscribers.push(Math.round(totalFollowers / days));
+        });
+      }
+    }
+
     return {
       totalStudents: totalFollowers,
       totalLivestreams,
@@ -183,6 +215,8 @@ export class TeacherService {
       totalWatchTimeHours: Math.round(totalWatchTime / 3600),
       monthlyViews,
       monthlySubscribers,
+      dailyViews: dailyViews.length > 0 ? dailyViews : undefined,
+      dailySubscribers: dailySubscribers.length > 0 ? dailySubscribers : undefined,
       rating: teacher.teacherProfile.rating,
       topLivestreams,
     };
@@ -243,6 +277,7 @@ export class TeacherService {
         website: teacher.teacherProfile.website || null,
         linkedin: teacher.teacherProfile.linkedin || null,
         subjects: teacher.teacherProfile.subjects || [],
+        cvUrl: teacher.teacherProfile.cvUrl || null,
       },
       // Legacy fields for backward compatibility
       address: teacher.location || null,

@@ -4,6 +4,7 @@ import React from "react";
 import dynamic from "next/dynamic";
 import { ApexOptions } from "apexcharts";
 import { useTeacherDashboard } from "@/hooks/useTeacherDashboard";
+import { Users, Clock, Star } from "lucide-react";
 
 const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
@@ -11,17 +12,92 @@ interface AudienceProps {
   filter: string;
 }
 
+// Helper function to get categories and data based on filter
+const getChartConfig = (filter: string, stats: any) => {
+  const now = new Date();
+  
+  if (filter === 'last 7 day') {
+    const categories: string[] = [];
+    const viewsData: number[] = stats?.dailyViews?.slice(-7) || [];
+    const subsData: number[] = stats?.dailySubscribers?.slice(-7) || [];
+    
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      categories.push(date.toLocaleDateString('en-US', { weekday: 'short' }));
+    }
+    
+    return { 
+      categories, 
+      viewsData: viewsData.length === 7 ? viewsData : Array(7).fill(0),
+      subsData: subsData.length === 7 ? subsData : Array(7).fill(0)
+    };
+  }
+  
+  if (filter === 'last 30 day') {
+    const categories: string[] = [];
+    const viewsData: number[] = stats?.dailyViews?.slice(-30) || [];
+    const subsData: number[] = stats?.dailySubscribers?.slice(-30) || [];
+    
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      if (i % 5 === 0 || i === 29) {
+        categories.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      } else {
+        categories.push('');
+      }
+    }
+    
+    return { 
+      categories, 
+      viewsData: viewsData.length === 30 ? viewsData : Array(30).fill(0),
+      subsData: subsData.length === 30 ? subsData : Array(30).fill(0)
+    };
+  }
+  
+  if (filter === 'last 90 day') {
+    const categories: string[] = [];
+    const viewsData: number[] = stats?.dailyViews?.slice(-90) || [];
+    const subsData: number[] = stats?.dailySubscribers?.slice(-90) || [];
+    
+    for (let i = 89; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      if (i % 15 === 0 || i === 89) {
+        categories.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      } else {
+        categories.push('');
+      }
+    }
+    
+    return { 
+      categories, 
+      viewsData: viewsData.length === 90 ? viewsData : Array(90).fill(0),
+      subsData: subsData.length === 90 ? subsData : Array(90).fill(0)
+    };
+  }
+  
+  return {
+    categories: ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
+    viewsData: stats?.monthlyViews || Array(12).fill(0),
+    subsData: stats?.monthlySubscribers || Array(12).fill(0)
+  };
+};
+
 export default function Audience({ filter }: AudienceProps) {
-  const { stats, loading, error } = useTeacherDashboard();
+  const { stats, loading, error } = useTeacherDashboard(filter);
+  
+  const chartConfig = getChartConfig(filter, stats);
   
   const series = [
     {
       name: "Monthly Viewers",
-      data: stats?.monthlyViews || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      data: chartConfig.viewsData,
     },
     {
       name: "Subscribers",
-      data: stats?.monthlySubscribers || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      data: chartConfig.subsData,
     },
   ];
 
@@ -41,10 +117,7 @@ export default function Audience({ filter }: AudienceProps) {
       gradient: { shadeIntensity: 1, opacityFrom: 0.1, opacityTo: 0.8 },
     },
     xaxis: {
-      categories: [
-        "Jan","Feb","Mar","Apr","May","Jun",
-        "Jul","Aug","Sep","Oct","Nov","Dec",
-      ],
+      categories: chartConfig.categories,
       labels: {
         style: { colors: "#9ca3af", fontSize: "13px" },
       },
@@ -86,15 +159,30 @@ export default function Audience({ filter }: AudienceProps) {
     {/* Audience Stats Cards */}
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
       <div className="bg-white p-4 rounded-xl shadow">
-        <div className="text-sm text-gray-600 mb-1">Total Subscribers</div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-sm text-gray-600">Total Subscribers</div>
+          <div className="p-2 bg-blue-100 rounded-lg">
+            <Users className="text-blue-600" size={20} />
+          </div>
+        </div>
         <div className="text-2xl font-bold text-gray-900">{stats?.totalStudents || 0}</div>
       </div>
       <div className="bg-white p-4 rounded-xl shadow">
-        <div className="text-sm text-gray-600 mb-1">Total Watch Time</div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-sm text-gray-600">Total Watch Time</div>
+          <div className="p-2 bg-orange-100 rounded-lg">
+            <Clock className="text-orange-600" size={20} />
+          </div>
+        </div>
         <div className="text-2xl font-bold text-gray-900">{stats?.totalWatchTimeHours || 0}h</div>
       </div>
       <div className="bg-white p-4 rounded-xl shadow">
-        <div className="text-sm text-gray-600 mb-1">Teacher Rating</div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-sm text-gray-600">Teacher Rating</div>
+          <div className="p-2 bg-yellow-100 rounded-lg">
+            <Star className="text-yellow-600" size={20} />
+          </div>
+        </div>
         <div className="text-2xl font-bold text-gray-900">{stats?.rating.toFixed(1) || '0.0'} ⭐</div>
       </div>
     </div>

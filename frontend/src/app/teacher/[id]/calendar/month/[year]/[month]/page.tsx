@@ -9,7 +9,7 @@ import { ScheduleEvent } from "@/component/teacher/calendar/ScheduleEventModal";
 import ScheduleEventModal from "@/component/teacher/calendar/ScheduleEventModal";
 import { getTeacherSchedules, formatScheduleForCalendar, createSchedule, getTeacherLivestreams, formatLivestreamForCalendar } from "@/lib/api/teacher";
 import { useToast } from "@/hooks/useToast";
-import ConfirmDialog from "@/component/teacher/ConfirmDialog";
+import ConfirmDialog from "@/component/ConfirmDialog";
 
 const MONTH_NAMES = [
   "January","February","March","April","May","June",

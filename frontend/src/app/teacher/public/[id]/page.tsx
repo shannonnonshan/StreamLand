@@ -74,7 +74,6 @@ export default function PublicTeacherProfilePage() {
   const teacherId = params?.id as string;
   const { followTeacher, unfollowTeacher, isFollowingTeacher, loading } = useFollow();
   const { isAuthenticated } = useAuth();
-  const { confirmState, confirm, handleConfirm, handleCancel } = useConfirm();
 
   const [teacher, setTeacher] = useState<TeacherProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -212,19 +211,19 @@ export default function PublicTeacherProfilePage() {
         }
       } else {
         // Unfollow teacher with confirmation
-        confirm(
-          'Unsubscribe from Teacher',
-          `Are you sure you want to unsubscribe from ${teacher?.name || 'this teacher'}? You will no longer receive notifications about their content.`,
-          async () => {
-            const result = await unfollowTeacher(teacherId);
-            if (result.success && teacher) {
-              setIsSubscribed(false);
-              setTeacher({ ...teacher, subscribers: teacher.subscribers - 1 });
-            }
-          },
-          { type: 'warning', confirmText: 'Unsubscribe', cancelText: 'Cancel' }
-        );
-        return; // Exit early to prevent the rest of the try block from executing
+        showDialog({
+          title: 'Unsubscribe from Teacher',
+          message: `Are you sure you want to unsubscribe from ${teacher?.name || 'this teacher'}? You will no longer receive notifications about their content.`,
+          type: 'warning',
+          confirmText: 'Unsubscribe',
+          cancelText: 'Cancel'
+        }, async () => {
+          const result = await unfollowTeacher(teacherId);
+          if (result.success && teacher) {
+            setIsSubscribed(false);
+            setTeacher({ ...teacher, subscribers: teacher.subscribers - 1 });
+          }
+        });
       }
     } catch {
       // Error toggling follow

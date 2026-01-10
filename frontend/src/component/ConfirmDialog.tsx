@@ -1,4 +1,6 @@
-import React from 'react';
+"use client";
+
+import { raleway } from "@/utils/front";
 import { AlertTriangle, XCircle, CheckCircle2, Info, X } from 'lucide-react';
 
 export type ConfirmDialogType = 'danger' | 'warning' | 'success' | 'info';
@@ -53,24 +55,14 @@ export default function ConfirmDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
+    <div
+      className={`${raleway.className} fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] animate-in fade-in duration-200`}
+      onClick={onCancel}
+    >
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onCancel}
-      />
-      
-      {/* Dialog */}
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 transform transition-all">
-        {/* Close button */}
-        <button
-          onClick={onCancel}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        {/* Content */}
+        className="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex flex-col items-center text-center">
           <div className="mb-4">{getIcon()}</div>
           

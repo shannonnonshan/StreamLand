@@ -1,7 +1,5 @@
-"use client";
-
-import { useState, useCallback } from "react";
-import ConfirmDialog, { ConfirmDialogType } from "@/component/ConfirmDialog";
+import { useState, useCallback } from 'react';
+import { ConfirmDialogType } from '@/component/ConfirmDialog';
 
 interface ConfirmState {
   open: boolean;
@@ -16,11 +14,11 @@ interface ConfirmState {
 export function useConfirm() {
   const [state, setState] = useState<ConfirmState>({
     open: false,
-    title: "",
-    message: "",
-    type: "warning",
-    confirmText: "Confirm",
-    cancelText: "Cancel",
+    title: '',
+    message: '',
+    type: 'warning',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
     onConfirm: () => {},
   });
 
@@ -39,9 +37,9 @@ export function useConfirm() {
         open: true,
         title,
         message,
-        type: options?.type || "warning",
-        confirmText: options?.confirmText || "Confirm",
-        cancelText: options?.cancelText || "Cancel",
+        type: options?.type || 'warning',
+        confirmText: options?.confirmText || 'Confirm',
+        cancelText: options?.cancelText || 'Cancel',
         onConfirm,
       });
     },
@@ -57,21 +55,10 @@ export function useConfirm() {
     setState((prev) => ({ ...prev, open: false }));
   }, []);
 
-  const ConfirmComponent = state.open ? (
-    <ConfirmDialog
-      open={state.open}
-      title={state.title}
-      message={state.message}
-      type={state.type}
-      confirmText={state.confirmText}
-      cancelText={state.cancelText}
-      onConfirm={handleConfirm}
-      onCancel={handleCancel}
-    />
-  ) : null;
-
   return {
+    confirmState: state,
     confirm,
-    ConfirmComponent,
+    handleConfirm,
+    handleCancel,
   };
 }

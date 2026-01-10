@@ -46,7 +46,7 @@ export class AuthService {
     });
 
     if (existingUser) {
-      throw new ConflictException('Email already registered');
+      throw new ConflictException('This email address is already registered. Please use a different email or login.');
     }
 
     // Check if pending registration exists
@@ -90,7 +90,7 @@ export class AuthService {
     await this.mailService.sendOTP(email, otp, fullName);
 
     return {
-      message: 'Registration successful. Please verify your email with OTP.',
+      message: 'Registration successful. Please check your email for the verification code (OTP).',
       email,
     };
   }
@@ -107,12 +107,12 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Invalid email or password. Please check your credentials and try again.');
     }
 
     // Check if user is verified
     if (!user.isVerified) {
-      throw new UnauthorizedException('Please verify your email first');
+      throw new UnauthorizedException('Email verification required. Please verify your email address before logging in.');
     }
 
     // Check if teacher is approved (for TEACHER role only)
@@ -135,7 +135,7 @@ export class AuthService {
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Invalid email or password. Please check your credentials and try again.');
     }
 
     // Check if 2FA is enabled
@@ -157,7 +157,7 @@ export class AuthService {
       await this.mailService.sendOTP(email, otp, user.fullName);
 
       return {
-        message: '2FA OTP sent to your email',
+        message: 'Two-factor authentication required. A verification code has been sent to your email.',
         requires2FA: true,
         email: user.email,
       };
@@ -176,7 +176,7 @@ export class AuthService {
     });
 
     return {
-      message: 'Login successful',
+      message: 'Login successful. Welcome back!',
       user: {
         id: user.id,
         email: user.email,
@@ -199,18 +199,18 @@ export class AuthService {
 
     if (!pendingReg) {
       throw new BadRequestException(
-        'Registration not found. Please register first.',
+        'No pending registration found for this email. Please register first.',
       );
     }
 
     // Check OTP
     if (pendingReg.otp !== otp) {
-      throw new BadRequestException('Invalid OTP');
+      throw new BadRequestException('Invalid verification code. Please check the code and try again.');
     }
 
     // Check OTP expiration
     if (pendingReg.otpExpiry < new Date()) {
-      throw new BadRequestException('OTP expired. Please request a new one.');
+      throw new BadRequestException('Verification code has expired. Please request a new code.');
     }
 
     // Create user in database
@@ -257,7 +257,7 @@ export class AuthService {
     });
 
     return {
-      message: 'Email verified successfully',
+      message: 'Email verified successfully. Your account is now active!',
       user: {
         id: user.id,
         email: user.email,
@@ -279,22 +279,22 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new UnauthorizedException('User account not found. Please check your email and try again.');
     }
 
     // Check if 2FA is enabled
     if (!user.twoFactorEnabled) {
-      throw new BadRequestException('2FA is not enabled for this account');
+      throw new BadRequestException('Two-factor authentication is not enabled for this account.');
     }
 
     // Check OTP
     if (user.otp !== otp) {
-      throw new UnauthorizedException('Invalid OTP');
+      throw new UnauthorizedException('Invalid verification code. Please check the code and try again.');
     }
 
     // Check OTP expiration
     if (!user.otpExpiry || user.otpExpiry < new Date()) {
-      throw new UnauthorizedException('OTP expired. Please login again.');
+      throw new UnauthorizedException('Verification code has expired. Please login again to receive a new code.');
     }
 
     // Clear OTP after successful verification
@@ -319,7 +319,7 @@ export class AuthService {
     });
 
     return {
-      message: '2FA verification successful',
+      message: 'Two-factor authentication successful. Welcome back!',
       user: {
         id: user.id,
         email: user.email,
@@ -342,7 +342,7 @@ export class AuthService {
         (this.OTP_RATE_LIMIT_MS - (Date.now() - lastSent)) / 1000,
       );
       throw new BadRequestException(
-        `Please wait ${remainingSeconds} seconds before requesting another OTP`,
+        `Too many requests. Please wait ${remainingSeconds} seconds before requesting another verification code.`,
       );
     }
 
@@ -369,7 +369,7 @@ export class AuthService {
       this.otpRateLimitMap.set(email, Date.now());
 
       return {
-        message: 'OTP sent to your email',
+        message: 'Verification code sent successfully. Please check your email.',
       };
     }
 
@@ -379,7 +379,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new BadRequestException('Email not found. Please register first.');
+      throw new BadRequestException('No account found with this email address. Please register first.');
     }
 
     // Update user with new OTP
@@ -395,7 +395,7 @@ export class AuthService {
     this.otpRateLimitMap.set(email, Date.now());
 
     return {
-      message: 'OTP sent to your email',
+      message: 'Password reset code sent successfully. Please check your email.',
     };
   }
 
@@ -408,7 +408,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new BadRequestException('User not found');
+      throw new BadRequestException('User account not found. Please check your email and try again.');
     }
 
     // Hash new password
@@ -421,7 +421,7 @@ export class AuthService {
     });
 
     return {
-      message: 'Password reset successfully',
+      message: 'Password reset successful. You can now login with your new password.',
     };
   }
 
@@ -438,7 +438,7 @@ export class AuthService {
     });
 
     if (!session) {
-      throw new UnauthorizedException('Invalid refresh token');
+      throw new UnauthorizedException('Invalid or expired session. Please login again.');
     }
 
     const user = await this.prisma.postgres.user.findUnique({
@@ -446,7 +446,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new UnauthorizedException('User account not found. Please login again.');
     }
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
@@ -476,7 +476,7 @@ export class AuthService {
 
     if (!session) {
       console.error('❌ Session not found for refresh token');
-      throw new UnauthorizedException('Invalid refresh token');
+      throw new UnauthorizedException('Invalid or expired session. Please login again.');
     }
 
     console.log('✅ Session found, userId:', session.userId);
@@ -487,7 +487,7 @@ export class AuthService {
 
     if (!user) {
       console.error('❌ User not found for session userId:', session.userId);
-      throw new UnauthorizedException('User not found');
+      throw new UnauthorizedException('User account not found. Please login again.');
     }
 
     console.log('✅ User found, generating new tokens');
@@ -514,7 +514,7 @@ export class AuthService {
       where: { userId },
     });
 
-    return { message: 'Logout successful' };
+    return { message: 'Logged out successfully. See you soon!' };
   }
 
   async getProfile(userId: string) {
@@ -536,7 +536,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new BadRequestException('User not found');
+      throw new BadRequestException('User profile not found. Please login again.');
     }
 
     return user;
@@ -618,7 +618,7 @@ export class AuthService {
 
     return {
       isNewUser: false,
-      message: 'Google login successful',
+      message: 'Google login successful. Welcome back!',
       user: {
         id: user.id,
         email: user.email,
@@ -688,7 +688,7 @@ export class AuthService {
 
     return {
       isNewUser: false,
-      message: 'GitHub login successful',
+      message: 'GitHub login successful. Welcome back!',
       user: {
         id: user.id,
         email: user.email,
@@ -730,7 +730,7 @@ export class AuthService {
 
     if (existingUser) {
       throw new ConflictException(
-        'User already exists with this email or social account',
+        'An account already exists with this email or social account. Please login instead.',
       );
     }
 
@@ -802,7 +802,7 @@ export class AuthService {
     });
 
     return {
-      message: 'OAuth registration completed successfully',
+      message: 'Registration completed successfully. Welcome to StreamLand!',
       user: {
         id: user.id,
         email: user.email,
@@ -822,7 +822,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('User profile not found. Please login again.');
     }
 
     const updatedUser = await this.prisma.postgres.user.update({
@@ -855,11 +855,11 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('User profile not found. Please login again.');
     }
 
     if (user.role !== 'STUDENT') {
-      throw new BadRequestException('User is not a student');
+      throw new BadRequestException('Access denied. This action is only available for student accounts.');
     }
 
     // Create profile if it doesn't exist
@@ -895,11 +895,11 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('User profile not found. Please login again.');
     }
 
     if (user.role !== 'TEACHER') {
-      throw new BadRequestException('User is not a teacher');
+      throw new BadRequestException('Access denied. This action is only available for teacher accounts.');
     }
 
     // Upload CV to R2 if file is provided
@@ -953,11 +953,11 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('User profile not found. Please login again.');
     }
 
     if (user.role !== 'TEACHER') {
-      throw new BadRequestException('User is not a teacher');
+      throw new BadRequestException('Access denied. This action is only available for teacher accounts.');
     }
 
     // Upload CV to R2

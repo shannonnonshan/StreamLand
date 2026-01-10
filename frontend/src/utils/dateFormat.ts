@@ -95,6 +95,9 @@ export function formatRelativeTime(date: string | Date): string {
  * Format duration in seconds as: 3:45 or 1:23:45
  */
 export function formatDuration(seconds: number): string {
+  // Handle NaN, null, undefined, or negative values
+  if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';
+  
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);

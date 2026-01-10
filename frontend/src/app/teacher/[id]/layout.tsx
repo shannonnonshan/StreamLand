@@ -28,6 +28,7 @@ import OTPModal from "@/component/(modal)/verifyOtp";
 import StartLivestreamModal, { LivestreamData } from "@/component/teacher/StartLivestreamModal";
 import NotificationBell from "@/component/NotificationBell";
 import { NotificationProvider } from '@/contexts/NotificationContext';
+import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -46,6 +47,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const { user, isAuthenticated, loading } = useAuth();
+  const { showDialog, DialogComponent } = useConfirmDialog();
 
   // Scroll to top button
   useEffect(() => {
@@ -181,7 +183,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       // Immediate redirect - no timeout needed
       router.push(`/teacher/${id}/livestream/${livestreamIdToNavigate}`);
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to create livestream');
+      showDialog({
+        title: 'Error',
+        message: error instanceof Error ? error.message : 'Failed to create livestream',
+        type: 'danger',
+        confirmText: 'OK'
+      });
       throw error; // Re-throw to keep modal in loading state
     }
   };
@@ -419,6 +426,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           )}
         </div>
         </div>
+        {DialogComponent}
       </>
     </NotificationProvider>
   );

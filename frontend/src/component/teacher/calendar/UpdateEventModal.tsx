@@ -4,6 +4,7 @@ import { raleway } from "@/utils/front";
 import { useState, useEffect } from "react";
 import { Bell, Clock, Palette, XIcon, Tag } from "lucide-react";
 import { CalendarEvent } from "@/utils/data/teacher/calendar";
+import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
 
 interface UpdateEventModalProps {
   open: boolean;
@@ -32,6 +33,7 @@ export default function UpdateEventModal({
   const [isPublic, setIsPublic] = useState(true);
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState("");
+  const { showDialog, DialogComponent } = useConfirmDialog();
 
   // Load schedule data when modal opens
   useEffect(() => {
@@ -109,7 +111,12 @@ export default function UpdateEventModal({
       setTags(data.tags || []);
     } catch (error) {
       console.error('Failed to fetch schedule:', error);
-      alert(error instanceof Error ? error.message : 'Failed to load schedule data');
+      showDialog({
+        title: 'Error',
+        message: error instanceof Error ? error.message : 'Failed to load schedule data',
+        type: 'danger',
+        confirmText: 'OK'
+      });
     } finally {
       setLoading(false);
     }
@@ -141,12 +148,22 @@ export default function UpdateEventModal({
 
     // Check if this is a livestream event without schedule - show warning
     if ((event as any).type === 'livestream' && !(event as any).scheduleId) {
-      alert('Cannot update livestream events directly. Please update the associated schedule instead.');
+      showDialog({
+        title: 'Warning',
+        message: 'Cannot update livestream events directly. Please update the associated schedule instead.',
+        type: 'warning',
+        confirmText: 'OK'
+      });
       return;
     }
 
     if (!event?.id) {
-      alert('Invalid event - missing ID');
+      showDialog({
+        title: 'Error',
+        message: 'Invalid event - missing ID',
+        type: 'danger',
+        confirmText: 'OK'
+      });
       return;
     }
 
@@ -243,7 +260,12 @@ export default function UpdateEventModal({
       }, 500);
     } catch (error) {
       console.error('Failed to update schedule:', error);
-      alert(error instanceof Error ? error.message : 'Failed to update schedule');
+      showDialog({
+        title: 'Error',
+        message: error instanceof Error ? error.message : 'Failed to update schedule',
+        type: 'danger',
+        confirmText: 'OK'
+      });
     } finally {
       setIsSaving(false);
     }
@@ -459,6 +481,7 @@ export default function UpdateEventModal({
           </>
         )}
       </div>
+      {DialogComponent}
     </div>
   );
 }

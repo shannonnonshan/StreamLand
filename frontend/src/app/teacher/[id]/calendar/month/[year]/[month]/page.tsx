@@ -9,6 +9,7 @@ import { ScheduleEvent } from "@/component/teacher/calendar/ScheduleEventModal";
 import ScheduleEventModal from "@/component/teacher/calendar/ScheduleEventModal";
 import { getTeacherSchedules, formatScheduleForCalendar, createSchedule, getTeacherLivestreams, formatLivestreamForCalendar } from "@/lib/api/teacher";
 import { useToast } from "@/hooks/useToast";
+import ConfirmDialog from "@/component/teacher/ConfirmDialog";
 
 const MONTH_NAMES = [
   "January","February","March","April","May","June",
@@ -30,6 +31,7 @@ interface CalendarEvent {
   livestreamId?: string;
   type?: 'livestream';
   status?: string;
+  scheduleId?: string;
 }
 
 export default function MonthCalendarPage({
@@ -57,6 +59,12 @@ export default function MonthCalendarPage({
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // confirm dialog state
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    date: 0
+  });
+
   // Fetch schedules function (extracted for reuse)
   const fetchSchedules = useCallback(async () => {
     try {
@@ -76,7 +84,7 @@ export default function MonthCalendarPage({
       ]);
       
       // Format schedules
-      const calendarEvents = schedules.map(formatScheduleForCalendar);
+      const calendarEvents: CalendarEvent[] = schedules.map(formatScheduleForCalendar);
       
       // Format livestreams and add to events (only if no schedule is linked)
       livestreams.forEach((ls: any) => {
@@ -86,11 +94,11 @@ export default function MonthCalendarPage({
         }
         
         if (ls.status === 'SCHEDULED') {
-          calendarEvents.push(formatLivestreamForCalendar(ls, 'scheduled'));
+          calendarEvents.push(formatLivestreamForCalendar(ls, 'scheduled') as CalendarEvent);
         } else if (ls.status === 'LIVE') {
-          calendarEvents.push(formatLivestreamForCalendar(ls, 'live'));
+          calendarEvents.push(formatLivestreamForCalendar(ls, 'live') as CalendarEvent);
         } else if (ls.status === 'ENDED') {
-          calendarEvents.push(formatLivestreamForCalendar(ls, 'ended'));
+          calendarEvents.push(formatLivestreamForCalendar(ls, 'ended') as CalendarEvent);
         }
       });
       
@@ -180,7 +188,7 @@ export default function MonthCalendarPage({
     today.setHours(0, 0, 0, 0);
     
     if (selected < today) {
-      alert('Cannot schedule events in the past. Please select a future date.');
+      setConfirmDialog({ open: true, date });
       return;
     }
 
@@ -326,6 +334,17 @@ export default function MonthCalendarPage({
       />
 
       {ToastComponent}
+
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title="Cannot Schedule in the Past"
+        message="Cannot schedule events in the past. Please select a future date."
+        type="warning"
+        confirmText="OK"
+        cancelText="Close"
+        onConfirm={() => setConfirmDialog({ open: false, date: 0 })}
+        onCancel={() => setConfirmDialog({ open: false, date: 0 })}
+      />
     </div>
   );
 }

@@ -196,7 +196,7 @@ export function formatScheduleForCalendar(schedule: Schedule & { liveStream?: { 
   notification?: number;
   description?: string;
   livestreamId?: string;
-  scheduleId: string;
+  scheduleId?: string;
 } {
   const startDate = new Date(schedule.startTime);
   const endDate = new Date(schedule.endTime);
@@ -259,6 +259,7 @@ export function formatLivestreamForCalendar(livestream: LiveStream, type: 'sched
   livestreamId: string;
   type: 'livestream';
   status: string;
+  scheduleId?: string;
 } {
   // Determine which timestamp to use
   let startDate: Date;

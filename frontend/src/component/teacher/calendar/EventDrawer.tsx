@@ -11,6 +11,7 @@ import EarlyStartWarningModal from "./EarlyStartWarningModal";
 import UpdateEventModal from "./UpdateEventModal";
 import StartLivestreamModal, { LivestreamData } from "@/component/teacher/StartLivestreamModal";
 import { startLivestreamEarly } from "@/lib/api/teacher";
+import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
 
 interface EventDrawerProps {
   event: CalendarEvent | null;
@@ -33,6 +34,7 @@ export default function EventDrawer({
   const [pendingLivestreamId, setPendingLivestreamId] = useState<string | null>(null);
   const [isStartingEarly, setIsStartingEarly] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const { showDialog, DialogComponent } = useConfirmDialog();
 
   // Get user info from localStorage
   useEffect(() => {
@@ -258,7 +260,12 @@ export default function EventDrawer({
           } catch (error) {
             console.error('Failed to start livestream early:', error);
             setIsStartingEarly(false);
-            alert('Failed to start livestream. Please try again.');
+            showDialog({
+              title: 'Error',
+              message: 'Failed to start livestream. Please try again.',
+              type: 'danger',
+              confirmText: 'OK'
+            });
           }
         }}
         onStartNewLivestream={() => {
@@ -329,13 +336,19 @@ export default function EventDrawer({
               window.location.href = `/teacher/${event?.teacherId}/livestream/${livestreamIdToNavigate}`;
             }, 0);
           } catch (error) {
-            alert(error instanceof Error ? error.message : 'Failed to create livestream');
+            showDialog({
+              title: 'Error',
+              message: error instanceof Error ? error.message : 'Failed to create livestream',
+              type: 'danger',
+              confirmText: 'OK'
+            });
             throw error;
           }
         }}
         teacherId={event?.teacherId || ""}
       />
 
+      {DialogComponent}
     </>
   );
 }

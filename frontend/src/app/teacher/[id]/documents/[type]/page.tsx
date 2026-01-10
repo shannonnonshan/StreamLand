@@ -6,11 +6,13 @@ import Image from "next/image";
 import { ArrowDownToLine, Upload, Trash2 } from "lucide-react";
 import { getTeacherDocuments, uploadDocument, deleteDocument, Document, mapDocumentTypeToFileType } from "@/lib/api/teacher";
 import { formatDate, formatDateTime } from "@/utils/dateFormat";
+import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
 
 export default function DocumentsTypePage() {
   const params = useParams();
   const type = params?.type as string;
   const teacherId = params?.id as string;
+  const { showDialog, DialogComponent } = useConfirmDialog();
 
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -67,11 +69,23 @@ export default function DocumentsTypePage() {
       
       // Add new documents to list
       setDocuments([...uploadedDocs, ...documents]);
-      alert(`${uploadedDocs.length} document(s) uploaded successfully!`);
+      showDialog({
+        title: 'Upload Successful',
+        message: `${uploadedDocs.length} document(s) uploaded successfully!`,
+        type: 'success',
+        confirmText: 'OK',
+        cancelText: 'Close'
+      });
     } catch (error) {
       console.error('Upload failed:', error);
       const errorMsg = error instanceof Error ? error.message : 'Failed to upload documents';
-      alert(`Upload failed: ${errorMsg}. Please try again.`);
+      showDialog({
+        title: 'Upload Failed',
+        message: `${errorMsg}. Please try again.`,
+        type: 'danger',
+        confirmText: 'OK',
+        cancelText: 'Close'
+      });
     } finally {
       setIsUploading(false);
       // Reset input to allow re-upload same file
@@ -98,10 +112,22 @@ export default function DocumentsTypePage() {
         setSelectedDoc(null);
       }
       
-      alert('Document deleted successfully!');
+      showDialog({
+        title: 'Delete Successful',
+        message: 'Document deleted successfully!',
+        type: 'success',
+        confirmText: 'OK',
+        cancelText: 'Close'
+      });
     } catch (error) {
       console.error('Delete failed:', error);
-      alert('Failed to delete document. Please try again.');
+      showDialog({
+        title: 'Delete Failed',
+        message: 'Failed to delete document. Please try again.',
+        type: 'danger',
+        confirmText: 'OK',
+        cancelText: 'Close'
+      });
     } finally {
       setIsDeleting(false);
       setShowDeleteConfirm(false);
@@ -380,6 +406,8 @@ export default function DocumentsTypePage() {
           </div>
         </div>
       )}
+
+      {DialogComponent}
     </div>
   );
 }

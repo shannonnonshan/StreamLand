@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { CalendarEvent } from "@/utils/data/teacher/calendar";
 import EventListDrawer from "@/component/teacher/calendar/EventListDrawer";
 import { getTeacherSchedules, formatScheduleForCalendar } from "@/lib/api/teacher";
+import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
 
 const monthNames = [
   "January","February","March","April","May","June",
@@ -33,6 +34,7 @@ export default function YearCalendarClient({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const { showDialog, DialogComponent } = useConfirmDialog();
 
   // Fetch events from backend
   useEffect(() => {
@@ -62,7 +64,13 @@ export default function YearCalendarClient({
 
   const openDay = (date: Date) => {
     if (isPastDate(date)) {
-      alert('Cannot schedule events in the past. Please select a future date.');
+      showDialog({
+        title: 'Cannot Schedule in the Past',
+        message: 'Cannot schedule events in the past. Please select a future date.',
+        type: 'warning',
+        confirmText: 'OK',
+        cancelText: 'Close'
+      });
       return;
     }
     setSelectedDate(date);
@@ -147,6 +155,8 @@ export default function YearCalendarClient({
         isOpen={drawerOpen}
         onClose={() => setDrawerOpen(false)}
       />
+
+      {DialogComponent}
     </div>
   );
 }

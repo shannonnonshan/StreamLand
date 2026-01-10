@@ -20,6 +20,7 @@ import {
 import { useFollow } from "@/hooks/useFollow";
 import { useAuth } from "@/hooks/useAuth";
 import toast, { Toaster } from 'react-hot-toast';
+import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
 
 interface TeacherProfile {
   id: string;
@@ -81,6 +82,7 @@ export default function PublicTeacherProfilePage() {
   const [videos, setVideos] = useState<VideoData[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(true);
   const [isScrolled, setIsScrolled] = useState(false);
+  const { showDialog, DialogComponent } = useConfirmDialog();
 
   // Handle scroll for sticky header
   useEffect(() => {
@@ -222,7 +224,12 @@ export default function PublicTeacherProfilePage() {
 
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
-    alert("Profile link copied to clipboard!");
+    showDialog({
+      title: 'Success',
+      message: 'Profile link copied to clipboard!',
+      type: 'info',
+      confirmText: 'OK'
+    });
   };
 
   const handleVideoClick = (video: VideoData) => {
@@ -606,6 +613,7 @@ export default function PublicTeacherProfilePage() {
           )}
         </div>
       </div>
+      {DialogComponent}
     </div>
   );
 }

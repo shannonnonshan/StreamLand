@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Send, ArrowLeft, MessageCircle } from "lucide-react";
 import Image from "next/image";
 import { raleway } from "@/utils/front";
+import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
 
 type ChatMessage = {
   id: number;
@@ -27,6 +28,7 @@ export default function ChatWithAdminPage() {
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [toast, setToast] = useState<{show: boolean; message: string; type: 'error' | 'success'}>({show: false, message: '', type: 'success'});
   const [confirmModal, setConfirmModal] = useState<{show: boolean; messageId: number; attachmentUrl: string}>({show: false, messageId: 0, attachmentUrl: ''});
+  const { showDialog, DialogComponent } = useConfirmDialog();
 
   const showToast = (message: string, type: 'error' | 'success' = 'error') => {
     setToast({show: true, message, type});
@@ -125,11 +127,21 @@ const handleSend = async () => {
       setSelectedImages([]);
       setImagePreviews([]);
     } else {
-      alert('Failed to send message');
+      showDialog({
+        title: 'Error',
+        message: 'Failed to send message',
+        type: 'danger',
+        confirmText: 'OK'
+      });
     }
   } catch (error) {
     console.error('Error sending message:', error);
-    alert('Failed to send message');
+    showDialog({
+      title: 'Error',
+      message: 'Failed to send message',
+      type: 'danger',
+      confirmText: 'OK'
+    });
   } finally {
     setLoading(false);
   }
@@ -417,6 +429,7 @@ const confirmRemoveAttachment = async () => {
           </div>
         </div>
       )}
+      {DialogComponent}
     </div>
   );
 }

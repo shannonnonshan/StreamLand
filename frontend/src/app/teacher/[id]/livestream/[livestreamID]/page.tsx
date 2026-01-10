@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ICE_SERVERS } from "@/utils/ice";
 import socket from "@/socket";
+import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 import {
@@ -116,6 +117,8 @@ export default function BroadcasterPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const cameraToggleByCameraStateRef = useRef(false); // Track if last toggle was from effect, not user
+
+  const { showDialog, DialogComponent } = useConfirmDialog();
 
   // Track isLive for internal debugging
   useEffect(() => {
@@ -486,7 +489,13 @@ export default function BroadcasterPage() {
       setShowCameraSettings(false);
     } catch (error) {
       console.error('Error switching camera:', error);
-      alert('Failed to switch camera. Please try again.');
+      showDialog({
+        title: 'Camera Error',
+        message: 'Failed to switch camera. Please try again.',
+        type: 'danger',
+        confirmText: 'OK',
+        cancelText: 'Close'
+      });
     }
   };
 
@@ -530,7 +539,13 @@ export default function BroadcasterPage() {
           userMessage += 'This page must be accessed over HTTPS for security reasons.';
         }
         
-        alert(userMessage);
+        showDialog({
+          title: 'Media Access Error',
+          message: userMessage,
+          type: 'danger',
+          confirmText: 'OK',
+          cancelText: 'Close'
+        });
         throw mediaError;
       }
 
@@ -753,7 +768,13 @@ export default function BroadcasterPage() {
              err.name === 'NotReadableError' ||
              err.name === 'TrackStartError' ||
              err.name === 'SecurityError'))) {
-        alert(`Failed to start livestream: ${errMsg}`);
+        showDialog({
+          title: 'Livestream Start Error',
+          message: `Failed to start livestream: ${errMsg}`,
+          type: 'danger',
+          confirmText: 'OK',
+          cancelText: 'Close'
+        });
       }
     }
   }
@@ -853,7 +874,13 @@ export default function BroadcasterPage() {
           return;
         } catch (error) {
           console.error('Error preparing recording:', error);
-          alert('Error preparing recording preview. Please try again.');
+          showDialog({
+            title: 'Recording Error',
+            message: 'Error preparing recording preview. Please try again.',
+            type: 'danger',
+            confirmText: 'OK',
+            cancelText: 'Close'
+          });
           setIsEndingStream(false);
           return;
         }
@@ -864,7 +891,13 @@ export default function BroadcasterPage() {
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to end livestream';
-      alert(`Error: ${errorMessage}. Please try again.`);
+      showDialog({
+        title: 'Error',
+        message: `Error: ${errorMessage}. Please try again.`,
+        type: 'danger',
+        confirmText: 'OK',
+        cancelText: 'Close'
+      });
       setIsEndingStream(false);
     }
   }
@@ -963,13 +996,25 @@ export default function BroadcasterPage() {
 
       const result = await uploadResp.json();
       console.log('[Upload] Success:', result.url);
-      alert('Recording uploaded successfully!');
+      showDialog({
+        title: 'Upload Successful',
+        message: 'Recording uploaded successfully!',
+        type: 'success',
+        confirmText: 'OK',
+        cancelText: 'Close'
+      });
 
       // Now finish ending stream
       await finishEndingStream();
     } catch (error) {
       console.error('[Upload] Error:', error);
-      alert('Failed to upload recording: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      showDialog({
+        title: 'Upload Failed',
+        message: 'Failed to upload recording: ' + (error instanceof Error ? error.message : 'Unknown error'),
+        type: 'danger',
+        confirmText: 'OK',
+        cancelText: 'Close'
+      });
       setIsEndingStream(false);
     }
   };
@@ -1049,7 +1094,13 @@ export default function BroadcasterPage() {
       router.push(`/teacher/${teacherID}`);
     } catch (error) {
       console.error('[End Stream] Error:', error);
-      alert('Error ending stream: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      showDialog({
+        title: 'Error Ending Stream',
+        message: 'Error ending stream: ' + (error instanceof Error ? error.message : 'Unknown error'),
+        type: 'danger',
+        confirmText: 'OK',
+        cancelText: 'Close'
+      });
       setIsEndingStream(false);
     }
   };
@@ -1462,7 +1513,13 @@ export default function BroadcasterPage() {
 
     const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
     if (!token) {
-      alert('Please login to upload documents');
+      showDialog({
+        title: 'Login Required',
+        message: 'Please login to upload documents',
+        type: 'warning',
+        confirmText: 'OK',
+        cancelText: 'Close'
+      });
       return;
     }
 
@@ -1503,7 +1560,13 @@ export default function BroadcasterPage() {
       setNewFileName(file.name.replace(/\.[^/.]+$/, '')); // Filename without extension
       
     } catch (error) {
-      alert('Failed to upload document. Please try again.');
+      showDialog({
+        title: 'Upload Failed',
+        message: 'Failed to upload document. Please try again.',
+        type: 'danger',
+        confirmText: 'OK',
+        cancelText: 'Close'
+      });
     }
 
     if (fileInputRef.current) {
@@ -2399,6 +2462,7 @@ export default function BroadcasterPage() {
           </div>
         </div>
       )}
+      {DialogComponent}
     </div>
   );
 }

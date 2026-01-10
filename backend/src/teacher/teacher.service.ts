@@ -67,10 +67,12 @@ export class TeacherService {
 
   // Helper to format duration in seconds to HH:MM:SS or MM:SS
   private formatDuration(seconds: number | null): string {
-    if (!seconds) return '0:00';
+    // Handle null, undefined, 0, or NaN
+    if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';
+    
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
+    const secs = Math.floor(seconds % 60);
     
     if (hours > 0) {
       return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;

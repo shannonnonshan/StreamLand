@@ -50,12 +50,13 @@ export default function ForgotPasswordModal({
 
   // Validate email format
   const validateEmail = (email: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Strict email validation - only allows letters, numbers, dots, hyphens, underscores in local part
+    const emailRegex = /^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]@[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\.[a-zA-Z]{2,}$/;
     if (!email) {
       setEmailError('Email is required');
       return false;
     } else if (!emailRegex.test(email)) {
-      setEmailError('Invalid email format');
+      setEmailError('Invalid email format. Please use a valid email address');
       return false;
     }
     setEmailError('');

@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
 } from 'class-validator';
 import { Role } from '@prisma/client';
 
@@ -14,6 +15,9 @@ export class GoogleLoginDto {
 
   @IsEmail()
   @IsNotEmpty()
+  @Matches(/^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]@[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\.[a-zA-Z]{2,}$/, {
+    message: 'Invalid email format. Please use a valid email address',
+  })
   email: string;
 
   @IsString()

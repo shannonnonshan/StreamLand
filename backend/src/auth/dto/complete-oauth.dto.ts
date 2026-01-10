@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsOptional,
   IsNotEmpty,
+  Matches,
 } from 'class-validator';
 import { Role } from './register.dto';
 
@@ -17,6 +18,9 @@ export class CompleteOAuthDto {
   socialId: string; // googleId or githubId
 
   @IsEmail()
+  @Matches(/^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]@[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\.[a-zA-Z]{2,}$/, {
+    message: 'Invalid email format. Please use a valid email address',
+  })
   email: string;
 
   @IsString()

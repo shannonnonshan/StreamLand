@@ -26,6 +26,9 @@ import {
 } from '@heroicons/react/24/outline';
 import Headerbar from '@/component/student/Headerbar';
 import { useAuth } from '@/hooks/useAuth';
+import ConfirmDialog from '@/component/ConfirmDialog';
+import { useConfirm } from '@/hooks/useConfirm';
+import toast, { Toaster } from 'react-hot-toast';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
@@ -67,6 +70,7 @@ export default function StudentProfilePage() {
   const router = useRouter();
   const { id } = params;
   const { user: currentUser, getProfile } = useAuth();
+  const { confirmState, confirm, handleConfirm, handleCancel } = useConfirm();
   
   const [friendshipStatus, setFriendshipStatus] = useState<'NONE' | 'PENDING' | 'ACCEPTED'>('NONE');
   const [friendshipId, setFriendshipId] = useState<string | null>(null);
@@ -273,7 +277,74 @@ export default function StudentProfilePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   
+  // Validation functions
+  const validateFullName = (name: string): string => {
+    if (!name || name.trim().length < 2) {
+      return 'Full name must be at least 2 characters';
+    }
+    if (name.length > 100) {
+      return 'Full name must not exceed 100 characters';
+    }
+    if (!/^[a-zA-Z\s'\-À-ÿ]+$/.test(name)) {
+      return 'Full name can only contain letters, spaces, hyphens, and apostrophes';
+    }
+    return '';
+  };
+
+  const validateSchool = (school: string): string => {
+    if (school && school.trim().length > 0) {
+      if (school.length < 2) {
+        return 'School name must be at least 2 characters';
+      }
+      if (school.length > 200) {
+        return 'School name must not exceed 200 characters';
+      }
+      if (!/^[a-zA-Z0-9\s.'\-À-ÿ]+$/.test(school)) {
+        return 'School name can only contain letters, numbers, spaces, periods, hyphens, and apostrophes';
+      }
+    }
+    return '';
+  };
+
+  const validateGrade = (grade: string): string => {
+    if (grade && grade.trim().length > 0) {
+      if (grade.length > 50) {
+        return 'Grade must not exceed 50 characters';
+      }
+      if (!/^[a-zA-Z0-9\s\-]+$/.test(grade)) {
+        return 'Grade can only contain letters, numbers, spaces, and hyphens';
+      }
+    }
+    return '';
+  };
+
+  const validateLocation = (location: string): string => {
+    if (location && location.trim().length > 0) {
+      if (location.length > 100) {
+        return 'Location must not exceed 100 characters';
+      }
+      if (!/^[a-zA-Z0-9\s,.'\-À-ÿ]+$/.test(location)) {
+        return 'Location contains invalid characters';
+      }
+    }
+    return '';
+  };
+
   const handleSaveProfile = async () => {
+    // Validate all fields before saving
+    const fullNameError = validateFullName(editForm.fullName);
+    const schoolError = validateSchool(editForm.school);
+    const gradeError = validateGrade(editForm.grade);
+    const locationError = validateLocation(editForm.location);
+
+    if (fullNameError || schoolError || gradeError || locationError) {
+      if (fullNameError) toast.error(fullNameError);
+      if (schoolError) toast.error(schoolError);
+      if (gradeError) toast.error(gradeError);
+      if (locationError) toast.error(locationError);
+      return;
+    }
+
     try {
       setIsSaving(true);
       const token = localStorage.getItem('accessToken');
@@ -380,22 +451,29 @@ export default function StudentProfilePage() {
   const handleUnfriend = async () => {
     if (!friendshipId) return;
     
-    try {
-      const token = localStorage.getItem('accessToken');
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      
-      const response = await fetch(`${API_URL}/student/friends/${friendshipId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
-      if (response.ok) {
-        setFriendshipStatus('NONE');
-        setFriendshipId(null);
-      }
-    } catch (error) {
-      console.error('Failed to unfriend:', error);
-    }
+    confirm(
+      'Remove Friend',
+      'Are you sure you want to remove this friend? This action cannot be undone.',
+      async () => {
+        try {
+          const token = localStorage.getItem('accessToken');
+          const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+          
+          const response = await fetch(`${API_URL}/student/friends/${friendshipId}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          
+          if (response.ok) {
+            setFriendshipStatus('NONE');
+            setFriendshipId(null);
+          }
+        } catch (error) {
+          console.error('Failed to unfriend:', error);
+        }
+      },
+      { type: 'danger', confirmText: 'Remove', cancelText: 'Cancel' }
+    );
   };
   
   const handleMessage = () => {
@@ -970,6 +1048,21 @@ export default function StudentProfilePage() {
           )}
         </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        type={confirmState.type}
+        confirmText={confirmState.confirmText}
+        cancelText={confirmState.cancelText}
+        onConfirm={handleConfirm}
+        onCancel={handleCancel}
+      />
+      
+      {/* Toast Notifications */}
+      <Toaster />
     </div>
   );
 }

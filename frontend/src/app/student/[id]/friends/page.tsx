@@ -16,6 +16,8 @@ import {
   UserPlusIcon,
 } from '@heroicons/react/24/outline';
 import { useFriends, useFriendRequests, useSuggestions, useBlockedUsers, useSearchStudents } from '@/hooks/useFriends';
+import ConfirmDialog from '@/component/ConfirmDialog';
+import { useConfirm } from '@/hooks/useConfirm';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
@@ -48,6 +50,7 @@ export default function FriendsPage() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'friends' | 'requests' | 'suggestions' | 'blocked'>('friends');
+  const { confirmState, confirm, handleConfirm, handleCancel } = useConfirm();
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
@@ -115,20 +118,27 @@ export default function FriendsPage() {
   });
 
   const handleUnfriend = async (friendshipId: string) => {
-    try {
-      const accessToken = localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/student/friends/${friendshipId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        mutateFriends(); // Revalidate friends list
-      }
-    } catch (error) {
-      console.error('Error removing friend:', error);
-    }
+    confirm(
+      'Remove Friend',
+      'Are you sure you want to remove this friend? This action cannot be undone.',
+      async () => {
+        try {
+          const accessToken = localStorage.getItem('accessToken');
+          const response = await fetch(`${API_URL}/student/friends/${friendshipId}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+            },
+          });
+          if (response.ok) {
+            mutateFriends(); // Revalidate friends list
+          }
+        } catch (error) {
+          console.error('Error removing friend:', error);
+        }
+      },
+      { type: 'danger', confirmText: 'Remove', cancelText: 'Cancel' }
+    );
   };
 
   const handleAcceptRequest = async (requestId: string) => {
@@ -726,6 +736,18 @@ export default function FriendsPage() {
             </div>
           )}
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        type={confirmState.type}
+        confirmText={confirmState.confirmText}
+        cancelText={confirmState.cancelText}
+        onConfirm={handleConfirm}
+        onCancel={handleCancel}
+      />
     </div>
   );
 }

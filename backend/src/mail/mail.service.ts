@@ -1,28 +1,65 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class MailService {
+  private readonly logger = new Logger(MailService.name);
   private transporter: nodemailer.Transporter;
   private fromEmail: string;
+  private isConfigured: boolean = false;
 
   constructor(private configService: ConfigService) {
-    this.transporter = nodemailer.createTransport({
-      host: this.configService.get('SMTP_HOST'),
-      port: this.configService.get('SMTP_PORT'),
-      secure: false,
-      auth: {
-        user: this.configService.get('SMTP_USER'),
-        pass: this.configService.get('SMTP_PASS'),
-      },
-    });
+    const smtpHost = this.configService.get('SMTP_HOST');
+    const smtpPort = this.configService.get('SMTP_PORT');
+    const smtpUser = this.configService.get('SMTP_USER');
+    const smtpPass = this.configService.get('SMTP_PASS');
     
-    this.fromEmail = this.configService.get('SMTP_USER') || 'noreply@streamland.com';
-    console.log('✅ SMTP email service initialized');
+    if (!smtpHost || !smtpUser || !smtpPass) {
+      this.logger.warn('SMTP not configured. Email sending will be disabled.');
+      this.logger.warn('Please set SMTP_HOST, SMTP_USER, SMTP_PASS in your .env file');
+      this.isConfigured = false;
+      return;
+    }
+
+    try {
+      this.transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: parseInt(smtpPort) || 465,
+        secure: true,
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+      });
+      
+      this.fromEmail = smtpUser;
+      this.isConfigured = true;
+      
+      this.logger.log('Gmail SMTP service initialized');
+      this.logger.log(`Sending emails from: ${this.fromEmail}`);
+    } catch (error) {
+      this.logger.error('Failed to initialize SMTP:', error);
+      this.isConfigured = false;
+    }
   }
 
   async sendOTP(email: string, otp: string, fullName?: string) {
+    // Check if email service is configured
+    if (!this.isConfigured) {
+      this.logger.warn(`Email service not configured. OTP: ${otp} for ${email}`);
+      this.logger.warn('In production, configure RESEND_API_KEY to send emails');
+      // In development, log the OTP so you can still test
+      if (process.env.NODE_ENV === 'development') {
+        this.logger.log(`[DEV MODE] OTP for ${email}: ${otp}`);
+        return { success: true, devMode: true };
+      }
+      return { 
+        success: false, 
+        error: 'Email service not configured. Please contact support.' 
+      };
+    }
+
     const htmlContent = `
         <!DOCTYPE html>
         <html>
@@ -41,11 +78,11 @@ export class MailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>✨ StreamLand</h1>
+              <h1>StreamLand</h1>
               <p>Leading Online Learning Platform</p>
             </div>
             <div class="content">
-              <h2>Hello ${fullName || 'there'}! 👋</h2>
+              <h2>Hello ${fullName || 'there'}!</h2>
               <p>Thank you for registering an account at <strong>StreamLand</strong>.</p>
               <p>To complete your registration, please use the OTP code below:</p>
               
@@ -56,7 +93,7 @@ export class MailService {
               </div>
 
               <div class="warning">
-                <strong>⚠️ Important:</strong>
+                <strong>Important:</strong>
                 <ul style="margin: 10px 0 0 0; padding-left: 20px;">
                   <li>Do not share this OTP with anyone</li>
                   <li>StreamLand will never ask for your OTP via phone</li>
@@ -69,7 +106,7 @@ export class MailService {
               <p style="margin-top: 30px;">Best regards,<br><strong>The StreamLand Team</strong></p>
             </div>
             <div class="footer">
-              <p>© 2025 StreamLand. All rights reserved.</p>
+              <p>&copy; 2025 StreamLand. All rights reserved.</p>
               <p>This is an automated email, please do not reply.</p>
             </div>
           </div>
@@ -79,16 +116,20 @@ export class MailService {
 
     try {
       const info = await this.transporter.sendMail({
-        from: this.fromEmail,
+        from: `"StreamLand" <${this.fromEmail}>`,
         to: email,
         subject: 'Account Verification OTP - StreamLand',
         html: htmlContent,
       });
 
-      console.log(`✅ OTP email sent successfully to ${email} (ID: ${info.messageId})`);
-      return { success: true };
+      this.logger.log(`OTP email sent to ${email} (ID: ${info.messageId})`);
+      return { success: true, emailId: info.messageId };
     } catch (error) {
-      console.error('❌ Failed to send OTP email:', error);
+      this.logger.error('Failed to send OTP email:', error);
+      // Log the OTP in case of email failure (development only)
+      if (process.env.NODE_ENV === 'development') {
+        this.logger.warn(`[DEV MODE] Email exception. OTP for ${email}: ${otp}`);
+      }
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -97,6 +138,19 @@ export class MailService {
   }
 
   async sendPasswordResetOTP(email: string, otp: string, fullName?: string) {
+    // Check if email service is configured
+    if (!this.isConfigured) {
+      this.logger.warn(`Email service not configured. Password reset OTP: ${otp} for ${email}`);
+      if (process.env.NODE_ENV === 'development') {
+        this.logger.log(`[DEV MODE] Password Reset OTP for ${email}: ${otp}`);
+        return { success: true, devMode: true };
+      }
+      return { 
+        success: false, 
+        error: 'Email service not configured. Please contact support.' 
+      };
+    }
+
     const htmlContent = `
         <!DOCTYPE html>
         <html>
@@ -115,11 +169,11 @@ export class MailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>🔐 StreamLand</h1>
+              <h1>StreamLand</h1>
               <p>Password Reset Request</p>
             </div>
             <div class="content">
-              <h2>Hello ${fullName || 'there'}! 👋</h2>
+              <h2>Hello ${fullName || 'there'}!</h2>
               <p>We received a request to reset your password for your account.</p>
               <p>To continue, please use the OTP code below:</p>
               
@@ -130,7 +184,7 @@ export class MailService {
               </div>
 
               <div class="warning">
-                <strong>⚠️ Security Warning:</strong>
+                <strong>Security Warning:</strong>
                 <ul style="margin: 10px 0 0 0; padding-left: 20px;">
                   <li>If you did NOT request a password reset, please IGNORE this email</li>
                   <li>Do not share this OTP with anyone</li>
@@ -143,7 +197,7 @@ export class MailService {
               <p style="margin-top: 30px;">Best regards,<br><strong>The StreamLand Team</strong></p>
             </div>
             <div class="footer">
-              <p>© 2025 StreamLand. All rights reserved.</p>
+              <p>&copy; 2025 StreamLand. All rights reserved.</p>
               <p>This is an automated email, please do not reply.</p>
             </div>
           </div>
@@ -153,16 +207,19 @@ export class MailService {
 
     try {
       const info = await this.transporter.sendMail({
-        from: this.fromEmail,
+        from: `"StreamLand" <${this.fromEmail}>`,
         to: email,
         subject: 'Password Reset OTP - StreamLand',
         html: htmlContent,
       });
 
-      console.log(`✅ Password reset OTP email sent successfully to ${email} (ID: ${info.messageId})`);
-      return { success: true };
+      this.logger.log(`Password reset OTP sent to ${email} (ID: ${info.messageId})`);
+      return { success: true, emailId: info.messageId };
     } catch (error) {
-      console.error('❌ Failed to send password reset OTP email:', error);
+      this.logger.error('Failed to send password reset OTP email:', error);
+      if (process.env.NODE_ENV === 'development') {
+        this.logger.warn(`[DEV MODE] Email exception. Password Reset OTP for ${email}: ${otp}`);
+      }
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',

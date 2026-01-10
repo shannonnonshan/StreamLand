@@ -105,7 +105,7 @@ export default function OAuthCompletePage() {
         router.push('/student/dashboard');
       }
     } else {
-      throw new Error(result.error || 'Đăng ký thất bại');
+      throw new Error(result.error || 'Registration failed. Please try again.');
     }
   };
 

@@ -114,11 +114,13 @@ export default function RegisterModal({
   const { register } = useAuth();
 
   const validateEmail = (email: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Strict email validation - only allows letters, numbers, dots, hyphens, underscores in local part
+    // and standard domain format
+    const emailRegex = /^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]@[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\.[a-zA-Z]{2,}$/;
     if (!email) {
-      return 'Email không được để trống';
+      return 'Email address is required';
     } else if (!emailRegex.test(email)) {
-      return 'Invalid email format';
+      return 'Invalid email format. Please use a valid email address (e.g., user@example.com)';
     }
     return '';
   };
@@ -290,7 +292,7 @@ export default function RegisterModal({
         console.error('Registration error:', error);
         setFormErrors({
           ...formErrors,
-          email: 'Đã có lỗi xảy ra. Vui lòng thử lại.',
+          email: 'An error occurred. Please try again.',
         });
         setCurrentStep(1);
       } finally {
@@ -313,6 +315,9 @@ export default function RegisterModal({
           <div className="space-y-4">
             {/* Full Name */}
             <div>
+              <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-1">
+                Full Name <span className="text-red-500">*</span>
+              </label>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                   <UserIcon className="h-5 w-5 text-gray-400" />
@@ -331,7 +336,7 @@ export default function RegisterModal({
                   className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset 
                     ${formErrors.fullName ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                     focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-                  placeholder="Full Name"
+                  placeholder="Enter your full name"
                 />
               </div>
               {formErrors.fullName && (
@@ -344,6 +349,9 @@ export default function RegisterModal({
             
             {/* Email */}
             <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                Email Address <span className="text-red-500">*</span>
+              </label>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                   <AtSymbolIcon className="h-5 w-5 text-gray-400" />
@@ -363,7 +371,7 @@ export default function RegisterModal({
                   className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset
                     ${formErrors.email ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                     focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-                  placeholder="Email Address"
+                  placeholder="Enter your email address"
                 />
               </div>
               {formErrors.email && (
@@ -376,6 +384,9 @@ export default function RegisterModal({
             
             {/* Password */}
             <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                Password <span className="text-red-500">*</span>
+              </label>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                   <KeyIcon className="h-5 w-5 text-gray-400" />
@@ -395,7 +406,7 @@ export default function RegisterModal({
                   className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-10 ring-1 ring-inset
                     ${formErrors.password ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                     focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-                  placeholder="Password (at least 8 characters)"
+                  placeholder="Enter password (min. 8 characters)"
                 />
               <button 
                 type="button" 
@@ -422,6 +433,9 @@ export default function RegisterModal({
 
             {/* Confirm Password */}
             <div>
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
+                Confirm Password <span className="text-red-500">*</span>
+              </label>
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                   <LockClosedIcon className="h-5 w-5 text-gray-400" />
@@ -441,7 +455,7 @@ export default function RegisterModal({
                   className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-10 ring-1 ring-inset
                     ${formErrors.confirmPassword ? 'ring-red-500 focus:ring-red-500' : `ring-gray-300 focus:ring-[#${PrimaryColor}]`} 
                     focus:ring-2 focus:ring-inset sm:text-sm sm:leading-6 transition duration-150`}
-                  placeholder="Re-enter Password"
+                  placeholder="Re-enter your password"
                 />
               </div>
               {formErrors.confirmPassword && (

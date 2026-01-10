@@ -110,16 +110,35 @@ export default function VideoPlayerPage() {
     if (!video) return;
 
     const updateTime = () => setCurrentTime(video.currentTime);
-    const updateDuration = () => setDuration(video.duration);
+    const updateDuration = () => {
+      // Ensure duration is valid before setting
+      if (video.duration && isFinite(video.duration) && !isNaN(video.duration)) {
+        setDuration(video.duration);
+        console.log('[Video] Duration loaded:', video.duration);
+      } else if (videoInfo?.duration) {
+        // Fallback to API duration if video.duration is invalid
+        setDuration(videoInfo.duration);
+        console.log('[Video] Using API duration:', videoInfo.duration);
+      }
+    };
     const handleEnded = () => setIsPlaying(false);
 
     video.addEventListener("timeupdate", updateTime);
     video.addEventListener("loadedmetadata", updateDuration);
+    video.addEventListener("durationchange", updateDuration); // Also listen for duration changes
     video.addEventListener("ended", handleEnded);
+
+    // Try to get duration immediately if already loaded
+    if (video.duration && isFinite(video.duration) && !isNaN(video.duration)) {
+      setDuration(video.duration);
+    } else if (videoInfo?.duration) {
+      setDuration(videoInfo.duration);
+    }
 
     return () => {
       video.removeEventListener("timeupdate", updateTime);
       video.removeEventListener("loadedmetadata", updateDuration);
+      video.removeEventListener("durationchange", updateDuration);
       video.removeEventListener("ended", handleEnded);
     };
   }, [videoInfo]);
@@ -159,8 +178,26 @@ export default function VideoPlayerPage() {
     if (!video) return;
 
     const newTime = parseFloat(e.target.value);
-    video.currentTime = newTime;
-    setCurrentTime(newTime);
+    
+    // Validate the new time is within bounds
+    if (isNaN(newTime)) return;
+    
+    // Ensure video duration is valid before seeking
+    const videoDuration = video.duration;
+    if (!videoDuration || isNaN(videoDuration) || !isFinite(videoDuration)) {
+      console.warn('[Video] Cannot seek - invalid duration:', videoDuration);
+      return;
+    }
+    
+    // Clamp the time to valid range
+    const clampedTime = Math.max(0, Math.min(newTime, videoDuration));
+    
+    try {
+      video.currentTime = clampedTime;
+      setCurrentTime(clampedTime);
+    } catch (error) {
+      console.error('[Video] Seek error:', error);
+    }
   };
 
   const toggleFullscreen = () => {
@@ -175,6 +212,11 @@ export default function VideoPlayerPage() {
   };
 
   const formatTime = (time: number) => {
+    // Handle NaN, Infinity, null, undefined, or negative values
+    if (!time || isNaN(time) || !isFinite(time) || time < 0) {
+      return '0:00';
+    }
+
     const hours = Math.floor(time / 3600);
     const minutes = Math.floor((time % 3600) / 60);
     const seconds = Math.floor(time % 60);
@@ -266,6 +308,7 @@ export default function VideoPlayerPage() {
                   ref={videoRef}
                   src={videoInfo.recordingUrl}
                   poster={videoInfo.thumbnailUrl}
+                  preload="metadata"
                   className="w-full aspect-video cursor-pointer"
                   onClick={togglePlay}
                 />
@@ -286,12 +329,15 @@ export default function VideoPlayerPage() {
                     <input
                       type="range"
                       min="0"
-                      max={duration || 0}
+                      max={duration && duration > 0 ? duration : 100}
                       value={currentTime}
                       onChange={handleSeek}
-                      className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:transition-transform"
+                      disabled={!duration || duration <= 0}
+                      className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:transition-transform"
                       style={{
-                        background: `linear-gradient(to right, #EC255A ${(currentTime / duration) * 100}%, rgba(255,255,255,0.2) ${(currentTime / duration) * 100}%)`
+                        background: duration > 0 
+                          ? `linear-gradient(to right, #EC255A ${(currentTime / duration) * 100}%, rgba(255,255,255,0.2) ${(currentTime / duration) * 100}%)`
+                          : 'rgba(255,255,255,0.2)'
                       }}
                     />
                   </div>

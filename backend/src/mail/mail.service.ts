@@ -1,50 +1,34 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private transporter: nodemailer.Transporter;
+  private resend: Resend;
   private fromEmail: string;
   private isConfigured: boolean = false;
 
   constructor(private configService: ConfigService) {
-    const smtpHost = this.configService.get('SMTP_HOST');
-    const smtpPort = this.configService.get('SMTP_PORT');
-    const smtpUser = this.configService.get('SMTP_USER');
-    const smtpPass = this.configService.get('SMTP_PASS');
+    const resendApiKey = this.configService.get('RESEND_API_KEY');
+    const resendFromEmail = this.configService.get('RESEND_FROM_EMAIL');
     
-    if (!smtpHost || !smtpUser || !smtpPass) {
-      this.logger.warn('SMTP not configured. Email sending will be disabled.');
-      this.logger.warn('Please set SMTP_HOST, SMTP_USER, SMTP_PASS in your .env file');
+    if (!resendApiKey || !resendFromEmail) {
+      this.logger.warn('Resend not configured. Email sending will be disabled.');
+      this.logger.warn('Please set RESEND_API_KEY, RESEND_FROM_EMAIL in your .env file');
       this.isConfigured = false;
       return;
     }
 
     try {
-      this.transporter = nodemailer.createTransport({
-        host: smtpHost,
-        port: parseInt(smtpPort) || 587,
-        secure: false, // Use TLS instead of SSL
-        auth: {
-          user: smtpUser,
-          pass: smtpPass,
-        },
-        tls: {
-          rejectUnauthorized: false
-        },
-        connectionTimeout: 10000, // 10 seconds timeout
-        greetingTimeout: 5000,
-      });
-      
-      this.fromEmail = smtpUser;
+      this.resend = new Resend(resendApiKey);
+      this.fromEmail = resendFromEmail;
       this.isConfigured = true;
       
-      this.logger.log('Gmail SMTP service initialized');
+      this.logger.log('Resend email service initialized');
       this.logger.log(`Sending emails from: ${this.fromEmail}`);
     } catch (error) {
-      this.logger.error('Failed to initialize SMTP:', error);
+      this.logger.error('Failed to initialize Resend:', error);
       this.isConfigured = false;
     }
   }
@@ -120,17 +104,22 @@ export class MailService {
       `;
 
     try {
-      const info = await this.transporter.sendMail({
-        from: `"StreamLand" <${this.fromEmail}>`,
-        to: email,
+      const { data, error } = await this.resend.emails.send({
+        from: `StreamLand <${this.fromEmail}>`,
+        to: [email],
         subject: 'Account Verification OTP - StreamLand',
         html: htmlContent,
       });
 
-      this.logger.log(`OTP email sent to ${email} (ID: ${info.messageId})`);
-      return { success: true, emailId: info.messageId };
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      this.logger.log(`OTP email sent to ${email} (ID: ${data.id})`);
+      return { success: true, emailId: data.id };
     } catch (error) {
-      this.logger.error('Failed to send OTP email:', error);
+      this.logger.error('Failed to send OTP email:');
+      this.logger.error(error);
       // Log the OTP in case of email failure (development only)
       if (process.env.NODE_ENV === 'development') {
         this.logger.warn(`[DEV MODE] Email exception. OTP for ${email}: ${otp}`);
@@ -211,17 +200,22 @@ export class MailService {
       `;
 
     try {
-      const info = await this.transporter.sendMail({
-        from: `"StreamLand" <${this.fromEmail}>`,
-        to: email,
+      const { data, error } = await this.resend.emails.send({
+        from: `StreamLand <${this.fromEmail}>`,
+        to: [email],
         subject: 'Password Reset OTP - StreamLand',
         html: htmlContent,
       });
 
-      this.logger.log(`Password reset OTP sent to ${email} (ID: ${info.messageId})`);
-      return { success: true, emailId: info.messageId };
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      this.logger.log(`Password reset OTP sent to ${email} (ID: ${data.id})`);
+      return { success: true, emailId: data.id };
     } catch (error) {
-      this.logger.error('Failed to send password reset OTP email:', error);
+      this.logger.error('Failed to send password reset OTP email:');
+      this.logger.error(error);
       if (process.env.NODE_ENV === 'development') {
         this.logger.warn(`[DEV MODE] Email exception. Password Reset OTP for ${email}: ${otp}`);
       }

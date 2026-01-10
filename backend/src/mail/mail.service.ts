@@ -25,12 +25,17 @@ export class MailService {
     try {
       this.transporter = nodemailer.createTransport({
         host: smtpHost,
-        port: parseInt(smtpPort) || 465,
-        secure: true,
+        port: parseInt(smtpPort) || 587,
+        secure: false, // Use TLS instead of SSL
         auth: {
           user: smtpUser,
           pass: smtpPass,
         },
+        tls: {
+          rejectUnauthorized: false
+        },
+        connectionTimeout: 10000, // 10 seconds timeout
+        greetingTimeout: 5000,
       });
       
       this.fromEmail = smtpUser;

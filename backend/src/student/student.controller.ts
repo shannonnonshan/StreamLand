@@ -95,6 +95,24 @@ export class StudentController {
     return this.studentService.removeFriend(req.user.sub, friendshipId);
   }
 
+  // Block a friend
+  @Post('friends/:friendshipId/block')
+  async blockFriend(
+    @Request() req: { user: { sub: string } },
+    @Param('friendshipId') friendshipId: string,
+  ) {
+    return this.studentService.blockFriend(req.user.sub, friendshipId);
+  }
+
+  // Unblock a user
+  @Delete('friends/blocked/:friendshipId')
+  async unblockUser(
+    @Request() req: { user: { sub: string } },
+    @Param('friendshipId') friendshipId: string,
+  ) {
+    return this.studentService.unblockUser(req.user.sub, friendshipId);
+  }
+
   // Follow a teacher
   @Post('follow')
   async followTeacher(

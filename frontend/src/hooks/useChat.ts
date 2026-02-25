@@ -11,8 +11,10 @@ export interface ChatMessage {
   receiverId: string;
   content: string;
   type: 'TEXT' | 'IMAGE' | 'VIDEO' | 'FILE' | 'VOICE';
+  status: 'SENT' | 'DELIVERED' | 'SEEN';
   attachments?: string[];
   readAt?: Date | null;
+  deliveredAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -127,13 +129,25 @@ export const useChat = (userId: string | null) => {
     };
   }, [socket]);
 
-  const onMessageRead = useCallback(
+  const onMessageSeen = useCallback(
     (callback: (data: { messageId: string; readAt: Date }) => void) => {
       if (!socket) return;
 
-      socket.on('messageRead', callback);
+      socket.on('messageSeen', callback);
       return () => {
-        socket.off('messageRead', callback);
+        socket.off('messageSeen', callback);
+      };
+    },
+    [socket]
+  );
+
+  const onMessageDelivered = useCallback(
+    (callback: (data: { messageId: string; deliveredAt: Date }) => void) => {
+      if (!socket) return;
+
+      socket.on('messageDelivered', callback);
+      return () => {
+        socket.off('messageDelivered', callback);
       };
     },
     [socket]
@@ -176,7 +190,8 @@ export const useChat = (userId: string | null) => {
     getOnlineStatus,
     onNewMessage,
     onMessageSent,
-    onMessageRead,
+    onMessageSeen,
+    onMessageDelivered,
     onUserTyping,
     onOnlineStatus,
   };

@@ -242,6 +242,59 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
+  // ============= CHANNEL MANAGEMENT FOR MULTI-INSTANCE =============
+
+  // Store channel data in Redis (replaces in-memory channels)
+  async setChannel(livestreamId: string, channelData: {
+    broadcaster: string;
+    watchers: string[];
+    info?: any;
+  }) {
+    const key = `channel:${livestreamId}`;
+    await this.set(key, channelData, 7200); // 2 hours TTL
+  }
+
+  async getChannel(livestreamId: string): Promise<{
+    broadcaster: string;
+    watchers: string[];
+    info?: any;
+  } | null> {
+    const key = `channel:${livestreamId}`;
+    return this.get(key);
+  }
+
+  async addWatcherToChannel(livestreamId: string, socketId: string) {
+    const channel = await this.getChannel(livestreamId);
+    if (!channel) return null;
+    
+    if (!channel.watchers.includes(socketId)) {
+      channel.watchers.push(socketId);
+      await this.setChannel(livestreamId, channel);
+    }
+    
+    return channel.watchers.length;
+  }
+
+  async removeWatcherFromChannel(livestreamId: string, socketId: string) {
+    const channel = await this.getChannel(livestreamId);
+    if (!channel) return null;
+    
+    channel.watchers = channel.watchers.filter(id => id !== socketId);
+    await this.setChannel(livestreamId, channel);
+    
+    return channel.watchers.length;
+  }
+
+  async deleteChannel(livestreamId: string) {
+    const key = `channel:${livestreamId}`;
+    await this.del(key);
+  }
+
+  async getAllChannels(): Promise<string[]> {
+    const keys = await this.redis.keys('channel:*');
+    return keys.map(key => key.replace('channel:', ''));
+  }
+
   onModuleDestroy() {
     void this.redis.quit();
   }

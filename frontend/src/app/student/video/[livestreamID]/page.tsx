@@ -38,6 +38,21 @@ interface VideoInfo {
   thumbnailUrl?: string;
 }
 
+interface RelatedVideo {
+  id: string;
+  title: string;
+  thumbnail: string;
+  category: string;
+  totalViews: number;
+  duration: number;
+  endedAt: string;
+  teacher: {
+    id: string;
+    fullName: string;
+    avatar?: string;
+  };
+}
+
 export default function VideoPlayerPage() {
   const params = useParams<{ livestreamID?: string }>();
   const router = useRouter();
@@ -54,6 +69,8 @@ export default function VideoPlayerPage() {
   const [isDisliked, setIsDisliked] = useState(false);
 
   const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
+  const [relatedVideos, setRelatedVideos] = useState<RelatedVideo[]>([]);
+  const [displayedVideos, setDisplayedVideos] = useState(5);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,6 +111,20 @@ export default function VideoPlayerPage() {
           recordingUrl: data.recordingUrl,
           thumbnailUrl: data.thumbnail,
         });
+        
+        console.log('[Fetch] VideoInfo set with recording URL:', data.recordingUrl);
+
+        // Fetch related videos
+        try {
+          const relatedResponse = await fetch(`${API_URL}/livestream/${livestreamID}/related?limit=10`);
+          if (relatedResponse.ok) {
+            const relatedData = await relatedResponse.json();
+            setRelatedVideos(relatedData);
+          }
+        } catch (relatedErr) {
+          console.error('Error fetching related videos:', relatedErr);
+          // Don't fail the whole page if related videos fail
+        }
       } catch (err) {
         console.error('Error fetching video:', err);
         setError(err instanceof Error ? err.message : 'Failed to load video');
@@ -106,40 +137,74 @@ export default function VideoPlayerPage() {
   }, [livestreamID]);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+    if (!videoInfo?.recordingUrl) {
+      console.log('[Video] Waiting for recording URL...');
+      return;
+    }
+    
+    let cleanupFns: (() => void)[] = [];
+    
+    // Wait for video element to be rendered
+    const setupVideo = () => {
+      const video = videoRef.current;
+      if (!video) {
+        console.log('[Video] Video element not ready, retrying...');
+        const timer = setTimeout(setupVideo, 100); // Retry after 100ms
+        cleanupFns.push(() => clearTimeout(timer));
+        return;
+      }
 
-    const updateTime = () => setCurrentTime(video.currentTime);
-    const updateDuration = () => {
-      // Ensure duration is valid before setting
-      if (video.duration && isFinite(video.duration) && !isNaN(video.duration)) {
-        setDuration(video.duration);
-        console.log('[Video] Duration loaded:', video.duration);
-      } else if (videoInfo?.duration) {
-        // Fallback to API duration if video.duration is invalid
-        setDuration(videoInfo.duration);
-        console.log('[Video] Using API duration:', videoInfo.duration);
+      const updateTime = () => {
+        setCurrentTime(video.currentTime);
+        console.log('[Video] Time update:', video.currentTime, 'Duration:', video.duration); // Debug
+      };
+      const updateDuration = () => {
+        if (video.duration && isFinite(video.duration) && !isNaN(video.duration) && video.duration > 0) {
+          setDuration(video.duration);
+          console.log('[Video] Duration from video element:', video.duration);
+        }
+      };
+      const handleEnded = () => setIsPlaying(false);
+      const handleCanPlay = () => {
+        if (video.duration && isFinite(video.duration) && !isNaN(video.duration) && video.duration > 0) {
+          setDuration(video.duration);
+          console.log('[Video] Duration from canplay event:', video.duration);
+        }
+      };
+
+      console.log('[Video] Setting up event listeners for:', videoInfo.recordingUrl);
+      video.addEventListener("timeupdate", updateTime);
+      video.addEventListener("loadedmetadata", updateDuration);
+      video.addEventListener("durationchange", updateDuration);
+      video.addEventListener("canplay", handleCanPlay);
+      video.addEventListener("ended", handleEnded);
+
+      // Store cleanup functions
+      cleanupFns.push(() => {
+        console.log('[Video] Cleaning up event listeners');
+        video.removeEventListener("timeupdate", updateTime);
+        video.removeEventListener("loadedmetadata", updateDuration);
+        video.removeEventListener("durationchange", updateDuration);
+        video.removeEventListener("canplay", handleCanPlay);
+        video.removeEventListener("ended", handleEnded);
+      });
+
+      // Force load metadata
+      video.load();
+
+      // Try to get duration immediately if already loaded
+      if (video.readyState >= 1) {
+        if (video.duration && isFinite(video.duration) && !isNaN(video.duration) && video.duration > 0) {
+          setDuration(video.duration);
+          console.log('[Video] Duration immediately available:', video.duration);
+        }
       }
     };
-    const handleEnded = () => setIsPlaying(false);
-
-    video.addEventListener("timeupdate", updateTime);
-    video.addEventListener("loadedmetadata", updateDuration);
-    video.addEventListener("durationchange", updateDuration); // Also listen for duration changes
-    video.addEventListener("ended", handleEnded);
-
-    // Try to get duration immediately if already loaded
-    if (video.duration && isFinite(video.duration) && !isNaN(video.duration)) {
-      setDuration(video.duration);
-    } else if (videoInfo?.duration) {
-      setDuration(videoInfo.duration);
-    }
+    
+    setupVideo();
 
     return () => {
-      video.removeEventListener("timeupdate", updateTime);
-      video.removeEventListener("loadedmetadata", updateDuration);
-      video.removeEventListener("durationchange", updateDuration);
-      video.removeEventListener("ended", handleEnded);
+      cleanupFns.forEach(fn => fn());
     };
   }, [videoInfo]);
 
@@ -325,20 +390,27 @@ export default function VideoPlayerPage() {
                 {/* Custom Controls */}
                 <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-6 transition-all duration-300 ${showControls ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
                   {/* Progress Bar */}
-                  <div className="mb-4">
+                  <div className="mb-4 relative">
+                    {/* Progress background */}
+                    <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
+                      {/* Progress fill */}
+                      <div 
+                        key={currentTime}
+                        className="h-full bg-gradient-to-r from-[#EC255A] to-[#ff4d7a] transition-all duration-100"
+                        style={{ 
+                          width: `${(currentTime / (duration > 0 ? duration : (videoInfo?.duration || 1))) * 100}%` 
+                        }}
+                      />
+                    </div>
+                    {/* Slider thumb */}
                     <input
                       type="range"
                       min="0"
-                      max={duration && duration > 0 ? duration : 100}
+                      max={duration > 0 ? duration : (videoInfo?.duration || 100)}
                       value={currentTime}
                       onChange={handleSeek}
-                      disabled={!duration || duration <= 0}
-                      className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:transition-transform"
-                      style={{
-                        background: duration > 0 
-                          ? `linear-gradient(to right, #EC255A ${(currentTime / duration) * 100}%, rgba(255,255,255,0.2) ${(currentTime / duration) * 100}%)`
-                          : 'rgba(255,255,255,0.2)'
-                      }}
+                      disabled={!duration && !videoInfo?.duration}
+                      className="absolute top-0 left-0 w-full h-1.5 appearance-none cursor-pointer disabled:cursor-not-allowed bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:transition-transform [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
                     />
                   </div>
 
@@ -370,7 +442,7 @@ export default function VideoPlayerPage() {
                       </div>
 
                       <span className="text-sm font-medium bg-white/10 rounded-full px-4 py-2 backdrop-blur-sm">
-                        {formatTime(currentTime)} / {formatTime(duration)}
+                        {formatTime(currentTime)} / {formatTime(duration > 0 ? duration : (videoInfo?.duration || 0))}
                       </span>
                     </div>
 
@@ -486,18 +558,126 @@ export default function VideoPlayerPage() {
 
           {/* Sidebar - Related Videos */}
           <div className="xl:col-span-1">
-            <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100 sticky top-8">
-              <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-                <div className="w-1 h-6 bg-gradient-to-b from-[#161853] to-[#292C6D] rounded-full"></div>
-                Related Videos
-              </h3>
-              <div className="text-center py-12">
-                <div className="w-16 h-16 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Play className="text-gray-400" size={28} />
-                </div>
-                <p className="text-sm text-gray-500 font-medium">No related videos available</p>
-                <p className="text-xs text-gray-400 mt-2">Check back later for more content</p>
+            <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-100/50 sticky top-8 overflow-hidden">
+              <div className="bg-gradient-to-r from-[#161853] to-[#292C6D] p-5">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Play className="w-5 h-5" fill="white" />
+                  Related Videos
+                </h3>
               </div>
+              
+              {relatedVideos.length === 0 ? (
+                <div className="text-center py-12 px-6">
+                  <div className="w-16 h-16 bg-gradient-to-br from-purple-100 to-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
+                    <Play className="text-purple-500" size={28} />
+                  </div>
+                  <p className="text-sm text-gray-600 font-semibold">No videos yet</p>
+                  <p className="text-xs text-gray-400 mt-1">Check back soon!</p>
+                </div>
+              ) : (
+                <div className="p-4">
+                  <div className="space-y-3 max-h-[calc(100vh-280px)] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+                    {relatedVideos.slice(0, displayedVideos).map((video, index) => (
+                      <div
+                        key={video.id}
+                        onClick={() => router.push(`/student/video/${video.id}`)}
+                        className="group cursor-pointer bg-white rounded-xl overflow-hidden border border-gray-200/80 hover:border-purple-300 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1"
+                      >
+                        {/* Thumbnail */}
+                        <div className="relative aspect-video bg-gradient-to-br from-gray-200 to-gray-300 overflow-hidden">
+                          <Image
+                            src={video.thumbnail || '/logo.png'}
+                            alt={video.title}
+                            fill
+                            className="object-cover group-hover:scale-110 transition-transform duration-500"
+                          />
+                          {/* Play Overlay */}
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center">
+                            <div className="w-12 h-12 rounded-full bg-white/0 group-hover:bg-white/90 flex items-center justify-center transform scale-0 group-hover:scale-100 transition-all duration-300 shadow-lg">
+                              <Play className="w-6 h-6 text-[#161853] ml-1" fill="currentColor" />
+                            </div>
+                          </div>
+                          {/* Duration Badge */}
+                          {video.duration > 0 && (
+                            <div className="absolute bottom-2 right-2 bg-black/90 backdrop-blur-sm text-white text-xs px-2 py-1 rounded-lg font-bold shadow-lg">
+                              {formatTime(video.duration)}
+                            </div>
+                          )}
+                          {/* Category Badge */}
+                          <div className="absolute top-2 left-2 bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs px-2.5 py-1 rounded-lg font-bold shadow-lg">
+                            {video.category || 'Education'}
+                          </div>
+                        </div>
+
+                        {/* Video Info */}
+                        <div className="p-3 bg-gradient-to-br from-white to-gray-50/50">
+                          <h4 className="font-bold text-gray-900 text-sm line-clamp-2 group-hover:text-purple-600 transition-colors mb-2.5 leading-snug">
+                            {video.title}
+                          </h4>
+                          
+                          {/* Teacher Info */}
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="relative w-7 h-7 rounded-full bg-gradient-to-br from-[#161853] to-[#292C6D] overflow-hidden flex-shrink-0 shadow-md ring-2 ring-white">
+                              {video.teacher.avatar ? (
+                                <Image
+                                  src={video.teacher.avatar}
+                                  alt={video.teacher.fullName}
+                                  width={28}
+                                  height={28}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold">
+                                  {video.teacher.fullName.charAt(0)}
+                                </div>
+                              )}
+                            </div>
+                            <span className="text-xs text-gray-700 font-semibold truncate">
+                              {video.teacher.fullName}
+                            </span>
+                          </div>
+
+                          {/* Stats */}
+                          <div className="flex items-center gap-2 text-xs text-gray-500 font-medium">
+                            <div className="flex items-center gap-1">
+                              <div className="w-1 h-1 rounded-full bg-purple-500"></div>
+                              <span>{video.totalViews.toLocaleString()} views</span>
+                            </div>
+                            <span className="text-gray-300">•</span>
+                            <span>{new Date(video.endedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* See More Button */}
+                  {relatedVideos.length > displayedVideos && (
+                    <button
+                      onClick={() => setDisplayedVideos(prev => prev + 5)}
+                      className="w-full mt-4 py-3 bg-gradient-to-r from-purple-50 to-blue-50 hover:from-purple-100 hover:to-blue-100 text-purple-700 font-bold text-sm rounded-xl transition-all duration-300 border border-purple-200/50 hover:border-purple-300 hover:shadow-md flex items-center justify-center gap-2 group"
+                    >
+                      <span>See More Videos</span>
+                      <svg className="w-4 h-4 transform group-hover:translate-y-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                  )}
+
+                  {/* Show Less Button */}
+                  {displayedVideos > 5 && displayedVideos >= relatedVideos.length && (
+                    <button
+                      onClick={() => setDisplayedVideos(5)}
+                      className="w-full mt-3 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-600 font-semibold text-sm rounded-xl transition-all duration-300 border border-gray-200 flex items-center justify-center gap-2 group"
+                    >
+                      <span>Show Less</span>
+                      <svg className="w-4 h-4 transform group-hover:-translate-y-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

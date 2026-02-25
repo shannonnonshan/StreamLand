@@ -401,6 +401,78 @@ export class StudentService {
     return { message: 'Friend removed successfully' };
   }
 
+  // Block a friend (update existing friendship to BLOCKED)
+  async blockFriend(userId: string, friendshipId: string) {
+    // Get user's student profile
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true },
+    });
+
+    if (!user || !user.studentProfile) {
+      throw new ForbiddenException('Only students can block users');
+    }
+
+    const friendship = await this.prisma.postgres.friendList.findUnique({
+      where: { id: friendshipId },
+    });
+
+    if (!friendship) {
+      throw new NotFoundException('Friendship not found');
+    }
+
+    // Check if user is part of this friendship
+    if (friendship.requestId !== user.studentProfile.id && friendship.receiverId !== user.studentProfile.id) {
+      throw new ForbiddenException('You are not part of this friendship');
+    }
+
+    // Update status to BLOCKED
+    await this.prisma.postgres.friendList.update({
+      where: { id: friendshipId },
+      data: { status: FriendStatus.BLOCKED },
+    });
+
+    return { message: 'User blocked successfully' };
+  }
+
+  // Unblock a user (delete the blocked friendship record)
+  async unblockUser(userId: string, friendshipId: string) {
+    // Get user's student profile
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true },
+    });
+
+    if (!user || !user.studentProfile) {
+      throw new ForbiddenException('Only students can unblock users');
+    }
+
+    const friendship = await this.prisma.postgres.friendList.findUnique({
+      where: { id: friendshipId },
+    });
+
+    if (!friendship) {
+      throw new NotFoundException('Blocked friendship not found');
+    }
+
+    // Check if user is part of this friendship
+    if (friendship.requestId !== user.studentProfile.id && friendship.receiverId !== user.studentProfile.id) {
+      throw new ForbiddenException('You are not part of this friendship');
+    }
+
+    // Check if it's actually blocked
+    if (friendship.status !== FriendStatus.BLOCKED) {
+      throw new BadRequestException('This friendship is not blocked');
+    }
+
+    // Delete the blocked friendship record
+    await this.prisma.postgres.friendList.delete({
+      where: { id: friendshipId },
+    });
+
+    return { message: 'User unblocked successfully' };
+  }
+
   // Search for students (exclude self and existing friends)
   async searchStudents(userId: string, query: string) {
     // Get user's student profile

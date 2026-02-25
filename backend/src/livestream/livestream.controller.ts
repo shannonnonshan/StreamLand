@@ -463,4 +463,13 @@ export class LivestreamController {
     const limitNum = limit ? parseInt(limit, 10) : 100;
     return await this.livestreamService.getChatMessages(id, limitNum);
   }
+
+  @Get(':id/related')
+  async getRelatedVideos(
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+  ) {
+    const limitNum = limit ? parseInt(limit, 10) : 10;
+    return await this.livestreamService.getRelatedVideos(id, limitNum);
+  }
 }

@@ -1222,5 +1222,107 @@ export class LivestreamService {
     this.logger.log(`Livestream ${id} updated`);
     return updatedLivestream;
   }
+
+  async getRelatedVideos(videoId: string, limit: number = 10) {
+    // Get current video details
+    const currentVideo = await this.prisma.postgres.liveStream.findUnique({
+      where: { id: videoId },
+      select: {
+        teacherId: true,
+        category: true,
+        endedAt: true,
+      },
+    });
+
+    if (!currentVideo || !currentVideo.endedAt) {
+      return [];
+    }
+
+    // Get all ended livestreams with recording (exclude current video)
+    const allVideos = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        id: { not: videoId },
+        status: LiveStreamStatus.ENDED,
+        recordingUrl: { not: null },
+      },
+      select: {
+        id: true,
+        title: true,
+        thumbnail: true,
+        category: true,
+        teacherId: true,
+        totalViews: true,
+        duration: true,
+        endedAt: true,
+        teacher: {
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true,
+          },
+        },
+      },
+      take: 200, // Get more videos for better filtering
+    });
+
+    // Score and sort videos based on relevance (YouTube-like algorithm)
+    const scoredVideos = allVideos.map(video => {
+      let score = 0;
+
+      // 1. Same teacher (highest priority) - +50 points
+      if (video.teacherId === currentVideo.teacherId) {
+        score += 50;
+      }
+
+      // 2. Same category - +30 points
+      if (video.category === currentVideo.category) {
+        score += 30;
+      }
+
+      // 3. Time proximity for same teacher videos - up to +20 points
+      if (video.teacherId === currentVideo.teacherId && video.endedAt && currentVideo.endedAt) {
+        const timeDiff = Math.abs(
+          new Date(video.endedAt).getTime() - new Date(currentVideo.endedAt).getTime()
+        );
+        const daysDiff = timeDiff / (1000 * 60 * 60 * 24);
+        
+        // Closer in time = higher score (max 20 points for videos within same week)
+        if (daysDiff <= 7) {
+          score += 20 - (daysDiff * 2);
+        } else if (daysDiff <= 30) {
+          score += 10 - (daysDiff / 3);
+        }
+      }
+
+      // 4. Popularity bonus (views) - up to +10 points
+      const viewsScore = Math.min(10, (video.totalViews || 0) / 1000);
+      score += viewsScore;
+
+      return {
+        ...video,
+        score,
+      };
+    });
+
+    // Sort by score (descending)
+    const sortedVideos = scoredVideos.sort((a, b) => b.score - a.score);
+
+    // Get top related videos
+    let relatedVideos = sortedVideos.slice(0, limit);
+
+    // If not enough related videos (score > 0), fill with random videos
+    if (relatedVideos.length < limit) {
+      const relatedIds = new Set(relatedVideos.map(v => v.id));
+      const remainingVideos = sortedVideos
+        .filter(v => !relatedIds.has(v.id))
+        .sort(() => Math.random() - 0.5) // Random shuffle
+        .slice(0, limit - relatedVideos.length);
+      
+      relatedVideos = [...relatedVideos, ...remainingVideos];
+    }
+
+    // Remove score from final result
+    return relatedVideos.map(({ score, ...video }) => video);
+  }
 }
 

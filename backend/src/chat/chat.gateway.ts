@@ -34,13 +34,27 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   handleDisconnect(client: Socket) {
     this.logger.debug(`Client disconnected: ${client.id}`);
-    // Remove user from online users
+    // Find and remove user from online users
+    let disconnectedUserId: string | null = null;
     for (const [userId, socketId] of this.userSockets.entries()) {
       if (socketId === client.id) {
         this.userSockets.delete(userId);
+        disconnectedUserId = userId;
+        this.logger.log(`User ${userId} disconnected`);
         break;
       }
     }
+
+    // Broadcast updated online status to all connected clients
+    if (disconnectedUserId) {
+      this.broadcastOnlineStatus();
+    }
+  }
+
+  // Broadcast online users to all connected clients
+  private broadcastOnlineStatus() {
+    const onlineUserIds = Array.from(this.userSockets.keys());
+    this.server.emit('onlineStatus', { onlineUsers: onlineUserIds });
   }
 
   @UseGuards(WsJwtGuard)
@@ -51,6 +65,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     this.userSockets.set(data.userId, client.id);
     this.logger.log(`User ${data.userId} registered with socket ${client.id}`);
+    
+    // Broadcast updated online status to all clients
+    this.broadcastOnlineStatus();
+    
     return { success: true };
   }
 
@@ -69,12 +87,22 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     try {
       // Save message to MongoDB
-      const message = await this.chatService.createMessage(data);
+      let message = await this.chatService.createMessage(data);
 
-      // Send to receiver if online
+      // Check if receiver is online
       const receiverSocketId = this.userSockets.get(data.receiverId);
       if (receiverSocketId) {
+        // Mark as delivered if receiver is online
+        message = await this.chatService.markAsDelivered(message.id);
+        
+        // Send to receiver
         this.server.to(receiverSocketId).emit('newMessage', message);
+        
+        // Notify sender that message was delivered
+        client.emit('messageDelivered', {
+          messageId: message.id,
+          deliveredAt: message.deliveredAt,
+        });
       }
 
       // Send confirmation to sender
@@ -93,11 +121,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { messageId: string; userId: string },
   ) {
     try {
-      const message = await this.chatService.markAsRead(data.messageId);
+      const message = await this.chatService.markAsSeen(data.messageId);
       const senderId = message.senderId ? String(message.senderId) : '';
       const senderSocketId = senderId ? this.userSockets.get(senderId) : undefined;
       if (senderSocketId) {
-        this.server.to(senderSocketId).emit('messageRead', {
+        this.server.to(senderSocketId).emit('messageSeen', {
           messageId: data.messageId,
           readAt: message.readAt,
         });

@@ -45,6 +45,26 @@ export class ChatService {
     });
   }
 
+  async markAsDelivered(messageId: string) {
+    return await this.prisma.mongo.chatMessage.update({
+      where: { id: messageId },
+      data: { 
+        status: 'DELIVERED',
+        deliveredAt: new Date() 
+      },
+    });
+  }
+
+  async markAsSeen(messageId: string) {
+    return await this.prisma.mongo.chatMessage.update({
+      where: { id: messageId },
+      data: { 
+        status: 'SEEN',
+        readAt: new Date() 
+      },
+    });
+  }
+
   async markConversationAsRead(userId: string, partnerId: string) {
     return await this.prisma.mongo.chatMessage.updateMany({
       where: {

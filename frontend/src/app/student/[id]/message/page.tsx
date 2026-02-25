@@ -14,6 +14,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useAuth } from '@/hooks/useAuth';
 import { useChat, ChatMessage } from '@/hooks/useChat';
+import MessageStatusIcon from '@/component/MessageStatusIcon';
 
 // Force dynamic rendering to prevent prerendering issues
 export const dynamic = 'force-dynamic';
@@ -68,6 +69,16 @@ export default function MessagePage({
           transform: translateY(0);
         }
       }
+      @keyframes pulse-online {
+        0%, 100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.8;
+          transform: scale(1.1);
+        }
+      }
     `;
     document.head.appendChild(style);
     return () => {
@@ -84,7 +95,10 @@ export default function MessagePage({
     getOnlineStatus,
     onNewMessage,
     onMessageSent,
+    onMessageSeen,
+    onMessageDelivered,
     onUserTyping,
+    onOnlineStatus,
   } = useChat(userId);
 
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -197,6 +211,16 @@ export default function MessagePage({
       }
     }
   }, [targetUserId, mergedContacts, selectedContact]);
+
+  // Update selectedContact online status when onlineUsers changes
+  useEffect(() => {
+    if (selectedContact) {
+      const updatedContact = mergedContacts.find(c => c.id === selectedContact.id);
+      if (updatedContact && updatedContact.online !== selectedContact.online) {
+        setSelectedContact(updatedContact);
+      }
+    }
+  }, [onlineUsers, selectedContact, mergedContacts]);
 
   // Fetch conversation messages
   useEffect(() => {
@@ -348,6 +372,57 @@ export default function MessagePage({
 
     return cleanup;
   }, [onUserTyping]);
+
+  // Listen for online status updates in real-time
+  useEffect(() => {
+    // Listen to WebSocket online status events
+    const cleanup = onOnlineStatus((data) => {
+      // Online status automatically updated via onlineUsers state
+      console.log('📡 Online status updated:', data.onlineUsers);
+    });
+
+    // Poll online status every 10 seconds for contacts as backup
+    const interval = setInterval(() => {
+      if (contacts.length > 0) {
+        getOnlineStatus(contacts.map(c => c.id));
+      }
+    }, 10000);
+
+    return () => {
+      cleanup?.();
+      clearInterval(interval);
+    };
+  }, [contacts, getOnlineStatus, onOnlineStatus]);
+
+  // Listen for message delivered status updates
+  useEffect(() => {
+    const cleanup = onMessageDelivered((data) => {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === data.messageId
+            ? { ...msg, status: 'DELIVERED' as const, deliveredAt: data.deliveredAt }
+            : msg
+        )
+      );
+    });
+
+    return cleanup;
+  }, [onMessageDelivered]);
+
+  // Listen for message seen status updates
+  useEffect(() => {
+    const cleanup = onMessageSeen((data) => {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === data.messageId
+            ? { ...msg, status: 'SEEN' as const, readAt: data.readAt }
+            : msg
+        )
+      );
+    });
+
+    return cleanup;
+  }, [onMessageSeen]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -534,7 +609,10 @@ export default function MessagePage({
                       </div>
                     )}
                     {contact.online && (
-                      <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full" />
+                      <div 
+                        className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full transition-all duration-300" 
+                        style={{ animation: 'pulse-online 2s ease-in-out infinite' }}
+                      />
                     )}
                   </div>
 
@@ -588,15 +666,20 @@ export default function MessagePage({
                     </div>
                   )}
                   {selectedContact.online && (
-                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full" />
+                    <div 
+                      className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full" 
+                      style={{ animation: 'pulse-online 2s ease-in-out infinite' }}
+                    />
                   )}
                 </div>
                 <div>
                   <h2 className="font-semibold text-gray-900">
                     {selectedContact.fullName}
                   </h2>
-                  <p className="text-sm text-gray-600">
-                    {selectedContact.online ? 'Đang hoạt động' : 'Không hoạt động'}
+                  <p className={`text-sm font-medium transition-colors duration-300 ${
+                    selectedContact.online ? 'text-green-600' : 'text-gray-500'
+                  }`}>
+                    {selectedContact.online ? 'Online' : 'Offline'}
                     {typingUsers.has(selectedContact.id) && ' • Đang gõ...'}
                   </p>
                 </div>
@@ -617,8 +700,13 @@ export default function MessagePage({
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.map((message) => {
+              {messages.map((message, index) => {
                 const isMe = message.senderId === userId;
+                // Tìm tin nhắn mới nhất của mình
+                const myMessages = messages.filter(m => m.senderId === userId);
+                const lastMyMessageIndex = messages.lastIndexOf(myMessages[myMessages.length - 1]);
+                const isLastMyMessage = isMe && index === lastMyMessageIndex;
+                
                 return (
                   <div
                     key={message.id}
@@ -632,14 +720,19 @@ export default function MessagePage({
                       }`}
                     >
                       <p>{message.content}</p>
-                      <p
-                        className={`text-xs mt-1 ${
+                      <div
+                        className={`text-xs mt-1 flex items-center gap-1 ${
                           isMe ? 'text-purple-200' : 'text-gray-500'
                         }`}
                       >
-                        {formatTime(message.createdAt)}
-                        {isMe && message.readAt && ' • Đã xem'}
-                      </p>
+                        <span>{formatTime(message.createdAt)}</span>
+                        {isLastMyMessage && message.status && (
+                          <MessageStatusIcon 
+                            status={message.status} 
+                            className={isMe ? 'text-white opacity-90' : 'text-gray-500'}
+                          />
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

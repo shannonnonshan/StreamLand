@@ -199,41 +199,83 @@ export default function FriendsPage() {
     }
   };
 
-  const handleBlockUser = async (requestId: string) => {
-    try {
-      const accessToken = localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/student/friends/request/${requestId}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ status: 'BLOCKED' }),
-      });
-      if (response.ok) {
-        mutateFriends();
-        mutateBlocked();
-      }
-    } catch (error) {
-      console.error('Error blocking user:', error);
-    }
+  // Block user from friend request (for pending requests)
+  const handleBlockUserFromRequest = async (requestId: string) => {
+    confirm(
+      'Block User',
+      'Are you sure you want to block this user? They will not be able to send you friend requests.',
+      async () => {
+        try {
+          const accessToken = localStorage.getItem('accessToken');
+          const response = await fetch(`${API_URL}/student/friends/request/${requestId}`, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ status: 'BLOCKED' }),
+          });
+          if (response.ok) {
+            mutateRequests();
+            mutateBlocked();
+          }
+        } catch (error) {
+          console.error('Error blocking user:', error);
+        }
+      },
+      { type: 'danger', confirmText: 'Block', cancelText: 'Cancel' }
+    );
   };
 
+  // Block an existing friend
+  const handleBlockFriend = async (friendshipId: string) => {
+    confirm(
+      'Block Friend',
+      'Are you sure you want to block this friend? This will remove them from your friends list.',
+      async () => {
+        try {
+          const accessToken = localStorage.getItem('accessToken');
+          const response = await fetch(`${API_URL}/student/friends/${friendshipId}/block`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+            },
+          });
+          if (response.ok) {
+            mutateFriends();
+            mutateBlocked();
+          }
+        } catch (error) {
+          console.error('Error blocking friend:', error);
+        }
+      },
+      { type: 'danger', confirmText: 'Block', cancelText: 'Cancel' }
+    );
+  };
+
+  // Unblock a user
   const handleUnblockUser = async (friendshipId: string) => {
-    try {
-      const accessToken = localStorage.getItem('accessToken');
-      const response = await fetch(`${API_URL}/student/friends/${friendshipId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        mutateBlocked();
-      }
-    } catch (error) {
-      console.error('Error unblocking user:', error);
-    }
+    confirm(
+      'Unblock User',
+      'Are you sure you want to unblock this user? They will be able to send you friend requests again.',
+      async () => {
+        try {
+          const accessToken = localStorage.getItem('accessToken');
+          const response = await fetch(`${API_URL}/student/friends/blocked/${friendshipId}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+            },
+          });
+          if (response.ok) {
+            mutateBlocked();
+          }
+        } catch (error) {
+          console.error('Error unblocking user:', error);
+        }
+      },
+      { type: 'success', confirmText: 'Unblock', cancelText: 'Cancel' }
+    );
   };
 
   const handleMessage = (targetUserId: string) => {
@@ -487,8 +529,16 @@ export default function FriendsPage() {
                         <button
                           onClick={() => handleUnfriend(friend.friendshipId || friend.id)}
                           className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-red-50 text-gray-700 hover:text-red-600 font-semibold text-xs transition-all"
+                          title="Unfriend"
                         >
                           <UserMinusIcon className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleBlockFriend(friend.friendshipId || friend.id)}
+                          className="px-3 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 font-semibold text-xs transition-all"
+                          title="Block User"
+                        >
+                          <XMarkIcon className="h-4 w-4" />
                         </button>
                       </div>
                     </div>
@@ -568,11 +618,12 @@ export default function FriendsPage() {
                           <button
                             onClick={() => handleRejectRequest(request.id)}
                             className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-xs transition-all flex items-center justify-center"
+                            title="Reject request"
                           >
                             <XMarkIcon className="h-4 w-4" />
                           </button>
                           <button
-                            onClick={() => handleBlockUser(request.id)}
+                            onClick={() => handleBlockUserFromRequest(request.id)}
                             className="px-3 py-2 rounded-lg bg-red-100 hover:bg-red-200 text-red-700 font-semibold text-xs transition-all flex items-center justify-center"
                             title="Block user"
                           >

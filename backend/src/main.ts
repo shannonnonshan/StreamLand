@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { RedisIoAdapter } from './socket/socket-io-adapter';
 import * as express from 'express';
 
 async function bootstrap() {
@@ -25,8 +26,14 @@ async function bootstrap() {
     }),
   );
 
+  // Setup Redis Adapter for WebSocket multi-instance support
+  const redisIoAdapter = new RedisIoAdapter(app);
+  await redisIoAdapter.connectToRedis();
+  app.useWebSocketAdapter(redisIoAdapter);
+
   await app.listen(process.env.PORT ?? 4000);
   console.log(`Application is running on: ${await app.getUrl()}`);
+  console.log(`🚀 WebSocket multi-instance mode enabled via Redis`);
 }
 bootstrap().catch((err) => {
   console.error('Error starting app:', err);

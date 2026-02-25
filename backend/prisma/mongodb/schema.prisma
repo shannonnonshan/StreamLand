@@ -10,15 +10,17 @@ datasource mongodb {
 }
 
 model ChatMessage {
-  id          String      @id @default(auto()) @map("_id") @mongodb.ObjectId
+  id          String        @id @default(auto()) @map("_id") @mongodb.ObjectId
   senderId    String
   receiverId  String
   content     String
-  type        MessageType @default(TEXT)
+  type        MessageType   @default(TEXT)
+  status      MessageStatus @default(SENT)
   attachments String[]
   readAt      DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  deliveredAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   @@index([senderId, receiverId])
   @@index([createdAt])
@@ -31,6 +33,12 @@ enum MessageType {
   VIDEO
   FILE
   VOICE
+}
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  SEEN
 }
 
 // Live Stream Chat

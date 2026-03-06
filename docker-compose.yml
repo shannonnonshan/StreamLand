@@ -29,9 +29,12 @@ services:
       - "4000:4000"
     environment:
       - PORT=4000
-      - REDIS_URL=redis://redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - REDIS_PASSWORD=streamland123
       - NODE_ENV=production
+    env_file:
+      - ./backend/.env
     depends_on:
       redis:
         condition: service_healthy
@@ -47,9 +50,12 @@ services:
       - "4001:4000"
     environment:
       - PORT=4000
-      - REDIS_URL=redis://redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - REDIS_PASSWORD=streamland123
       - NODE_ENV=production
+    env_file:
+      - ./backend/.env
     depends_on:
       redis:
         condition: service_healthy

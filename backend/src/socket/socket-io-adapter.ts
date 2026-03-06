@@ -9,10 +9,19 @@ export class RedisIoAdapter extends IoAdapter {
   private readonly logger = new Logger(RedisIoAdapter.name);
 
   async connectToRedis(): Promise<void> {
-    const pubClient = createClient({
-      url: process.env.REDIS_URL || 'redis://localhost:6379',
-      password: process.env.REDIS_PASSWORD || 'streamland123',
-    });
+    // Build Redis URL from environment variables (consistent with redis.module.ts)
+    const redisHost = process.env.REDIS_HOST || 'localhost';
+    const redisPort = process.env.REDIS_PORT || '6379';
+    const redisPassword = process.env.REDIS_PASSWORD;
+    
+    // Construct Redis URL
+    const redisUrl = redisPassword 
+      ? `redis://:${redisPassword}@${redisHost}:${redisPort}`
+      : `redis://${redisHost}:${redisPort}`;
+    
+    this.logger.log(`Connecting to Redis at ${redisHost}:${redisPort}...`);
+
+    const pubClient = createClient({ url: redisUrl });
     const subClient = pubClient.duplicate();
 
     await Promise.all([

@@ -9,8 +9,8 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma
 
-# Cài tất cả dependencies (cả dev để build NestJS + Prisma)
-RUN npm install
+# Cài dependencies (dùng npm ci nhanh hơn npm install)
+RUN npm ci --only=production --ignore-scripts || npm install
 
 # Copy toàn bộ source code
 COPY . .

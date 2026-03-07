@@ -8,6 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
@@ -20,33 +21,21 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "docker-compose.yml,nginx.conf,backend"
           target: "/home/${{ secrets.SSH_USER }}/streamland/"
-          strip_components: 0
 
-      - name: Deploy with Docker Compose
-        uses: appleboy/ssh-action@v1.2.3
+      - name: Deploy containers
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 30m
           script: |
             cd /home/${{ secrets.SSH_USER }}/streamland
 
-            # Create backend .env if not exists
             if [ ! -f backend/.env ]; then
-              cp backend/.env backend/.env.production || true
+              cp backend/.env.production backend/.env
             fi
 
-            # Stop old containers
-            docker-compose down || true
+            docker compose down || true
+            docker compose up -d --build
 
-            # Build and start new containers
-            docker-compose up -d --build
-
-            # Show status
-            echo "=== Container Status ==="
-            docker-compose ps
-
-            # Show recent logs
-            echo "=== Recent Logs ==="
-            docker-compose logs --tail=50
+            docker compose ps

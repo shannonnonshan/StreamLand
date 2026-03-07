@@ -1122,7 +1122,13 @@ export default function BroadcasterPage() {
     
     console.log(`[WebRTC] localStreamRef has ${localStreamRef.current.getTracks().length} tracks`);
 
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({ 
+      iceServers: ICE_SERVERS,
+      // Critical for cross-network connections
+      iceTransportPolicy: 'all', // Allow both STUN and TURN
+      bundlePolicy: 'max-bundle', // Bundle all media on one connection
+      rtcpMuxPolicy: 'require', // Multiplex RTP and RTCP on same port
+    });
     peersRef.current[watcherId] = pc;
 
     const tracks = localStreamRef.current.getTracks();

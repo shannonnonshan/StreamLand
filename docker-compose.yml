@@ -15,32 +15,6 @@ services:
       --bind 0.0.0.0
       --protected-mode no
     restart: unless-stopped
-    networks:
-      - streamland-net
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: streamland-backend
-    ports:
-      - "4000:4000"
-    environment:
-      - NODE_ENV=production
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=streamland123
-    env_file:
-      - ./backend/.env
-    depends_on:
-      - redis
-    restart: unless-stopped
-    networks:
-      - streamland-net
-
-networks:
-  streamland-net:
-    driver: bridge
 
 volumes:
   redis-data:

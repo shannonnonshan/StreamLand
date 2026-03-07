@@ -35,7 +35,7 @@ jobs:
               cp backend/.env.production backend/.env
             fi
 
-            docker-compose down || true
-            docker-compose up -d --build
+            sudo docker-compose down || true
+            sudo docker-compose up -d --build
 
-            docker-compose ps
+            sudo docker-compose ps

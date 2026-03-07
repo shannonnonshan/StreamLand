@@ -9,8 +9,8 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma
 
-# Cài dependencies (dùng npm ci nhanh hơn npm install)
-RUN npm ci --only=production --ignore-scripts || npm install
+# Cài TẤT CẢ dependencies (bao gồm dev deps để build)
+RUN npm ci || npm install
 
 # Copy toàn bộ source code
 COPY . .

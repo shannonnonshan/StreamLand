@@ -53,6 +53,7 @@ export default function BroadcasterPage() {
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const peersRef = useRef<Record<string, RTCPeerConnection>>({});
+  const pendingCandidatesRef = useRef<Record<string, RTCIceCandidateInit[]>>({});
   const localStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
@@ -1213,16 +1214,44 @@ export default function BroadcasterPage() {
   function handleAnswer({ from, sdp }: { from: string; sdp: RTCSessionDescriptionInit }) {
     const pc = peersRef.current[from];
     if (pc) {
-      pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      pc.setRemoteDescription(new RTCSessionDescription(sdp))
+        .then(() => {
+          console.log(`[Teacher WebRTC] Remote description set for ${from}`);
+          
+          // Process any pending ICE candidates
+          const pending = pendingCandidatesRef.current[from];
+          if (pending && pending.length > 0) {
+            console.log(`[Teacher WebRTC] Processing ${pending.length} pending ICE candidates for ${from}`);
+            pending.forEach(candidate => {
+              pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
+                console.error(`[Teacher WebRTC] Error adding pending candidate:`, err);
+              });
+            });
+            pendingCandidatesRef.current[from] = [];
+          }
+        })
+        .catch((err) => {
+          console.error(`[Teacher WebRTC] Error setting remote description:`, err);
+        });
     }
   }
 
   function handleCandidate({ from, candidate }: { from: string; candidate: RTCIceCandidateInit }) {
     const pc = peersRef.current[from];
     if (pc) {
-      pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {
-        // ICE candidate error
-      });
+      if (pc.remoteDescription && pc.remoteDescription.type) {
+        // Remote description is set - add candidate now
+        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
+          console.error(`[Teacher WebRTC] Error adding ICE candidate:`, err);
+        });
+      } else {
+        // Remote description not yet set - queue candidate
+        console.log(`[Teacher WebRTC] Queuing ICE candidate for ${from} (remote description not set)`);
+        if (!pendingCandidatesRef.current[from]) {
+          pendingCandidatesRef.current[from] = [];
+        }
+        pendingCandidatesRef.current[from].push(candidate);
+      }
     }
   }
 

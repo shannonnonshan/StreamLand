@@ -19,6 +19,7 @@ export function useLivestreamViewer({
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const broadcasterIdRef = useRef<string | null>(null);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 
   useEffect(() => {
     const pc = new RTCPeerConnection({ 
@@ -146,6 +147,19 @@ export function useLivestreamViewer({
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
         console.log('[Student WebRTC] Remote description set');
 
+        // Process any pending ICE candidates
+        if (pendingCandidatesRef.current.length > 0) {
+          console.log(`[Student WebRTC] Processing ${pendingCandidatesRef.current.length} pending ICE candidates`);
+          for (const candidate of pendingCandidatesRef.current) {
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (err) {
+              console.error('[Student WebRTC] Error adding pending candidate:', err);
+            }
+          }
+          pendingCandidatesRef.current = [];
+        }
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         console.log('[Student WebRTC] Sending answer back to broadcaster');
@@ -162,10 +176,17 @@ export function useLivestreamViewer({
     };
 
     const handleCandidate = ({ candidate }: { candidate: RTCIceCandidateInit }) => {
-      pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
-        console.error('ICE error:', error);
-        onError?.(error as Error);
-      });
+      if (pc.remoteDescription && pc.remoteDescription.type) {
+        // Remote description is set - add candidate now
+        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
+          console.error('[Student WebRTC] ICE error:', error);
+          onError?.(error as Error);
+        });
+      } else {
+        // Remote description not yet set - queue candidate
+        console.log('[Student WebRTC] Queuing ICE candidate (remote description not set)');
+        pendingCandidatesRef.current.push(candidate);
+      }
     };
 
     const handleStreamEnded = () => {

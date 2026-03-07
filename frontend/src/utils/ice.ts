@@ -7,32 +7,25 @@ export const ICE_SERVERS: RTCIceServer[] = [
   // Google STUN servers (free, public, very reliable)
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun3.l.google.com:19302' },
-  { urls: 'stun:stun4.l.google.com:19302' },
   
-  // Additional public STUN servers for redundancy
-  { urls: 'stun:stun.services.mozilla.com' },
-  { urls: 'stun:stun.stunprotocol.org:3478' },
-  
-  // Free TURN servers from Open Relay Project (Updated with current working credentials)
-  // These provide relay functionality for clients behind restrictive NAT/firewalls
+  // Metered TURN servers (Free tier: 50GB/month)
+  // More reliable than openrelay
   {
-    urls: 'turn:openrelay.metered.ca:80',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
+    urls: 'turn:a.relay.metered.ca:80',
+    username: 'e0c7c28f8a0976f14ae68a6d',
+    credential: 'CZMjkRQQh+FIEeZ/',
   },
   {
-    urls: 'turn:openrelay.metered.ca:443',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
+    urls: 'turn:a.relay.metered.ca:443',
+    username: 'e0c7c28f8a0976f14ae68a6d',
+    credential: 'CZMjkRQQh+FIEeZ/',
   },
   {
-    urls: 'turn:openrelay.metered.metered.ca:443?transport=tcp',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
+    urls: 'turn:a.relay.metered.ca:443?transport=tcp',
+    username: 'e0c7c28f8a0976f14ae68a6d',
+    credential: 'CZMjkRQQh+FIEeZ/',
   },
   
-  // Twilio STUN (additional reliability for enterprise-grade connection)
+  // Backup Twilio STUN
   { urls: 'stun:global.stun.twilio.com:3478' },
 ];

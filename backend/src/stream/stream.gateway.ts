@@ -153,7 +153,8 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         // Note: Normal stream ends should go through handleStreamEnded
         const livestreamID = key; // keys are livestreamIDs
         
-        this.server.to([...channel.watchers]).emit('stream-ended', {
+        // Notify all watchers via room that stream ended
+        this.server.to(key).emit('stream-ended', {
           livestreamID,
         });
         
@@ -167,17 +168,11 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         channel.watchers.delete(socket.id);
         this.server.to(channel.broadcaster).emit('bye', socket.id);
         
-        // Emit updated viewer count to broadcaster AND all remaining clients
+        // Emit updated viewer count to broadcaster AND all remaining clients in room
         const viewerCount = channel.watchers.size;
-        this.server
-          .to(channel.broadcaster)
-          .emit('viewerCount', viewerCount);
-        
-        // Also broadcast to all students still in the room
-        this.server.to(this.getKey(Object.keys(this.channels).find(
-          k => this.channels[k].watchers.has(socket.id)
-        ) || ''))
-          .emit('viewerCount', viewerCount);
+        this.server.to(channel.broadcaster).emit('viewerCount', viewerCount);
+        // Emit to the room (key) so remaining watchers also get the updated count
+        this.server.to(key).emit('viewerCount', viewerCount);
         
         // Remove viewer from Redis
         const livestreamID = key; // keys are livestreamIDs
@@ -299,7 +294,8 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
     if (channel) {
-      this.server.to([...channel.watchers]).emit('stream-ended', data);
+      // Emit to room instead of array of socket IDs
+      this.server.to(key).emit('stream-ended', data);
       
       const teacherID = key.split(':')[0];
       
@@ -330,8 +326,8 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const channel = this.channels[key];
     
     if (channel && channel.broadcaster === socket.id) {
-      // Broadcast document to all watchers
-      this.server.to([...channel.watchers]).emit('share-document', {
+      // Broadcast document to all watchers via room
+      this.server.to(key).emit('share-document', {
         document: data.document,
       });
     }
@@ -346,8 +342,8 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const channel = this.channels[key];
     
     if (channel && channel.broadcaster === socket.id) {
-      // Notify all watchers to close document
-      this.server.to([...channel.watchers]).emit('close-document');
+      // Notify all watchers to close document via room
+      this.server.to(key).emit('close-document');
     }
   }
 
@@ -360,8 +356,8 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const channel = this.channels[key];
     
     if (channel && channel.broadcaster === socket.id) {
-      // Send available documents to all watchers
-      this.server.to([...channel.watchers]).emit('sync-documents', {
+      // Send available documents to all watchers via room
+      this.server.to(key).emit('sync-documents', {
         documents: data.documents,
       });
     }
@@ -419,8 +415,9 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.logger.error(`Error saving document to MongoDB: ${error.message}`);
       }
 
-      // Broadcast new document to all watchers
-      this.server.to([...channel.watchers]).emit('document-uploaded', {
+      // Broadcast new document to all watchers via room
+      const keyForDoc = this.getKey(data.livestreamID);
+      this.server.to(keyForDoc).emit('document-uploaded', {
         document: data.document,
       });
     }
@@ -451,8 +448,10 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       // Broadcast message to everyone in the channel (broadcaster + all watchers)
-      const allParticipants = [channel.broadcaster, ...Array.from(channel.watchers)];
-      this.server.to(allParticipants).emit('chat-message', data.message);
+      // Emit to the room that all watchers joined
+      this.server.to(key).emit('chat-message', data.message);
+      // Also emit to broadcaster explicitly
+      this.server.to(channel.broadcaster).emit('chat-message', data.message);
       
       // Save chat to MongoDB (fire and forget for performance)
       setImmediate(() => {

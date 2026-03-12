@@ -164,7 +164,14 @@ Create a `.env` file in the `frontend` directory:
 ```env
 NEXT_PUBLIC_API_URL="http://localhost:3001"
 NEXT_PUBLIC_SOCKET_URL="http://localhost:3001"
+NEXT_PUBLIC_WEBRTC_STUN_URLS="stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+NEXT_PUBLIC_WEBRTC_TURN_URLS="turn:YOUR_TURN_IP:3478?transport=udp,turn:YOUR_TURN_IP:3478?transport=tcp"
+NEXT_PUBLIC_WEBRTC_TURN_USERNAME="streamland-turn"
+NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL="your-strong-turn-password"
+NEXT_PUBLIC_WEBRTC_ICE_TRANSPORT_POLICY="all"
 ```
+
+For production livestreaming across different networks, use a self-hosted TURN server. See `GCP_TURN_SETUP.md` for the full Google Cloud setup and coturn configuration.
 
 ### 5. Setup Databases
 

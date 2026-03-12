@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ICE_SERVERS } from '@/utils/ice';
+import { ICE_SERVERS, ICE_TRANSPORT_POLICY } from '@/utils/ice';
 import socket from '@/socket';
 
 interface UseLivestreamViewerOptions {
@@ -24,8 +24,8 @@ export function useLivestreamViewer({
   useEffect(() => {
     const pc = new RTCPeerConnection({ 
       iceServers: ICE_SERVERS,
-      // Optimize for faster connection
-      iceTransportPolicy: 'all',
+      // Use configured ICE transport policy
+      iceTransportPolicy: ICE_TRANSPORT_POLICY,
       bundlePolicy: 'max-bundle',
       rtcpMuxPolicy: 'require',
     });
@@ -83,12 +83,18 @@ export function useLivestreamViewer({
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log(`[Student WebRTC] ICE candidate:`, {
+        const candidateType = event.candidate.type; // host, srflx (STUN), or relay (TURN)
+        console.log(`[Student WebRTC] ICE candidate (${candidateType}):`, {
           type: event.candidate.type,
           protocol: event.candidate.protocol,
           address: event.candidate.address,
           port: event.candidate.port,
         });
+        
+        // Log TURN usage for cross-network debugging
+        if (candidateType === 'relay') {
+          console.log('✅ [Student WebRTC] Using TURN relay - good for cross-network!');
+        }
         
         if (broadcasterIdRef.current) {
           socket.emit('candidate', {
@@ -213,8 +219,18 @@ export function useLivestreamViewer({
     socket.on('stream-ended', handleStreamEnded);
     socket.on('stream-not-found', handleStreamNotFound);
 
-    // Join immediately when entering
-    socket.emit('watcher', { livestreamID });
+    // Ensure socket is connected before emitting (autoConnect is false in socket.ts)
+    const emitWatcher = () => {
+      console.log('[Student WebRTC] Emitting watcher event for', livestreamID);
+      socket.emit('watcher', { livestreamID });
+    };
+
+    if (socket.connected) {
+      emitWatcher();
+    } else {
+      socket.connect();
+      socket.once('connect', emitWatcher);
+    }
 
     // Set timeout for loading state
     loadingTimeoutRef.current = setTimeout(() => {
@@ -232,6 +248,8 @@ export function useLivestreamViewer({
       socket.off('candidate', handleCandidate);
       socket.off('stream-ended', handleStreamEnded);
       socket.off('stream-not-found', handleStreamNotFound);
+      // Remove the once('connect') listener in case cleanup runs before socket connected
+      socket.off('connect', emitWatcher);
 
       pc.close();
     };

@@ -10,7 +10,7 @@ COPY package*.json ./
 COPY prisma ./prisma
 
 # Cài TẤT CẢ dependencies (bao gồm dev deps để build)
-RUN npm ci || npm install
+RUN npm install
 
 # Copy toàn bộ source code
 COPY . .

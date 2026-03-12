@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ICE_SERVERS } from "@/utils/ice";
+import { ICE_SERVERS, ICE_TRANSPORT_POLICY } from "@/utils/ice";
 import socket from "@/socket";
 import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
 
@@ -1125,7 +1125,7 @@ export default function BroadcasterPage() {
     const pc = new RTCPeerConnection({ 
       iceServers: ICE_SERVERS,
       // Critical for cross-network connections
-      iceTransportPolicy: 'all', // Allow both STUN and TURN
+      iceTransportPolicy: ICE_TRANSPORT_POLICY, // Use configured ICE transport policy
       bundlePolicy: 'max-bundle', // Bundle all media on one connection
       rtcpMuxPolicy: 'require', // Multiplex RTP and RTCP on same port
     });
@@ -1143,12 +1143,18 @@ export default function BroadcasterPage() {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log(`[Teacher WebRTC] ICE candidate for ${watcherId}:`, {
+        const candidateType = event.candidate.type; // host, srflx (STUN), or relay (TURN)
+        console.log(`[Teacher WebRTC] ICE candidate for ${watcherId} (${candidateType}):`, {
           type: event.candidate.type,
           protocol: event.candidate.protocol,
           address: event.candidate.address,
           port: event.candidate.port,
         });
+        
+        // Log TURN usage for cross-network debugging
+        if (candidateType === 'relay') {
+          console.log(`✅ [Teacher WebRTC] Using TURN relay for ${watcherId} - good for cross-network!`);
+        }
         
         socket.emit("candidate", {
           to: watcherId,

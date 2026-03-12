@@ -557,15 +557,15 @@ export default function LivestreamViewerPage() {
       }, []);
 
       return (
-        <div className={`${raleway.className} h-full w-full bg-gray-50`}>
+        <div className={`${raleway.className} min-h-screen w-full bg-gray-50`}>
           <Toaster />
-          <div className="h-full flex gap-4 p-4">
+          <div className="flex gap-4 p-4 items-start">
         
             {/* Main Content Area */}
-            <div className="flex-1 flex flex-col gap-4 min-w-0 overflow-y-auto">
+            <div className="flex-1 flex flex-col gap-4 min-w-0">
             
               {/* Video Player */}
-              <div ref={videoContainerRef} className="relative bg-black rounded-2xl overflow-hidden shadow-2xl aspect-video min-h-[600px] group">
+              <div ref={videoContainerRef} className="relative bg-black rounded-2xl overflow-hidden shadow-2xl aspect-video group">
             
                 {/* Split view: Video + Shared Document */}
                 <div className="absolute inset-0 flex">
@@ -1009,7 +1009,7 @@ export default function LivestreamViewerPage() {
         
             {/* Documents Sidebar - Teacher's Shared Materials */}
             {showDocuments && (
-              <div className="w-96 flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-200">
+              <div className="w-96 flex-shrink-0 flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-200 sticky top-4 max-h-[calc(100vh-2rem)]">
                 {/* Documents Header */}
                 <div className="p-4 bg-[#161853] text-white flex items-center justify-between shadow-lg">
                   <div className="flex items-center gap-3">

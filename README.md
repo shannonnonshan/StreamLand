@@ -3,9 +3,7 @@
 A comprehensive online education platform that enables teachers to host live streaming classes and share educational content with students in real-time.
 
 ## Team Members
-
-- **Đoàn Minh Khanh**
-- **Đinh Thị Thanh Vy**
+**Đoàn Minh Khanh** && **Đinh Thị Thanh Vy**
 
 ## Table of Contents
 

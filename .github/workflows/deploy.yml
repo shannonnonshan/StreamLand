@@ -28,14 +28,20 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 30m
           script: |
             cd /home/${{ secrets.SSH_USER }}/streamland
 
-            if [ ! -f backend/.env ]; then
-              cp backend/.env.production backend/.env
-            fi
+            echo "=== Pulling latest code ==="
+            git pull origin main || true
 
-            sudo docker-compose down || true
-            sudo docker-compose up -d --build
+            echo "=== Stopping old containers ==="
+            docker compose down || true
 
-            sudo docker-compose ps
+            echo "=== Building and starting containers ==="
+            docker compose up -d --build
+
+            echo "=== Container status ==="
+            docker compose ps
+
+            echo "=== Deployment completed ==="

@@ -199,7 +199,7 @@ export class AuthController {
   async updateProfile(
     @Request() req: { user: { sub: string } },
     @Body() updateDto: UpdateUserProfileDto,
-    @UploadedFile() file?: Express.Multer.File,
+    @UploadedFile() file?: any,
   ) {
     // If avatar file is provided, upload to R2 and get the URL
     if (file) {
@@ -232,7 +232,7 @@ export class AuthController {
   async updateTeacherProfile(
     @Request() req: { user: { sub: string } },
     @Body() updateDto: UpdateTeacherProfileDto,
-    @UploadedFile() cvFile?: Express.Multer.File,
+    @UploadedFile() cvFile?: any,
   ) {
     return this.authService.updateTeacherProfile(req.user.sub, updateDto, cvFile);
   }
@@ -244,7 +244,7 @@ export class AuthController {
   async uploadTeacherCV(
     @Request() req: { user: { sub: string } },
     @Body() uploadDto: UploadTeacherCVDto,
-    @UploadedFile() cvFile?: Express.Multer.File,
+    @UploadedFile() cvFile?: any,
   ) {
     return this.authService.uploadTeacherCV(req.user.sub, cvFile, uploadDto);
   }

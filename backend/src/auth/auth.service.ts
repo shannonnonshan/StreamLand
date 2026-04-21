@@ -87,7 +87,17 @@ export class AuthService {
     }
 
     // Send OTP email
-    await this.mailService.sendOTP(email, otp, fullName);
+    const sendResult = await this.mailService.sendOTP(email, otp, fullName);
+    
+    if (!sendResult.success) {
+      // If email send failed, delete the pending registration to let user retry
+      await this.prisma.postgres.pendingRegistration.delete({
+        where: { email },
+      });
+      throw new BadRequestException(
+        `Failed to send verification email: ${sendResult.error || 'Unknown error'}. Please try again.`,
+      );
+    }
 
     return {
       message: 'Registration successful. Please check your email for the verification code (OTP).',
@@ -154,7 +164,21 @@ export class AuthService {
       });
 
       // Send OTP email
-      await this.mailService.sendOTP(email, otp, user.fullName);
+      const sendResult = await this.mailService.sendOTP(email, otp, user.fullName);
+      
+      if (!sendResult.success) {
+        // Clear OTP if email failed to send
+        await this.prisma.postgres.user.update({
+          where: { id: user.id },
+          data: {
+            otp: null,
+            otpExpiry: null,
+          },
+        });
+        throw new BadRequestException(
+          `Failed to send 2FA code: ${sendResult.error || 'Unknown error'}. Please try again.`,
+        );
+      }
 
       return {
         message: 'Two-factor authentication required. A verification code has been sent to your email.',
@@ -363,7 +387,13 @@ export class AuthService {
       });
 
       // Send OTP email
-      await this.mailService.sendOTP(email, otp, pendingReg.fullName);
+      const sendResult = await this.mailService.sendOTP(email, otp, pendingReg.fullName);
+      
+      if (!sendResult.success) {
+        throw new BadRequestException(
+          `Failed to send verification code: ${sendResult.error || 'Unknown error'}. Please try again.`,
+        );
+      }
 
       // Update rate limit map
       this.otpRateLimitMap.set(email, Date.now());
@@ -389,7 +419,18 @@ export class AuthService {
     });
 
     // Send OTP email for password reset
-    await this.mailService.sendPasswordResetOTP(email, otp, user.fullName);
+    const sendResult = await this.mailService.sendPasswordResetOTP(email, otp, user.fullName);
+    
+    if (!sendResult.success) {
+      // Clear OTP if email failed to send
+      await this.prisma.postgres.user.update({
+        where: { id: user.id },
+        data: { otp: null, otpExpiry: null },
+      });
+      throw new BadRequestException(
+        `Failed to send password reset code: ${sendResult.error || 'Unknown error'}. Please try again.`,
+      );
+    }
 
     // Update rate limit map
     this.otpRateLimitMap.set(email, Date.now());
@@ -887,7 +928,7 @@ export class AuthService {
   async updateTeacherProfile(
     userId: string,
     updateDto: UpdateTeacherProfileDto,
-    cvFile?: Express.Multer.File,
+    cvFile?: any,
   ) {
     const user = await this.prisma.postgres.user.findUnique({
       where: { id: userId },
@@ -943,7 +984,7 @@ export class AuthService {
   
   async uploadTeacherCV(
     userId: string,
-    cvFile: Express.Multer.File | undefined,
+    cvFile: any,
     updateDto: UploadTeacherCVDto,
   ) {
     // Verify user exists and is a teacher

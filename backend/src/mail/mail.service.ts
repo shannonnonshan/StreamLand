@@ -1,21 +1,65 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
+import * as nodemailer from 'nodemailer';
+import { Transporter } from 'nodemailer';
 
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private resend: Resend;
-  private fromEmail: string;
+  private resend?: Resend;
+  private smtpTransporter?: Transporter;
+  private fromEmail: string = '';
   private isConfigured: boolean = false;
+  private emailProvider: 'smtp' | 'resend' | 'none' = 'none';
 
   constructor(private configService: ConfigService) {
+    // Try to initialize SMTP first
+    const smtpHost = this.configService.get('SMTP_HOST');
+    const smtpRejectUnauthorizedRaw = this.configService.get('SMTP_TLS_REJECT_UNAUTHORIZED');
+    const smtpRejectUnauthorized = !smtpRejectUnauthorizedRaw
+      ? true
+      : !['0', 'false', 'no'].includes(String(smtpRejectUnauthorizedRaw).toLowerCase());
+    if (!smtpRejectUnauthorized) {
+      // Local testing only: allow self-signed certs during SMTP TLS handshake
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    }
+    if (smtpHost) {
+      try {
+        this.smtpTransporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: this.configService.get('SMTP_PORT') || 587,
+          secure: this.configService.get('SMTP_PORT') === 465,
+          tls: {
+            // Allow disabling cert verification for local testing only
+            rejectUnauthorized: smtpRejectUnauthorized,
+          },
+          auth: {
+            user: this.configService.get('SMTP_USER'),
+            pass: this.configService.get('SMTP_PASSWORD'),
+          },
+        });
+
+        this.fromEmail = this.configService.get('SMTP_FROM') || 'noreply@streamland.com';
+        this.emailProvider = 'smtp';
+        this.isConfigured = true;
+
+        this.logger.log('✅ SMTP email service initialized');
+        this.logger.log(`📧 Using SMTP: ${smtpHost}:${this.configService.get('SMTP_PORT') || 587}`);
+        this.logger.log(`📤 Sending emails from: ${this.fromEmail}`);
+        return;
+      } catch (error) {
+        this.logger.error('❌ Failed to initialize SMTP:', error);
+      }
+    }
+
+    // Fallback to Resend
     const resendApiKey = this.configService.get('RESEND_API_KEY');
     const resendFromEmail = this.configService.get('RESEND_FROM_EMAIL');
-    
+
     if (!resendApiKey || !resendFromEmail) {
-      this.logger.warn('Resend not configured. Email sending will be disabled.');
-      this.logger.warn('Please set RESEND_API_KEY, RESEND_FROM_EMAIL in your .env file');
+      this.logger.warn('⚠️  Neither SMTP nor Resend configured. Email sending will be disabled.');
+      this.logger.warn('Configure either SMTP_* or RESEND_* environment variables');
       this.isConfigured = false;
       return;
     }
@@ -23,8 +67,9 @@ export class MailService {
     try {
       this.resend = new Resend(resendApiKey);
       this.fromEmail = resendFromEmail;
+      this.emailProvider = 'resend';
       this.isConfigured = true;
-      
+
       this.logger.log('Resend email service initialized');
       this.logger.log(`Sending emails from: ${this.fromEmail}`);
     } catch (error) {
@@ -37,8 +82,6 @@ export class MailService {
     // Check if email service is configured
     if (!this.isConfigured) {
       this.logger.warn(`Email service not configured. OTP: ${otp} for ${email}`);
-      this.logger.warn('In production, configure RESEND_API_KEY to send emails');
-      // In development, log the OTP so you can still test
       if (process.env.NODE_ENV === 'development') {
         this.logger.log(`[DEV MODE] OTP for ${email}: ${otp}`);
         return { success: true, devMode: true };
@@ -104,23 +147,40 @@ export class MailService {
       `;
 
     try {
-      const { data, error } = await this.resend.emails.send({
-        from: `StreamLand <${this.fromEmail}>`,
-        to: [email],
-        subject: 'Account Verification OTP - StreamLand',
-        html: htmlContent,
-      });
+      if (this.emailProvider === 'smtp') {
+        const info = await this.smtpTransporter!.sendMail({
+          from: this.fromEmail,
+          to: email,
+          subject: 'Account Verification OTP - StreamLand',
+          html: htmlContent,
+        });
 
-      if (error) {
-        throw new Error(error.message);
+        this.logger.log(`OTP email sent to ${email} via SMTP (ID: ${info.messageId})`);
+        return { success: true, messageId: info.messageId };
+      } else if (this.emailProvider === 'resend') {
+        const { data, error } = await this.resend!.emails.send({
+          from: `StreamLand <${this.fromEmail}>`,
+          to: [email],
+          subject: 'Account Verification OTP - StreamLand',
+          html: htmlContent,
+        });
+
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        this.logger.log(`✅ OTP email sent to ${email} via Resend (ID: ${data.id})`);
+        return { success: true, emailId: data.id };
       }
-
-      this.logger.log(`OTP email sent to ${email} (ID: ${data.id})`);
-      return { success: true, emailId: data.id };
+      
+      // This shouldn't happen, but return error for safety
+      return {
+        success: false,
+        error: 'No email provider configured',
+      };
     } catch (error) {
-      this.logger.error('Failed to send OTP email:');
+      this.logger.error('❌ Failed to send OTP email:');
       this.logger.error(error);
-      // Log the OTP in case of email failure (development only)
       if (process.env.NODE_ENV === 'development') {
         this.logger.warn(`[DEV MODE] Email exception. OTP for ${email}: ${otp}`);
       }
@@ -134,7 +194,7 @@ export class MailService {
   async sendPasswordResetOTP(email: string, otp: string, fullName?: string) {
     // Check if email service is configured
     if (!this.isConfigured) {
-      this.logger.warn(`Email service not configured. Password reset OTP: ${otp} for ${email}`);
+      this.logger.warn(`❌ Email service not configured. Password reset OTP: ${otp} for ${email}`);
       if (process.env.NODE_ENV === 'development') {
         this.logger.log(`[DEV MODE] Password Reset OTP for ${email}: ${otp}`);
         return { success: true, devMode: true };
@@ -200,19 +260,31 @@ export class MailService {
       `;
 
     try {
-      const { data, error } = await this.resend.emails.send({
-        from: `StreamLand <${this.fromEmail}>`,
-        to: [email],
-        subject: 'Password Reset OTP - StreamLand',
-        html: htmlContent,
-      });
+      if (this.emailProvider === 'smtp') {
+        const info = await this.smtpTransporter!.sendMail({
+          from: this.fromEmail,
+          to: email,
+          subject: 'Password Reset OTP - StreamLand',
+          html: htmlContent,
+        });
 
-      if (error) {
-        throw new Error(error.message);
+        this.logger.log(`✅ Password reset OTP sent to ${email} via SMTP (ID: ${info.messageId})`);
+        return { success: true, messageId: info.messageId };
+      } else if (this.emailProvider === 'resend') {
+        const { data, error } = await this.resend!.emails.send({
+          from: `StreamLand <${this.fromEmail}>`,
+          to: [email],
+          subject: 'Password Reset OTP - StreamLand',
+          html: htmlContent,
+        });
+
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        this.logger.log(`Password reset OTP sent to ${email} via Resend (ID: ${data.id})`);
+        return { success: true, emailId: data.id };
       }
-
-      this.logger.log(`Password reset OTP sent to ${email} (ID: ${data.id})`);
-      return { success: true, emailId: data.id };
     } catch (error) {
       this.logger.error('Failed to send password reset OTP email:');
       this.logger.error(error);
@@ -224,5 +296,11 @@ export class MailService {
         error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
+    
+    // This shouldn't happen, but return error for safety
+    return {
+      success: false,
+      error: 'No email provider configured',
+    };
   }
 }

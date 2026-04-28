@@ -16,6 +16,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { LivestreamService } from './livestream.service';
 import { CreateLivestreamDto } from './dto/create-livestream.dto';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
@@ -24,6 +25,17 @@ import { UpdateScheduleDto } from './dto/update-schedule.dto';
 @Controller('livestream')
 export class LivestreamController {
   constructor(private readonly livestreamService: LivestreamService) {}
+
+  private assertLivestreamAccess(livestream: { teacherId: string; isPublic: boolean }, req: any) {
+    const requesterId = req.user?.sub;
+    const requesterRole = req.user?.role;
+    const isOwner = requesterId && livestream.teacherId === requesterId;
+    const isAdmin = requesterRole === 'ADMIN';
+
+    if (!livestream.isPublic && !isOwner && !isAdmin) {
+      throw new UnauthorizedException('This livestream is private. Only the teacher can view it.');
+    }
+  }
 
   @Post('create')
   @UseGuards(JwtAuthGuard)
@@ -136,8 +148,54 @@ export class LivestreamController {
   }
 
   @Get(':id')
-  async getLivestreamById(@Param('id') id: string) {
-    return await this.livestreamService.getLivestreamById(id);
+  @UseGuards(OptionalJwtAuthGuard)
+  async getLivestreamById(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    const livestream = await this.livestreamService.getLivestreamById(id);
+
+    this.assertLivestreamAccess(livestream, req);
+
+    return livestream;
+  }
+
+  @Get(':id/ai-analysis')
+  @UseGuards(OptionalJwtAuthGuard)
+  async getRecordingAiAnalysis(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    this.assertLivestreamAccess(livestream, req);
+
+    return await this.livestreamService.getRecordingAiAnalysis(id);
+  }
+
+  @Post(':id/transcript')
+  @UseGuards(OptionalJwtAuthGuard)
+  async generateRecordingTranscript(
+    @Param('id') id: string,
+    @Body() body: { force?: boolean },
+    @Request() req: any,
+  ) {
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    this.assertLivestreamAccess(livestream, req);
+
+    return await this.livestreamService.generateRecordingTranscript(id, !!body?.force);
+  }
+
+  @Post(':id/summary')
+  @UseGuards(OptionalJwtAuthGuard)
+  async generateRecordingSummary(
+    @Param('id') id: string,
+    @Body() body: { force?: boolean },
+    @Request() req: any,
+  ) {
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    this.assertLivestreamAccess(livestream, req);
+
+    return await this.livestreamService.generateRecordingSummary(id, !!body?.force);
   }
 
   @Post(':id/increment-view')
@@ -222,7 +280,7 @@ export class LivestreamController {
   @UseGuards(JwtAuthGuard)
   async updateLivestream(
     @Param('id') id: string,
-    @Body() body: { description?: string },
+    @Body() body: { description?: string; isPublic?: boolean },
     @Request() req: any,
   ) {
     // Get livestream to verify ownership

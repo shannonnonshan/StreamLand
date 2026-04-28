@@ -2,9 +2,11 @@
 
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Calendar, Clock, Download, Share2, MessageCircle } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, Download, Share2, MessageCircle, Globe, Lock, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getLivestreamById } from "@/lib/api/teacher";
+import { getLivestreamById, updateLivestreamVisibility } from "@/lib/api/teacher";
+import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
+import TranscriptSummaryStudio from "@/component/shared/TranscriptSummaryStudio";
 
 interface LiveStream {
   id: string;
@@ -17,6 +19,7 @@ interface LiveStream {
   status: string;
   totalViews: number;
   duration: number;
+  isPublic: boolean;
   createdAt: string;
   startedAt?: string;
   endedAt?: string;
@@ -34,6 +37,53 @@ export default function RecordingDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
   const [showComments, setShowComments] = useState(true);
+  const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
+  const [visibilityError, setVisibilityError] = useState<string | null>(null);
+  const { showDialog, DialogComponent } = useConfirmDialog();
+
+  const updateVisibility = async (nextIsPublic: boolean) => {
+    if (!recording || isUpdatingVisibility) return;
+
+    try {
+      setVisibilityError(null);
+      setIsUpdatingVisibility(true);
+      const updated = await updateLivestreamVisibility(recording.id, nextIsPublic);
+      setRecording((prev) => (prev ? { ...prev, isPublic: updated.isPublic } : prev));
+    } catch (err) {
+      console.error("Failed to update visibility:", err);
+      setVisibilityError("Failed to update visibility. Please try again.");
+    } finally {
+      setIsUpdatingVisibility(false);
+    }
+  };
+
+  const handleToggleVisibility = async () => {
+    if (!recording || isUpdatingVisibility) return;
+
+    const nextIsPublic = !recording.isPublic;
+    showDialog(
+      {
+        title: "Change visibility",
+        message: nextIsPublic
+          ? (
+              <>
+                Do you want to change this video to <span className="font-bold">Public</span>?
+              </>
+            )
+          : (
+              <>
+                Do you want to change this video to <span className="font-bold">Private</span>?
+              </>
+            ),
+        type: "warning",
+        confirmText: "Yes, change",
+        cancelText: "Cancel",
+      },
+      () => {
+        void updateVisibility(nextIsPublic);
+      },
+    );
+  };
 
   useEffect(() => {
     const fetchRecording = async () => {
@@ -59,7 +109,7 @@ export default function RecordingDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#292C6D] mx-auto mb-4"></div>
           <p className="text-gray-600">Loading recording...</p>
@@ -70,7 +120,7 @@ export default function RecordingDetailPage() {
 
   if (isNavigating) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#292C6D] mx-auto mb-4"></div>
           <p className="text-gray-600">Redirecting...</p>
@@ -81,7 +131,7 @@ export default function RecordingDetailPage() {
 
   if (error || !recording) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
         <div className="bg-white rounded-xl shadow-lg p-8 max-w-md text-center">
           <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <span className="text-3xl">🎥</span>
@@ -105,7 +155,7 @@ export default function RecordingDetailPage() {
   // Check if recording has actual video file
   if (!recording.recordingUrl) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
         <div className="bg-white rounded-xl shadow-lg p-8 max-w-md text-center">
           <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <span className="text-3xl">⚠️</span>
@@ -127,7 +177,8 @@ export default function RecordingDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
+    <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 p-6">
+      {DialogComponent}
       <div className="max-w-7xl mx-auto">
         {/* Back Button */}
         <button
@@ -170,7 +221,35 @@ export default function RecordingDetailPage() {
                 <div className="flex items-center gap-2">
                   <span>{recording.totalViews} views</span>
                 </div>
+                <div className="relative group/visibility-detail">
+                  <button
+                    type="button"
+                    onClick={handleToggleVisibility}
+                    disabled={isUpdatingVisibility}
+                    className={`inline-flex h-9 w-9 items-center justify-center rounded-full border shadow-md ${
+                      recording.isPublic
+                        ? 'bg-[#B45309] text-amber-50 border-amber-300/40'
+                        : 'bg-[#78350F] text-amber-100 border-amber-400/40'
+                    } ${isUpdatingVisibility ? 'cursor-not-allowed opacity-70' : 'hover:scale-105 transition-transform'}`}
+                    title={recording.isPublic ? 'Set Private' : 'Set Public'}
+                  >
+                    {isUpdatingVisibility ? <Loader2 size={16} className="animate-spin" /> : recording.isPublic ? <Globe size={16} /> : <Lock size={16} />}
+                  </button>
+                  <span
+                    className={`pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-md px-2.5 py-1 text-[11px] font-bold opacity-0 transition-opacity duration-200 group-hover/visibility-detail:opacity-100 ${
+                      recording.isPublic
+                        ? 'bg-[#B45309] text-amber-50'
+                        : 'bg-[#78350F] text-amber-100'
+                    }`}
+                  >
+                    {recording.isPublic ? 'Public video' : 'Private (Teacher only)'}
+                  </span>
+                </div>
               </div>
+
+              {visibilityError && (
+                <p className="text-sm text-red-500 mb-4">{visibilityError}</p>
+              )}
 
               {/* Action Buttons */}
               <div className="flex flex-wrap gap-3">
@@ -227,6 +306,12 @@ export default function RecordingDetailPage() {
 
           {/* Sidebar */}
           <div className="space-y-4">
+            {/* Transcript Studio */}
+            <TranscriptSummaryStudio
+              recordingId={recordingID}
+              transcriptSeedMessage="[Transcript preview] AI transcription endpoint is pending backend integration. Your generated transcript will appear here."
+            />
+
             {/* Recording Info Card */}
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h3 className="font-semibold text-gray-900 mb-4">Recording Information</h3>
@@ -244,6 +329,33 @@ export default function RecordingDetailPage() {
                   <span className="font-semibold text-gray-900">{recording.totalViews}</span>
                 </div>
                 <div className="flex justify-between items-center">
+                  <span className="text-gray-600">Visibility</span>
+                  <div className="relative group/visibility-card">
+                    <button
+                      type="button"
+                      onClick={handleToggleVisibility}
+                      disabled={isUpdatingVisibility}
+                      className={`inline-flex h-8 w-8 items-center justify-center rounded-full border ${
+                        recording.isPublic
+                          ? 'bg-[#B45309] text-amber-50 border-amber-300/40'
+                          : 'bg-[#78350F] text-amber-100 border-amber-400/40'
+                      } ${isUpdatingVisibility ? 'cursor-not-allowed opacity-70' : 'hover:scale-105 transition-transform'}`}
+                      title={recording.isPublic ? 'Set Private' : 'Set Public'}
+                    >
+                      {isUpdatingVisibility ? <Loader2 size={14} className="animate-spin" /> : recording.isPublic ? <Globe size={14} /> : <Lock size={14} />}
+                    </button>
+                    <span
+                      className={`pointer-events-none absolute right-10 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-md px-2.5 py-1 text-[11px] font-bold opacity-0 transition-opacity duration-200 group-hover/visibility-card:opacity-100 ${
+                        recording.isPublic
+                          ? 'bg-[#B45309] text-amber-50'
+                          : 'bg-[#78350F] text-amber-100'
+                      }`}
+                    >
+                      {recording.isPublic ? 'Public' : 'Private'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex justify-between items-center">
                   <span className="text-gray-600">Recording ID</span>
                   <span className="font-semibold text-gray-900 text-xs">{recording.id}</span>
                 </div>
@@ -253,34 +365,36 @@ export default function RecordingDetailPage() {
             {/* Related Recordings */}
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h3 className="font-semibold text-gray-900 mb-4">Related Recordings</h3>
-              <div className="space-y-3">
+              <div className="overflow-x-auto pb-1">
                 {relatedRecordings.length > 0 ? (
-                  relatedRecordings.map((rec) => (
-                    <div
-                      key={rec.id}
-                      className="flex gap-3 cursor-pointer group"
-                      onClick={() => {
-                        setIsNavigating(true);
-                        router.push(`/teacher/${teacherId}/recordings/detail/${rec.id}`);
-                      }}
-                    >
-                      <div className="relative w-32 h-20 flex-shrink-0 rounded-lg overflow-hidden">
-                        <Image
-                          src={rec.thumbnail || "/logo.png"}
-                          alt={rec.title}
-                          width={128}
-                          height={80}
-                          className="w-full h-full object-cover"
-                        />
+                  <div className="flex gap-3 min-w-max">
+                    {relatedRecordings.map((rec) => (
+                      <div
+                        key={rec.id}
+                        className="w-56 cursor-pointer group rounded-lg border border-gray-100 p-2 transition hover:border-[#292C6D]/20 hover:shadow-sm"
+                        onClick={() => {
+                          setIsNavigating(true);
+                          router.push(`/teacher/${teacherId}/recordings/detail/${rec.id}`);
+                        }}
+                      >
+                        <div className="relative h-28 w-full rounded-lg overflow-hidden">
+                          <Image
+                            src={rec.thumbnail || "/logo.png"}
+                            alt={rec.title}
+                            width={224}
+                            height={112}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="mt-2 min-w-0">
+                          <h4 className="font-medium text-sm text-gray-900 line-clamp-2 group-hover:text-[#292C6D] transition-colors">
+                            {rec.title}
+                          </h4>
+                          <p className="text-xs text-gray-500 mt-1">{new Date(rec.endedAt || rec.createdAt).toLocaleDateString()}</p>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-medium text-sm text-gray-900 line-clamp-2 group-hover:text-[#292C6D] transition-colors">
-                          {rec.title}
-                        </h4>
-                        <p className="text-xs text-gray-500 mt-1">{new Date(rec.endedAt || rec.createdAt).toLocaleDateString()}</p>
-                      </div>
-                    </div>
-                  ))
+                    ))}
+                  </div>
                 ) : (
                   <p className="text-gray-500 text-sm">No related recordings found</p>
                 )}

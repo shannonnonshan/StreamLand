@@ -25,6 +25,7 @@ import {
 import { Loader2 } from 'lucide-react';
 import { getSavedDocuments, updateSavedDocument, togglePinDocument, SavedDocument } from '@/lib/api/student';
 import toast from 'react-hot-toast';
+import TranscriptSummaryStudio from '@/component/shared/TranscriptSummaryStudio';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
@@ -152,13 +153,13 @@ export default function DocumentDetailPage() {
   
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
         <div className="text-center">
           <div className="relative">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-r from-[#161853] to-[#292C6D] flex items-center justify-center mx-auto mb-6 shadow-xl">
+            <div className="w-20 h-20 rounded-full bg-linear-to-r from-[#161853] to-[#292C6D] flex items-center justify-center mx-auto mb-6 shadow-xl">
               <Loader2 className="w-10 h-10 animate-spin text-white" />
             </div>
-            <div className="absolute inset-0 w-20 h-20 mx-auto rounded-full bg-gradient-to-r from-[#161853] to-[#292C6D] blur-xl opacity-30 animate-pulse"></div>
+            <div className="absolute inset-0 w-20 h-20 mx-auto rounded-full bg-linear-to-r from-[#161853] to-[#292C6D] blur-xl opacity-30 animate-pulse"></div>
           </div>
           <p className="text-lg font-medium text-gray-700">Loading document...</p>
         </div>
@@ -168,14 +169,14 @@ export default function DocumentDetailPage() {
   
   if (!document) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex flex-col justify-center items-center p-4">
+      <div className="min-h-screen bg-linear-to-br from-blue-50 via-white to-purple-50 flex flex-col justify-center items-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-md text-center">
-          <div className="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center mx-auto mb-6">
+          <div className="w-20 h-20 bg-linear-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <DocumentIcon className="h-12 w-12 text-gray-400" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-3">Document Not Found</h2>
           <p className="text-gray-600 mb-8">This document doesn't exist or has been removed.</p>
-          <Link href="/student/documents" className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-[#161853] to-[#292C6D] text-white rounded-xl hover:shadow-lg transition-all font-semibold hover:scale-105">
+          <Link href="/student/documents" className="inline-flex items-center px-6 py-3 bg-linear-to-r from-[#161853] to-[#292C6D] text-white rounded-xl hover:shadow-lg transition-all font-semibold hover:scale-105">
             <ArrowUturnLeftIcon className="h-5 w-5 mr-2" />
             Back to Documents
           </Link>
@@ -185,7 +186,7 @@ export default function DocumentDetailPage() {
   }
   
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-6">
+    <div className="min-h-screen bg-linear-to-br from-blue-50 via-white to-purple-50 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Breadcrumb */}
         <div className="flex items-center text-sm text-gray-500 mb-6">
@@ -201,15 +202,15 @@ export default function DocumentDetailPage() {
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 mb-6">
           <div className="flex flex-col lg:flex-row gap-8">
             {/* Left: Icon and Actions */}
-            <div className="flex-shrink-0 flex flex-col items-center lg:w-64">
-              <div className="bg-gradient-to-br from-gray-50 to-blue-50/30 p-8 rounded-2xl mb-6 border border-gray-100 shadow-sm">
+            <div className="shrink-0 flex flex-col items-center lg:w-64">
+              <div className="bg-linear-to-br from-gray-50 to-blue-50/30 p-8 rounded-2xl mb-6 border border-gray-100 shadow-sm">
                 {getFileIcon(document.fileType)}
               </div>
               
               <div className="flex flex-col w-full space-y-3">
                 <button
                   onClick={handleDownload}
-                  className="group w-full flex items-center justify-center px-6 py-3 bg-gradient-to-r from-[#161853] to-[#292C6D] text-white rounded-xl hover:shadow-lg transition-all font-semibold hover:scale-105"
+                  className="group w-full flex items-center justify-center px-6 py-3 bg-linear-to-r from-[#161853] to-[#292C6D] text-white rounded-xl hover:shadow-lg transition-all font-semibold hover:scale-105"
                 >
                   <ArrowDownTrayIcon className="h-5 w-5 mr-2 group-hover:animate-bounce" />
                   Download
@@ -219,7 +220,7 @@ export default function DocumentDetailPage() {
                   onClick={togglePin}
                   className={`w-full flex items-center justify-center px-6 py-3 rounded-xl hover:shadow-lg transition-all font-semibold hover:scale-105 ${
                     isPinned 
-                      ? 'bg-gradient-to-r from-yellow-400 to-yellow-500 text-white' 
+                      ? 'bg-linear-to-r from-yellow-400 to-yellow-500 text-white' 
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
@@ -233,7 +234,7 @@ export default function DocumentDetailPage() {
                 
                 <button
                   onClick={handleShare}
-                  className="w-full flex items-center justify-center px-6 py-3 bg-gradient-to-r from-[#EC255A] to-[#ff4d7a] text-white rounded-xl hover:shadow-lg transition-all font-semibold hover:scale-105"
+                  className="w-full flex items-center justify-center px-6 py-3 bg-linear-to-r from-[#EC255A] to-[#ff4d7a] text-white rounded-xl hover:shadow-lg transition-all font-semibold hover:scale-105"
                 >
                   <ShareIcon className="h-5 w-5 mr-2" />
                   Share
@@ -308,7 +309,7 @@ export default function DocumentDetailPage() {
                     {document.tags.map(tag => (
                       <span 
                         key={tag} 
-                        className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-50 to-purple-50 text-gray-700 rounded-full text-sm font-semibold border border-gray-200 shadow-sm"
+                        className="inline-flex items-center px-4 py-2 bg-linear-to-r from-blue-50 to-purple-50 text-gray-700 rounded-full text-sm font-semibold border border-gray-200 shadow-sm"
                       >
                         {tag}
                       </span>
@@ -322,7 +323,7 @@ export default function DocumentDetailPage() {
         
         {/* Tabs Section */}
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-          <div className="flex border-b border-gray-200 bg-gradient-to-r from-gray-50 to-blue-50/30">
+          <div className="flex border-b border-gray-200 bg-linear-to-r from-gray-50 to-blue-50/30">
             <button
               className={`px-8 py-4 text-sm font-bold transition-all ${
                 activeTab === 'preview' 
@@ -350,7 +351,7 @@ export default function DocumentDetailPage() {
           <div className="p-8">
             {activeTab === 'preview' ? (
               document.fileType.includes('pdf') ? (
-                <div className="w-full h-[700px] bg-gray-100 rounded-xl overflow-hidden shadow-inner border border-gray-200">
+                <div className="w-full h-175 bg-gray-100 rounded-xl overflow-hidden shadow-inner border border-gray-200">
                   <iframe 
                     ref={iframeRef}
                     src={document.fileUrl} 
@@ -372,17 +373,17 @@ export default function DocumentDetailPage() {
                   />
                 </div>
               ) : document.fileType.includes('image') ? (
-                <div className="w-full max-h-[700px] bg-gray-100 rounded-xl overflow-hidden shadow-inner border border-gray-200 flex items-center justify-center">
+                <div className="w-full max-h-175 bg-gray-100 rounded-xl overflow-hidden shadow-inner border border-gray-200 flex items-center justify-center">
                   <Image
                     src={document.fileUrl}
                     alt={document.title}
                     width={1200}
                     height={700}
-                    className="max-w-full max-h-[700px] object-contain"
+                    className="max-w-full max-h-175 object-contain"
                   />
                 </div>
               ) : (
-                <div className="w-full h-[400px] bg-gradient-to-br from-gray-50 to-blue-50/30 rounded-xl flex flex-col justify-center items-center border border-gray-200">
+                <div className="w-full h-100 bg-linear-to-br from-gray-50 to-blue-50/30 rounded-xl flex flex-col justify-center items-center border border-gray-200">
                   <div className="bg-white p-8 rounded-2xl shadow-lg">
                     {getFileIcon(document.fileType)}
                   </div>
@@ -393,7 +394,7 @@ export default function DocumentDetailPage() {
                   </p>
                   <button
                     onClick={handleDownload}
-                    className="mt-8 px-8 py-3 bg-gradient-to-r from-[#161853] to-[#292C6D] text-white rounded-xl hover:shadow-lg transition-all font-semibold flex items-center hover:scale-105"
+                    className="mt-8 px-8 py-3 bg-linear-to-r from-[#161853] to-[#292C6D] text-white rounded-xl hover:shadow-lg transition-all font-semibold flex items-center hover:scale-105"
                   >
                     <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
                     Download File
@@ -419,7 +420,7 @@ export default function DocumentDetailPage() {
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     disabled={!isEditingNotes}
-                    className={`w-full h-[200px] p-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#161853] focus:border-transparent resize-none transition-all ${
+                    className={`w-full h-50 p-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#161853] focus:border-transparent resize-none transition-all ${
                       !isEditingNotes ? 'bg-gray-50 text-gray-700' : 'bg-white'
                     }`}
                     placeholder="Add your notes about this document..."
@@ -456,7 +457,7 @@ export default function DocumentDetailPage() {
                     <button
                       onClick={handleSaveNotes}
                       disabled={isSaving}
-                      className="px-6 py-3 bg-gradient-to-r from-[#161853] to-[#292C6D] text-white rounded-xl hover:shadow-lg transition-all font-semibold disabled:opacity-50 flex items-center gap-2"
+                      className="px-6 py-3 bg-linear-to-r from-[#161853] to-[#292C6D] text-white rounded-xl hover:shadow-lg transition-all font-semibold disabled:opacity-50 flex items-center gap-2"
                     >
                       {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
                       Save Changes
@@ -466,6 +467,13 @@ export default function DocumentDetailPage() {
               </div>
             )}
           </div>
+        </div>
+
+        <div className="mt-6">
+          <TranscriptSummaryStudio
+            transcriptSeedMessage="[Transcript preview] AI document transcription endpoint is pending backend integration. Extracted text will appear here."
+            transcriptHint={'Click "Generate Transcript" to extract document content as text. The "Summarize" button activates when transcript is ready.'}
+          />
         </div>
       </div>
     </div>

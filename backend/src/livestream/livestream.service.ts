@@ -7,9 +7,23 @@ import { LiveStreamStatus, ScheduleStatus } from '@prisma/client';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
 import { Readable } from 'stream';
 
+interface RecordingAiAnalysisDocument {
+  recordingId: string;
+  transcript?: string;
+  summary?: string;
+  toxicWords?: string[];
+  validationRate?: number;
+  transcriptGeneratedAt?: Date;
+  summaryGeneratedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 @Injectable()
 export class LivestreamService {
   private readonly logger = new Logger(LivestreamService.name);
+  private readonly recordingAiCollection = 'recording_ai_analysis';
+  private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
   
   constructor(
     private prisma: PrismaService,
@@ -445,7 +459,8 @@ export class LivestreamService {
         videoBuffer = Buffer.from(videoBase64, 'base64');
       } catch (decodeError) {
         console.error(`[Service] Failed to decode base64:`, decodeError);
-        throw new Error(`Invalid base64 data: ${decodeError.message}`);
+        const decodeMessage = decodeError instanceof Error ? decodeError.message : String(decodeError);
+        throw new Error(`Invalid base64 data: ${decodeMessage}`);
       }
       
       console.log(`[Service] Video buffer decoded: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB (${videoBuffer.length} bytes)`);
@@ -476,6 +491,7 @@ export class LivestreamService {
         data: {
           recordingUrl: videoUrl,
           isRecorded: true,
+          isApprove: 'FALSE',
           duration: duration || 0,
         },
       });
@@ -963,6 +979,7 @@ export class LivestreamService {
       thumbnailUrl: video.thumbnail,
       duration: video.duration,
       recordingUrl: video.recordingUrl,
+      isApprove: (video as { isApprove?: string }).isApprove ?? 'FALSE',
       endedAt: video.endedAt,
       status: video.status,
       category: video.category,
@@ -993,6 +1010,7 @@ export class LivestreamService {
         currentViewers: true,
         peakViewers: true,
         isRecorded: true,
+        isApprove: true,
         isPublic: true,
       },
       orderBy: [
@@ -1028,6 +1046,7 @@ export class LivestreamService {
         currentViewers: true,
         peakViewers: true,
         isRecorded: true,
+        isApprove: true,
         isPublic: true,
       },
       orderBy: [
@@ -1205,7 +1224,7 @@ export class LivestreamService {
     }
   }
 
-  async updateLivestream(id: string, updateData: { description?: string }) {
+  async updateLivestream(id: string, updateData: { description?: string; isPublic?: boolean }) {
     const livestream = await this.prisma.postgres.liveStream.findUnique({
       where: { id },
     });
@@ -1244,6 +1263,7 @@ export class LivestreamService {
         id: { not: videoId },
         status: LiveStreamStatus.ENDED,
         recordingUrl: { not: null },
+        isPublic: true,
       },
       select: {
         id: true,
@@ -1323,6 +1343,210 @@ export class LivestreamService {
 
     // Remove score from final result
     return relatedVideos.map(({ score, ...video }) => video);
+  }
+
+  private async getRecordingAiAnalysisDocument(recordingId: string): Promise<RecordingAiAnalysisDocument | null> {
+    const result = await this.prisma.mongo.$runCommandRaw({
+      find: this.recordingAiCollection,
+      filter: { recordingId },
+      limit: 1,
+    });
+
+    const firstBatch = (result as { cursor?: { firstBatch?: RecordingAiAnalysisDocument[] } }).cursor?.firstBatch || [];
+    return firstBatch[0] || null;
+  }
+
+  private async upsertRecordingAiAnalysis(
+    recordingId: string,
+    payload: Partial<RecordingAiAnalysisDocument>,
+  ): Promise<void> {
+    await this.prisma.mongo.$runCommandRaw({
+      update: this.recordingAiCollection,
+      updates: [
+        {
+          q: { recordingId },
+          u: {
+            $set: {
+              ...payload,
+              updatedAt: new Date(),
+            },
+            $setOnInsert: {
+              recordingId,
+              toxicWords: [],
+              validationRate: 0,
+              createdAt: new Date(),
+            },
+          },
+          upsert: true,
+        },
+      ],
+    });
+  }
+
+  private extractTranscriptFromPayload(payload: unknown): string | null {
+    if (typeof payload === 'string') {
+      return payload.trim() || null;
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const data = payload as Record<string, unknown>;
+    const transcriptCandidate = data.text || data.transcript || data.result;
+    if (typeof transcriptCandidate === 'string') {
+      return transcriptCandidate.trim() || null;
+    }
+
+    return null;
+  }
+
+  private extractSummaryFromPayload(payload: unknown): string | null {
+    if (typeof payload === 'string') {
+      return payload.trim() || null;
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const data = payload as Record<string, unknown>;
+    const summaryCandidate = data.summary || data.result || data.text;
+    if (typeof summaryCandidate === 'string') {
+      return summaryCandidate.trim() || null;
+    }
+
+    return null;
+  }
+
+  async getRecordingAiAnalysis(recordingId: string) {
+    const analysis = await this.getRecordingAiAnalysisDocument(recordingId);
+
+    return {
+      recordingId,
+      transcript: analysis?.transcript || null,
+      summary: analysis?.summary || null,
+      toxicWords: analysis?.toxicWords || [],
+      validationRate: analysis?.validationRate ?? 0,
+      transcriptGeneratedAt: analysis?.transcriptGeneratedAt || null,
+      summaryGeneratedAt: analysis?.summaryGeneratedAt || null,
+    };
+  }
+
+  async generateRecordingTranscript(recordingId: string, force = false) {
+    const livestream = await this.prisma.postgres.liveStream.findUnique({
+      where: { id: recordingId },
+      select: {
+        id: true,
+        recordingUrl: true,
+      },
+    });
+
+    if (!livestream) {
+      throw new NotFoundException('Recording not found');
+    }
+
+    if (!livestream.recordingUrl) {
+      throw new BadRequestException('Recording URL is missing, cannot transcribe');
+    }
+
+    const existing = await this.getRecordingAiAnalysisDocument(recordingId);
+    if (!force && existing?.transcript) {
+      return {
+        ...(await this.getRecordingAiAnalysis(recordingId)),
+        cached: true,
+      };
+    }
+
+    const recordingResponse = await fetch(livestream.recordingUrl);
+    if (!recordingResponse.ok) {
+      throw new BadRequestException(`Cannot download recording file: ${recordingResponse.status}`);
+    }
+
+    const contentType = recordingResponse.headers.get('content-type') || 'application/octet-stream';
+    const fileExtension = contentType.includes('audio/mpeg') ? 'mp3' : contentType.includes('audio/wav') ? 'wav' : 'mp4';
+
+    const recordingBuffer = await recordingResponse.arrayBuffer();
+    const formData = new FormData();
+    formData.append('file', new Blob([recordingBuffer], { type: contentType }), `${recordingId}.${fileExtension}`);
+
+    const aiResponse = await fetch(`${this.localAiBaseUrl}/transcribe`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!aiResponse.ok) {
+      const errorBody = await aiResponse.text();
+      throw new BadRequestException(`Transcribe service error (${aiResponse.status}): ${errorBody}`);
+    }
+
+    const aiPayload = await aiResponse.json();
+    const transcript = this.extractTranscriptFromPayload(aiPayload);
+
+    if (!transcript) {
+      throw new BadRequestException('Transcribe service returned empty transcript');
+    }
+
+    await this.upsertRecordingAiAnalysis(recordingId, {
+      transcript,
+      transcriptGeneratedAt: new Date(),
+    });
+
+    return {
+      ...(await this.getRecordingAiAnalysis(recordingId)),
+      cached: false,
+    };
+  }
+
+  async generateRecordingSummary(recordingId: string, force = false) {
+    const existing = await this.getRecordingAiAnalysisDocument(recordingId);
+
+    if (!force && existing?.summary) {
+      return {
+        ...(await this.getRecordingAiAnalysis(recordingId)),
+        cached: true,
+      };
+    }
+
+    let transcript = existing?.transcript || null;
+    if (!transcript) {
+      const transcriptResult = await this.generateRecordingTranscript(recordingId, false);
+      transcript = transcriptResult.transcript;
+    }
+
+    if (!transcript) {
+      throw new BadRequestException('Transcript is required before summarizing');
+    }
+
+    const aiResponse = await fetch(`${this.localAiBaseUrl}/summarize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: transcript }),
+    });
+
+    if (!aiResponse.ok) {
+      const errorBody = await aiResponse.text();
+      throw new BadRequestException(`Summarize service error (${aiResponse.status}): ${errorBody}`);
+    }
+
+    const aiPayload = await aiResponse.json();
+    const summary = this.extractSummaryFromPayload(aiPayload);
+
+    if (!summary) {
+      throw new BadRequestException('Summarize service returned empty summary');
+    }
+
+    await this.upsertRecordingAiAnalysis(recordingId, {
+      summary,
+      summaryGeneratedAt: new Date(),
+    });
+
+    return {
+      ...(await this.getRecordingAiAnalysis(recordingId)),
+      cached: false,
+    };
   }
 }
 

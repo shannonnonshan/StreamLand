@@ -413,3 +413,19 @@ model StudentNotebook {
   @@index([studentId, isPinned])
   @@map("student_notebooks")
 }
+
+// AI analysis cache per recording/livestream
+model RecordingAiAnalysis {
+  id                    String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  recordingId           String   @unique
+  transcript            String?
+  summary               String?
+  toxicWords            String[] @default([])
+  validationRate        Float    @default(0)
+  transcriptGeneratedAt DateTime?
+  summaryGeneratedAt    DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("recording_ai_analysis")
+}

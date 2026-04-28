@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { Play, Calendar, Clock, Search, Filter, Grid3x3, List, Video, Eye, TrendingUp, FileVideo } from "lucide-react";
+import { Play, Calendar, Clock, Search, Filter, Grid3x3, List, Video, FileVideo, Globe, Lock } from "lucide-react";
 import { getRecordedLivestreams, LiveStream, groupRecordingsByMonth } from "@/lib/api/teacher";
 import Pagination from "@/component/Pagination";
 
@@ -22,8 +22,21 @@ export default function RecordingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [recordingFilter, setRecordingFilter] = useState<"all" | "recorded" | "no-recording">("all");
+  const [approvalFilter, setApprovalFilter] = useState<"all" | "true" | "false" | "rejected">("all");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = viewMode === "grid" ? 9 : 10;
+
+  const getApprovalState = (value: string | null | undefined): "true" | "false" | "rejected" => {
+    if (value === "TRUE" || value === "true") {
+      return "true";
+    }
+
+    if (value === "rejected" || value === "REJECTED" || value === "reject") {
+      return "rejected";
+    }
+
+    return "false";
+  };
 
   const recordingsByMonth = groupRecordingsByMonth(recordings);
   const months = Object.keys(recordingsByMonth).sort((a, b) => b.localeCompare(a));
@@ -63,7 +76,22 @@ export default function RecordingsPage() {
     .filter(r => {
       // Search filter
       const matchesSearch = r.title.toLowerCase().includes(searchQuery.toLowerCase());
-      
+
+      const approvalState = getApprovalState(r.isApprove);
+
+      if (approvalFilter === "true" && approvalState !== "true") {
+        return false;
+      }
+
+      if (approvalFilter === "false" && approvalState !== "false") {
+        return false;
+      }
+
+      if (approvalFilter === "rejected" && approvalState !== "rejected") {
+        return false;
+      }
+
+
       // Recording availability filter
       if (recordingFilter === "recorded") {
         return matchesSearch && r.recordingUrl;
@@ -88,7 +116,7 @@ export default function RecordingsPage() {
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, recordingFilter, sortOrder, selectedMonth, viewMode]);
+  }, [searchQuery, recordingFilter, approvalFilter, sortOrder, selectedMonth, viewMode]);
 
   if (isLoading) {
     return (
@@ -107,7 +135,7 @@ export default function RecordingsPage() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-br from-gray-50 to-gray-100 p-6">
+    <div className="flex flex-col h-full bg-gradient-to-br from-slate-50 via-white to-cyan-50 p-6">
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">My Recordings</h1>
@@ -115,7 +143,7 @@ export default function RecordingsPage() {
       </div>
 
       {/* Filters Bar */}
-      <div className="bg-white rounded-xl shadow-sm p-4 mb-6">
+      <div className="bg-white/95 border border-slate-200 rounded-xl shadow-sm p-4 mb-6">
         <div className="flex flex-wrap gap-4 items-center justify-between">
           {/* Search */}
           <div className="flex-1 min-w-[250px]">
@@ -136,7 +164,7 @@ export default function RecordingsPage() {
             <div className="flex items-center gap-2">
               <Filter size={18} className="text-gray-500" />
               <select
-                className="border border-gray-500 rounded-lg bg-white px-4 py-2 text-sm focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
+                className="border border-slate-300 rounded-lg bg-white px-4 py-2 text-sm focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value as "7days" | "1month" | "custom")}
               >
@@ -149,7 +177,7 @@ export default function RecordingsPage() {
             {/* Recording Availability Filter */}
             <div className="flex items-center gap-2">
               <select
-                className="border border-gray-500 rounded-lg bg-white px-4 py-2 text-sm focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
+                className="border border-slate-300 rounded-lg bg-white px-4 py-2 text-sm focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
                 value={recordingFilter}
                 onChange={(e) => setRecordingFilter(e.target.value as "all" | "recorded" | "no-recording")}
               >
@@ -157,6 +185,68 @@ export default function RecordingsPage() {
                 <option value="recorded">Recorded</option>
                 <option value="no-recording">No Recording</option>
               </select>
+            </div>
+
+            {/* Approval Filter - Clickable */}
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/40 p-1">
+              <button
+                type="button"
+                onClick={() => setApprovalFilter("all")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                  approvalFilter === "all"
+                    ? "bg-[#B45309] text-amber-50"
+                    : "text-amber-800 hover:bg-amber-100"
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setApprovalFilter("true")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                  approvalFilter === "true"
+                    ? "bg-amber-500 text-white"
+                    : "text-amber-800 hover:bg-amber-100"
+                }`}
+              >
+                Approved
+              </button>
+              <button
+                type="button"
+                onClick={() => setApprovalFilter("false")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                  approvalFilter === "false"
+                    ? "bg-emerald-600 text-white"
+                    : "text-amber-800 hover:bg-amber-100"
+                }`}
+              >
+                Waiting to approve
+              </button>
+              <button
+                type="button"
+                onClick={() => setApprovalFilter("rejected")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                  approvalFilter === "rejected"
+                    ? "bg-red-600 text-white"
+                    : "text-amber-800 hover:bg-amber-100"
+                }`}
+              >
+                Rejected
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 p-1">
+              <button
+                type="button"
+                onClick={() => setRecordingFilter("no-recording")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                  recordingFilter === "no-recording"
+                    ? "bg-sky-600 text-white"
+                    : "text-sky-800 hover:bg-sky-100"
+                }`}
+              >
+                No Recording
+              </button>
             </div>
 
             {filter === "custom" && (
@@ -218,7 +308,7 @@ export default function RecordingsPage() {
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden gap-6">
         {/* Left Sidebar: Months */}
-        <div className="w-64 bg-white rounded-xl shadow-sm p-4 overflow-y-auto">
+        <div className="w-64 bg-white/95 border border-slate-200 rounded-xl shadow-sm p-4 overflow-y-auto">
           <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <Calendar size={18} />
             Time Period
@@ -268,7 +358,7 @@ export default function RecordingsPage() {
               {currentMonthRecordings.map((rec) => (
                 <div
                   key={rec.id}
-                  className="bg-white rounded-xl shadow-sm overflow-hidden cursor-pointer group hover:shadow-xl transition-all transform hover:-translate-y-1"
+                  className="bg-white border border-slate-100 rounded-xl shadow-sm overflow-hidden cursor-pointer group hover:shadow-xl transition-all transform hover:-translate-y-1"
                   onClick={() => router.push(`/teacher/${teacherId}/recordings/detail/${rec.id}`)}
                 >
                   <div className="relative aspect-video overflow-hidden">
@@ -281,12 +371,24 @@ export default function RecordingsPage() {
                     />
                     {/* Recording Badge */}
                     {rec.recordingUrl ? (
-                      <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1">
-                        <FileVideo size={14} />
-                        Recorded
-                      </div>
+                      getApprovalState(rec.isApprove) === "true" ? (
+                        <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-md text-xs font-bold flex items-center gap-1">
+                          <FileVideo size={14} />
+                          Approved
+                        </div>
+                      ) : getApprovalState(rec.isApprove) === "rejected" ? (
+                        <div className="absolute top-2 right-2 bg-red-500 text-white px-2 py-1 rounded-md text-xs font-bold flex items-center gap-1">
+                          <Lock size={14} />
+                          Rejected
+                        </div>
+                      ) : (
+                        <div className="absolute top-2 right-2 bg-amber-500 text-white px-2 py-1 rounded-md text-xs font-bold flex items-center gap-1">
+                          <Clock size={14} />
+                          Waiting to approve
+                        </div>
+                      )
                     ) : (
-                      <div className="absolute top-2 right-2 bg-gray-500 text-white px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1">
+                      <div className="absolute top-2 right-2 bg-gray-500 text-white px-2 py-1 rounded-md text-xs font-bold flex items-center gap-1">
                         <Video size={14} />
                         No Recording
                       </div>
@@ -311,6 +413,26 @@ export default function RecordingsPage() {
                         {Math.floor(rec.duration / 60)}:{String(rec.duration % 60).padStart(2, '0')}
                       </span>
                       <span>{rec.totalViews} views</span>
+                      <div className="relative group/visibility">
+                        <div
+                          className={`h-7 w-7 rounded-full flex items-center justify-center border ${
+                            rec.isPublic
+                              ? 'bg-[#B45309] text-amber-50 border-amber-300/40'
+                              : 'bg-[#78350F] text-amber-100 border-amber-400/40'
+                          }`}
+                        >
+                          {rec.isPublic ? <Globe size={12} /> : <Lock size={12} />}
+                        </div>
+                        <span
+                          className={`pointer-events-none absolute left-9 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-0.5 text-[10px] font-semibold opacity-0 transition-opacity duration-200 group-hover/visibility:opacity-100 ${
+                            rec.isPublic
+                              ? 'bg-[#B45309] text-amber-50'
+                              : 'bg-[#78350F] text-amber-100'
+                          }`}
+                        >
+                          {rec.isPublic ? 'Public' : 'Private'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -321,7 +443,7 @@ export default function RecordingsPage() {
               {currentMonthRecordings.map((rec) => (
                 <div
                   key={rec.id}
-                  className="bg-white rounded-xl shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-all"
+                  className="bg-white border border-slate-100 rounded-xl shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-all"
                   onClick={() => router.push(`/teacher/${teacherId}/recordings/detail/${rec.id}`)}
                 >
                   <div className="flex gap-4 p-4">
@@ -335,12 +457,24 @@ export default function RecordingsPage() {
                       />
                       {/* Recording Badge */}
                       {rec.recordingUrl ? (
-                        <div className="absolute top-1 right-1 bg-green-500 text-white px-1.5 py-0.5 rounded text-xs font-medium flex items-center gap-1">
-                          <FileVideo size={12} />
-                          Recorded
-                        </div>
+                        getApprovalState(rec.isApprove) === "true" ? (
+                          <div className="absolute top-1 right-1 bg-green-500 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-1">
+                            <FileVideo size={12} />
+                            Approved
+                          </div>
+                        ) : getApprovalState(rec.isApprove) === "rejected" ? (
+                          <div className="absolute top-1 right-1 bg-red-500 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-1">
+                            <Lock size={12} />
+                            Rejected
+                          </div>
+                        ) : (
+                          <div className="absolute top-1 right-1 bg-amber-500 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-1">
+                            <Clock size={12} />
+                            Waiting to approve
+                          </div>
+                        )
                       ) : (
-                        <div className="absolute top-1 right-1 bg-gray-500 text-white px-1.5 py-0.5 rounded text-xs font-medium flex items-center gap-1">
+                        <div className="absolute top-1 right-1 bg-gray-500 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-1">
                           <Video size={12} />
                           No Rec
                         </div>
@@ -363,6 +497,26 @@ export default function RecordingsPage() {
                           {Math.floor(rec.duration / 60)}:{String(rec.duration % 60).padStart(2, '0')}
                         </span>
                         <span>{rec.totalViews} views</span>
+                        <div className="relative group/visibility-list">
+                          <div
+                            className={`h-7 w-7 rounded-full flex items-center justify-center border ${
+                              rec.isPublic
+                                  ? 'bg-[#B45309] text-amber-50 border-amber-300/40'
+                                  : 'bg-[#78350F] text-amber-100 border-amber-400/40'
+                            }`}
+                          >
+                            {rec.isPublic ? <Globe size={12} /> : <Lock size={12} />}
+                          </div>
+                          <span
+                            className={`pointer-events-none absolute left-9 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-0.5 text-[10px] font-semibold opacity-0 transition-opacity duration-200 group-hover/visibility-list:opacity-100 ${
+                              rec.isPublic
+                                ? 'bg-[#B45309] text-amber-50'
+                                : 'bg-[#78350F] text-amber-100'
+                            }`}
+                          >
+                            {rec.isPublic ? 'Public' : 'Private'}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>

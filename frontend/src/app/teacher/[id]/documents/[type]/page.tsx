@@ -7,6 +7,7 @@ import { ArrowDownToLine, Upload, Trash2 } from "lucide-react";
 import { getTeacherDocuments, uploadDocument, deleteDocument, Document, mapDocumentTypeToFileType } from "@/lib/api/teacher";
 import { formatDate, formatDateTime } from "@/utils/dateFormat";
 import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
+import TranscriptSummaryStudio from "@/component/shared/TranscriptSummaryStudio";
 
 export default function DocumentsTypePage() {
   const params = useParams();
@@ -137,7 +138,7 @@ export default function DocumentsTypePage() {
 
   if (isLoading) {
     return (
-      <div className="p-4 flex justify-center items-center min-h-[400px]">
+      <div className="p-4 flex justify-center items-center min-h-100">
         <div className="text-gray-500">Loading documents...</div>
       </div>
     );
@@ -145,7 +146,7 @@ export default function DocumentsTypePage() {
 
   if (error) {
     return (
-      <div className="p-4 flex justify-center items-center min-h-[400px]">
+      <div className="p-4 flex justify-center items-center min-h-100">
         <div className="text-red-500">{error}</div>
       </div>
     );
@@ -293,7 +294,7 @@ export default function DocumentsTypePage() {
                       width={800}
                       height={600}
                       style={{ objectFit: "contain" }}
-                      className="max-h-[500px]"
+                      className="max-h-125"
                     />
                   </div>
                 )}
@@ -307,7 +308,7 @@ export default function DocumentsTypePage() {
                 )}
 
                 {selectedDoc.fileType === 'pdf' && (
-                  <div className="w-full h-[600px] rounded-lg overflow-hidden border">
+                  <div className="w-full h-150 rounded-lg overflow-hidden border">
                     <iframe
                       src={selectedDoc.fileUrl}
                       className="w-full h-full"
@@ -315,6 +316,13 @@ export default function DocumentsTypePage() {
                     />
                   </div>
                 )}
+              </div>
+
+              <div className="mb-6">
+                <TranscriptSummaryStudio
+                  transcriptSeedMessage="[Transcript preview] AI document transcription endpoint is pending backend integration. Extracted text will appear here."
+                  transcriptHint={'Click "Generate Transcript" to extract document content as text. The "Summarize" button activates when transcript is ready.'}
+                />
               </div>
 
               {/* Actions */}
@@ -356,7 +364,7 @@ export default function DocumentsTypePage() {
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && documentToDelete && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-60 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">

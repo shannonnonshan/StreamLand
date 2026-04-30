@@ -95,7 +95,16 @@ async function optionalAuthJsonFetch(url: string, options: RequestInit = {}): Pr
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(errorText || `API Error: ${response.status}`);
+    if (!errorText) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+
+    try {
+      const parsed = JSON.parse(errorText) as { message?: string; error?: string; detail?: string };
+      throw new Error(parsed.message || parsed.error || parsed.detail || errorText);
+    } catch {
+      throw new Error(errorText);
+    }
   }
 
   return response.json();

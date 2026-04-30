@@ -320,6 +320,7 @@ export default function DocumentsTypePage() {
 
               <div className="mb-6">
                 <TranscriptSummaryStudio
+                  documentId={selectedDoc?.id}
                   transcriptSeedMessage="[Transcript preview] AI document transcription endpoint is pending backend integration. Extracted text will appear here."
                   transcriptHint={'Click "Generate Transcript" to extract document content as text. The "Summarize" button activates when transcript is ready.'}
                 />

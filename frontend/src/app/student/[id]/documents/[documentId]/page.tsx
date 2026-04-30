@@ -471,6 +471,7 @@ export default function DocumentDetailPage() {
 
         <div className="mt-6">
           <TranscriptSummaryStudio
+            documentId={params.documentId}
             transcriptSeedMessage="[Transcript preview] AI document transcription endpoint is pending backend integration. Extracted text will appear here."
             transcriptHint={'Click "Generate Transcript" to extract document content as text. The "Summarize" button activates when transcript is ready.'}
           />

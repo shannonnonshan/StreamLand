@@ -1,7 +1,7 @@
 # -------------------------
 # 1. BUILD STAGE
 # -------------------------
-FROM node:20-alpine AS builder
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -35,9 +35,14 @@ RUN npm run build -p tsconfig.build.json
 # -------------------------
 # 2. PRODUCTION STAGE
 # -------------------------
-FROM node:20-alpine AS runner
+FROM node:20-bookworm-slim AS runner
 
 WORKDIR /app
+
+# ffmpeg is required for extracting audio from video during transcription
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ffmpeg \
+	&& rm -rf /var/lib/apt/lists/*
 
 # Copy package.json + install chỉ production deps
 COPY package*.json ./

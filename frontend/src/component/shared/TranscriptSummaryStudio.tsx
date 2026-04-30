@@ -7,6 +7,10 @@ import {
   generateRecordingTranscript,
   getRecordingAiAnalysis,
 } from "@/lib/api/teacher";
+import {
+  generateDocumentTranscript,
+  getDocumentAiAnalysis,
+} from "@/lib/api/document";
 
 interface TranscriptSummaryStudioProps {
   transcriptSeedMessage: string;
@@ -15,6 +19,7 @@ interface TranscriptSummaryStudioProps {
   summaryEmptyText?: string;
   className?: string;
   recordingId?: string;
+  documentId?: string;
 }
 
 export default function TranscriptSummaryStudio({
@@ -24,6 +29,7 @@ export default function TranscriptSummaryStudio({
   summaryEmptyText = "Summary will be shown here after you click Summarize.",
   className = "",
   recordingId,
+  documentId,
 }: TranscriptSummaryStudioProps) {
   const [transcriptContent, setTranscriptContent] = useState("");
   const [summaryContent, setSummaryContent] = useState("");
@@ -32,17 +38,24 @@ export default function TranscriptSummaryStudio({
   const [isLoadingExisting, setIsLoadingExisting] = useState(false);
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
 
-  const canSummarize = transcriptContent.trim().length > 0;
+  const isDocumentMode = !!documentId && !recordingId;
+  const canSummarize = !isDocumentMode && transcriptContent.trim().length > 0;
 
   useEffect(() => {
     const loadExistingAnalysis = async () => {
-      if (!recordingId) return;
+      if (!recordingId && !documentId) return;
 
       try {
         setIsLoadingExisting(true);
-        const analysis = await getRecordingAiAnalysis(recordingId);
-        setTranscriptContent(analysis.transcript || "");
-        setSummaryContent(analysis.summary || "");
+        if (recordingId) {
+          const analysis = await getRecordingAiAnalysis(recordingId);
+          setTranscriptContent(analysis.transcript || "");
+          setSummaryContent(analysis.summary || "");
+        } else if (documentId) {
+          const analysis = await getDocumentAiAnalysis(documentId);
+          setTranscriptContent(analysis.transcript || "");
+          setSummaryContent(analysis.summary || "");
+        }
       } catch (err) {
         console.error("Failed to load existing AI analysis:", err);
       } finally {
@@ -51,7 +64,7 @@ export default function TranscriptSummaryStudio({
     };
 
     loadExistingAnalysis();
-  }, [recordingId]);
+  }, [documentId, recordingId]);
 
   const handleGenerateTranscript = async () => {
     if (isTranscribing) return;
@@ -61,7 +74,11 @@ export default function TranscriptSummaryStudio({
       setIsTranscribing(true);
 
       if (recordingId) {
-        const result = await generateRecordingTranscript(recordingId, canSummarize);
+        const result = await generateRecordingTranscript(recordingId, transcriptContent.trim().length > 0);
+        setTranscriptContent(result.transcript || "");
+        setSummaryContent(result.summary || "");
+      } else if (documentId) {
+        const result = await generateDocumentTranscript(documentId, transcriptContent.trim().length > 0);
         setTranscriptContent(result.transcript || "");
         setSummaryContent(result.summary || "");
       } else {
@@ -89,6 +106,8 @@ export default function TranscriptSummaryStudio({
         const result = await generateRecordingSummary(recordingId, !!summaryContent.trim());
         setTranscriptContent(result.transcript || transcriptContent);
         setSummaryContent(result.summary || "");
+      } else if (documentId) {
+        setSummaryContent("Document summary is not available yet.");
       } else {
         // Placeholder UI-only behavior. AI backend integration will replace this.
         setSummaryContent("AI summarization service is not connected yet. The button is enabled and ready for backend integration.");
@@ -162,9 +181,15 @@ export default function TranscriptSummaryStudio({
           Summarize
         </button>
 
-        {!canSummarize && (
+        {!canSummarize && !isDocumentMode && (
           <p className="mt-2 text-xs font-medium text-amber-700">
             Generate transcript first.
+          </p>
+        )}
+
+        {isDocumentMode && (
+          <p className="mt-2 text-xs font-medium text-amber-700">
+            Summary is not available for documents yet.
           </p>
         )}
 

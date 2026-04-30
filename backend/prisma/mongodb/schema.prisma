@@ -415,9 +415,11 @@ model StudentNotebook {
 }
 
 // AI analysis cache per recording/livestream
-model RecordingAiAnalysis {
+model AiTranscriptSummary {
   id                    String   @id @default(auto()) @map("_id") @mongodb.ObjectId
-  recordingId           String   @unique
+  type                  String
+  recordingId           String?
+  documentId            String?
   transcript            String?
   summary               String?
   toxicWords            String[] @default([])
@@ -426,6 +428,7 @@ model RecordingAiAnalysis {
   summaryGeneratedAt    DateTime?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
-
-  @@map("recording_ai_analysis")
+  @@index([recordingId])
+  @@index([documentId])
+  @@map("ai_transcript_summary")
 }

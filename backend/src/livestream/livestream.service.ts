@@ -6,11 +6,20 @@ import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { LiveStreamStatus, ScheduleStatus } from '@prisma/client';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
 import { Readable } from 'stream';
+import { createWriteStream, promises as fs } from 'fs';
+import { spawn } from 'child_process';
+import { pipeline } from 'stream/promises';
+import * as os from 'os';
+import * as path from 'path';
 
-interface RecordingAiAnalysisDocument {
-  recordingId: string;
+interface AiTranscriptSummaryDocument {
+  id?: string;
+  type: 'recording' | 'document';
+  recordingId?: string;
+  documentId?: string;
   transcript?: string;
   summary?: string;
+  audioUrl?: string;
   toxicWords?: string[];
   validationRate?: number;
   transcriptGeneratedAt?: Date;
@@ -22,7 +31,7 @@ interface RecordingAiAnalysisDocument {
 @Injectable()
 export class LivestreamService {
   private readonly logger = new Logger(LivestreamService.name);
-  private readonly recordingAiCollection = 'recording_ai_analysis';
+  private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
   private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
   
   constructor(
@@ -1345,33 +1354,40 @@ export class LivestreamService {
     return relatedVideos.map(({ score, ...video }) => video);
   }
 
-  private async getRecordingAiAnalysisDocument(recordingId: string): Promise<RecordingAiAnalysisDocument | null> {
+  private async getRecordingAiAnalysisDocument(recordingId: string): Promise<AiTranscriptSummaryDocument | null> {
     const result = await this.prisma.mongo.$runCommandRaw({
-      find: this.recordingAiCollection,
-      filter: { recordingId },
+      find: this.aiTranscriptSummaryCollection,
+      filter: { type: 'recording', recordingId },
       limit: 1,
     });
 
-    const firstBatch = (result as { cursor?: { firstBatch?: RecordingAiAnalysisDocument[] } }).cursor?.firstBatch || [];
+    const firstBatch = (result as { cursor?: { firstBatch?: AiTranscriptSummaryDocument[] } }).cursor?.firstBatch || [];
     return firstBatch[0] || null;
   }
 
   private async upsertRecordingAiAnalysis(
     recordingId: string,
-    payload: Partial<RecordingAiAnalysisDocument>,
+    payload: Partial<AiTranscriptSummaryDocument>,
   ): Promise<void> {
     await this.prisma.mongo.$runCommandRaw({
-      update: this.recordingAiCollection,
+      update: this.aiTranscriptSummaryCollection,
       updates: [
         {
-          q: { recordingId },
+          q: { type: 'recording', recordingId },
           u: {
             $set: {
+              id: recordingId,
+              type: 'recording',
+              recordingId,
+              documentId: null,
               ...payload,
               updatedAt: new Date(),
             },
             $setOnInsert: {
+              id: recordingId,
+              type: 'recording',
               recordingId,
+              documentId: null,
               toxicWords: [],
               validationRate: 0,
               createdAt: new Date(),
@@ -1393,12 +1409,49 @@ export class LivestreamService {
     }
 
     const data = payload as Record<string, unknown>;
-    const transcriptCandidate = data.text || data.transcript || data.result;
+    const nestedData = data.data && typeof data.data === 'object' ? (data.data as Record<string, unknown>) : null;
+    const nestedCandidate = nestedData?.result ?? nestedData?.text ?? nestedData?.transcript;
+    const transcriptCandidate = data.text ?? data.transcript ?? data.result ?? nestedCandidate;
+
     if (typeof transcriptCandidate === 'string') {
       return transcriptCandidate.trim() || null;
     }
 
+    if (transcriptCandidate && typeof transcriptCandidate === 'object') {
+      const resultData = transcriptCandidate as Record<string, unknown>;
+      const resultText = resultData.text ?? resultData.transcript;
+      if (typeof resultText === 'string') {
+        return resultText.trim() || null;
+      }
+    }
+
     return null;
+  }
+
+  private extractAiErrorFromPayload(payload: unknown): string | null {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const data = payload as Record<string, unknown>;
+    if (data.status !== 'error') {
+      return null;
+    }
+
+    const errorValue = data.error;
+    if (typeof errorValue === 'string') {
+      return errorValue.trim() || null;
+    }
+
+    if (errorValue && typeof errorValue === 'object') {
+      const errorData = errorValue as Record<string, unknown>;
+      const message = errorData.message ?? errorData.detail ?? errorData.error;
+      if (typeof message === 'string') {
+        return message.trim() || null;
+      }
+    }
+
+    return 'Unknown error from transcribe service';
   }
 
   private extractSummaryFromPayload(payload: unknown): string | null {
@@ -1426,11 +1479,22 @@ export class LivestreamService {
       recordingId,
       transcript: analysis?.transcript || null,
       summary: analysis?.summary || null,
+      audioUrl: analysis?.audioUrl || null,
       toxicWords: analysis?.toxicWords || [],
       validationRate: analysis?.validationRate ?? 0,
       transcriptGeneratedAt: analysis?.transcriptGeneratedAt || null,
       summaryGeneratedAt: analysis?.summaryGeneratedAt || null,
     };
+  }
+
+  private async downloadToBuffer(url: string): Promise<Buffer> {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new BadRequestException(`Cannot download file: ${response.status}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
   }
 
   async generateRecordingTranscript(recordingId: string, force = false) {
@@ -1458,17 +1522,71 @@ export class LivestreamService {
       };
     }
 
-    const recordingResponse = await fetch(livestream.recordingUrl);
-    if (!recordingResponse.ok) {
-      throw new BadRequestException(`Cannot download recording file: ${recordingResponse.status}`);
+    const audioExists = await this.r2StorageService.recordingAudioExistsByUrl(livestream.recordingUrl);
+    let audioUrl = existing?.audioUrl || (audioExists ? this.r2StorageService.getRecordingAudioUrlFromUrl(livestream.recordingUrl) : null);
+    let audioBuffer: Buffer | null = null;
+
+    if (audioUrl) {
+      audioBuffer = await this.downloadToBuffer(audioUrl);
+    } else {
+      const recordingResponse = await fetch(livestream.recordingUrl);
+      if (!recordingResponse.ok || !recordingResponse.body) {
+        throw new BadRequestException(`Cannot download recording file: ${recordingResponse.status}`);
+      }
+
+      const tempBase = `recording-${recordingId}-${Date.now()}`;
+      const inputPath = path.join(os.tmpdir(), `${tempBase}.mp4`);
+      const outputPath = path.join(os.tmpdir(), `${tempBase}.wav`);
+
+      try {
+        await pipeline(Readable.fromWeb(recordingResponse.body as any), createWriteStream(inputPath));
+
+        await new Promise<void>((resolve, reject) => {
+          const ffmpeg = spawn('ffmpeg', [
+            '-y',
+            '-i',
+            inputPath,
+            '-vn',
+            '-ac',
+            '1',
+            '-ar',
+            '16000',
+            '-f',
+            'wav',
+            outputPath,
+          ]);
+
+          let stderr = '';
+          ffmpeg.stderr.on('data', (chunk) => {
+            stderr += chunk.toString();
+          });
+          ffmpeg.on('error', (err) => reject(err));
+          ffmpeg.on('close', (code) => {
+            if (code === 0) {
+              resolve();
+            } else {
+              reject(new Error(`ffmpeg failed (${code}): ${stderr}`));
+            }
+          });
+        });
+
+        audioBuffer = await fs.readFile(outputPath);
+        audioUrl = await this.r2StorageService.uploadRecordingAudioByUrl(livestream.recordingUrl, audioBuffer);
+      } finally {
+        await Promise.all([
+          fs.unlink(inputPath).catch(() => undefined),
+          fs.unlink(outputPath).catch(() => undefined),
+        ]);
+      }
     }
 
-    const contentType = recordingResponse.headers.get('content-type') || 'application/octet-stream';
-    const fileExtension = contentType.includes('audio/mpeg') ? 'mp3' : contentType.includes('audio/wav') ? 'wav' : 'mp4';
+    if (!audioBuffer) {
+      throw new BadRequestException('Audio export failed, cannot transcribe');
+    }
 
-    const recordingBuffer = await recordingResponse.arrayBuffer();
     const formData = new FormData();
-    formData.append('file', new Blob([recordingBuffer], { type: contentType }), `${recordingId}.${fileExtension}`);
+    const audioBytes = new Uint8Array(audioBuffer);
+    formData.append('file', new Blob([audioBytes], { type: 'audio/wav' }), `${recordingId}.wav`);
 
     const aiResponse = await fetch(`${this.localAiBaseUrl}/transcribe`, {
       method: 'POST',
@@ -1481,6 +1599,11 @@ export class LivestreamService {
     }
 
     const aiPayload = await aiResponse.json();
+    const aiError = this.extractAiErrorFromPayload(aiPayload);
+    if (aiError) {
+      throw new BadRequestException(`Transcribe service error: ${aiError}`);
+    }
+
     const transcript = this.extractTranscriptFromPayload(aiPayload);
 
     if (!transcript) {
@@ -1489,6 +1612,7 @@ export class LivestreamService {
 
     await this.upsertRecordingAiAnalysis(recordingId, {
       transcript,
+      audioUrl: audioUrl || undefined,
       transcriptGeneratedAt: new Date(),
     });
 

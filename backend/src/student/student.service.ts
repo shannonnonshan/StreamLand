@@ -4,6 +4,25 @@ import { FriendStatus } from '@prisma/client';
 import { SendFriendRequestDto, UpdateFriendRequestDto, FollowTeacherDto, UnfollowTeacherDto } from './dto';
 import { NotificationService } from '../notification/notification.service';
 
+type RecommendationCandidate = {
+  id: string;
+  title: string;
+  category: string | null;
+  thumbnail: string | null;
+  duration: number;
+  totalViews: number;
+  endedAt: Date | null;
+  recordingUrl: string | null;
+  teacherId: string;
+  teacher: {
+    id: string;
+    fullName: string;
+    avatar: string | null;
+  };
+};
+
+type PartProgressMap = Map<string, number>;
+
 @Injectable()
 export class StudentService {
   constructor(
@@ -1458,6 +1477,270 @@ export class StudentService {
     });
 
     return { isSaved: !!saved, document: saved };
+  }
+
+  // Personalized recommendations for student home
+  async getPersonalizedRecommendations(userId: string, limit: number = 24) {
+    const safeLimit = Math.min(Math.max(limit || 24, 6), 48);
+
+    const student = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true },
+    });
+
+    if (!student || !student.studentProfile) {
+      throw new NotFoundException('Student profile not found');
+    }
+
+    const interests = (student.studentProfile.interests || [])
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0)
+      .slice(0, 5);
+
+    const watchHistory = await this.prisma.mongo.watchHistory.findMany({
+      where: { userId },
+      orderBy: { watchedAt: 'desc' },
+      take: 200,
+      select: {
+        livestreamId: true,
+      },
+    });
+
+    const watchedIds: string[] = [];
+    const watchedSet = new Set<string>();
+    for (const item of watchHistory) {
+      if (!watchedSet.has(item.livestreamId)) {
+        watchedSet.add(item.livestreamId);
+        watchedIds.push(item.livestreamId);
+      }
+    }
+
+    const watchedVideos = watchedIds.length
+      ? await this.prisma.postgres.liveStream.findMany({
+          where: {
+            id: { in: watchedIds },
+            status: 'ENDED',
+            recordingUrl: { not: null },
+          },
+          select: {
+            id: true,
+            title: true,
+            category: true,
+            teacherId: true,
+          },
+        })
+      : [];
+
+    const interestSet = new Set(interests.map((x) => this.normalizeTopic(x)));
+    const categorySignal = new Map<string, number>();
+    const teacherSignal = new Map<string, number>();
+
+    for (const interest of interestSet) {
+      categorySignal.set(interest, (categorySignal.get(interest) || 0) + 4);
+    }
+
+    watchedVideos.forEach((video, index) => {
+      const recencyWeight = Math.max(1, 5 - Math.floor(index / 5));
+      const normalizedCategory = this.normalizeTopic(video.category || '');
+
+      if (normalizedCategory) {
+        categorySignal.set(
+          normalizedCategory,
+          (categorySignal.get(normalizedCategory) || 0) + recencyWeight,
+        );
+      }
+
+      teacherSignal.set(
+        video.teacherId,
+        (teacherSignal.get(video.teacherId) || 0) + recencyWeight,
+      );
+    });
+
+    const nextPartMap = this.buildNextPartMap(watchedVideos);
+
+    const candidates = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        status: 'ENDED',
+        recordingUrl: { not: null },
+        id: {
+          notIn: watchedIds,
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        thumbnail: true,
+        duration: true,
+        totalViews: true,
+        endedAt: true,
+        recordingUrl: true,
+        teacherId: true,
+        teacher: {
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true,
+          },
+        },
+      },
+      orderBy: [{ endedAt: 'desc' }, { totalViews: 'desc' }],
+      take: 300,
+    });
+
+    const scored = candidates
+      .map((video) => this.scoreCandidate(video, categorySignal, teacherSignal, interestSet, nextPartMap))
+      .sort((a, b) => b.score - a.score);
+
+    const byInterests = scored
+      .filter((item) => item.reasons.includes('interest'))
+      .slice(0, Math.min(8, safeLimit));
+
+    const continueWatching = scored
+      .filter((item) => item.reasons.includes('next_part'))
+      .slice(0, Math.min(8, safeLimit));
+
+    const merged = this.uniqueById([
+      ...continueWatching,
+      ...byInterests,
+      ...scored,
+    ]).slice(0, safeLimit);
+
+    return {
+      onboardingNeeded: interests.length === 0,
+      interests,
+      byInterests,
+      continueWatching,
+      recommendations: merged,
+    };
+  }
+
+  private scoreCandidate(
+    candidate: RecommendationCandidate,
+    categorySignal: Map<string, number>,
+    teacherSignal: Map<string, number>,
+    interestSet: Set<string>,
+    nextPartMap: PartProgressMap,
+  ) {
+    let score = 0;
+    const reasons: string[] = [];
+
+    const normalizedCategory = this.normalizeTopic(candidate.category || '');
+    if (normalizedCategory) {
+      if (interestSet.has(normalizedCategory)) {
+        score += 40;
+        reasons.push('interest');
+      }
+
+      const categoryWeight = categorySignal.get(normalizedCategory) || 0;
+      if (categoryWeight > 0) {
+        score += Math.min(30, categoryWeight * 5);
+        reasons.push('watch_history_category');
+      }
+    }
+
+    const teacherWeight = teacherSignal.get(candidate.teacherId) || 0;
+    if (teacherWeight > 0) {
+      score += Math.min(18, teacherWeight * 3);
+      reasons.push('watch_history_teacher');
+    }
+
+    if (this.isNextPart(candidate, nextPartMap)) {
+      score += 65;
+      reasons.push('next_part');
+    }
+
+    score += Math.min(10, (candidate.totalViews || 0) / 1000);
+
+    if (candidate.endedAt) {
+      const daysOld =
+        (Date.now() - new Date(candidate.endedAt).getTime()) /
+        (1000 * 60 * 60 * 24);
+      score += Math.max(0, 8 - daysOld / 15);
+    }
+
+    return {
+      id: candidate.id,
+      title: candidate.title,
+      category: candidate.category,
+      thumbnailUrl: candidate.thumbnail,
+      duration: candidate.duration,
+      totalViews: candidate.totalViews,
+      endedAt: candidate.endedAt,
+      recordingUrl: candidate.recordingUrl,
+      teacher: candidate.teacher,
+      score: Number(score.toFixed(2)),
+      reasons: Array.from(new Set(reasons)),
+    };
+  }
+
+  private buildNextPartMap(
+    watchedVideos: Array<{ teacherId: string; title: string }>,
+  ): PartProgressMap {
+    const map: PartProgressMap = new Map();
+
+    for (const item of watchedVideos) {
+      const parsed = this.parsePart(item.title);
+      if (!parsed) continue;
+
+      const key = `${item.teacherId}:${parsed.base}`;
+      const nextPart = parsed.part + 1;
+      const currentMax = map.get(key) || 0;
+      if (nextPart > currentMax) {
+        map.set(key, nextPart);
+      }
+    }
+
+    return map;
+  }
+
+  private isNextPart(candidate: RecommendationCandidate, nextPartMap: PartProgressMap): boolean {
+    const parsed = this.parsePart(candidate.title);
+    if (!parsed) return false;
+
+    const key = `${candidate.teacherId}:${parsed.base}`;
+    const expectedPart = nextPartMap.get(key);
+
+    return !!expectedPart && parsed.part === expectedPart;
+  }
+
+  private parsePart(title: string): { base: string; part: number } | null {
+    const cleanTitle = title.trim().toLowerCase();
+    const match = cleanTitle.match(/^(.*?)(?:\s*[-:|]?\s*)(?:part|episode|ep|phan|bai)\s*(\d+)\b/i);
+
+    if (!match) {
+      return null;
+    }
+
+    const base = (match[1] || '')
+      .replace(/[^a-z0-9\s]/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const part = Number(match[2]);
+    if (!base || Number.isNaN(part)) {
+      return null;
+    }
+
+    return { base, part };
+  }
+
+  private normalizeTopic(value: string): string {
+    return value.trim().toLowerCase();
+  }
+
+  private uniqueById<T extends { id: string }>(items: T[]): T[] {
+    const seen = new Set<string>();
+    const result: T[] = [];
+
+    for (const item of items) {
+      if (!seen.has(item.id)) {
+        seen.add(item.id);
+        result.push(item);
+      }
+    }
+
+    return result;
   }
 }
 

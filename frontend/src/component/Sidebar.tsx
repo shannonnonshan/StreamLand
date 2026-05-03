@@ -1,6 +1,7 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { LucideIcon } from "lucide-react";
 import HoverTooltip from "@/component/HoverTooltip";
 
@@ -48,11 +49,12 @@ export default function Sidebar({
   onNavigate,
 }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
 
   const baseRoute = basePath || `/${role}/${userId}`;
 
   // Handle navigation with optional callback
-  const handleNavigation = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+  const handleNavigation = (e: React.MouseEvent<HTMLElement>, href: string) => {
     if (onNavigate) {
       const shouldNavigate = onNavigate(href);
       if (!shouldNavigate) {
@@ -129,15 +131,16 @@ export default function Sidebar({
             return (
               <li key={label} className="relative group">
                 {type === "link" ? (
-                  <a 
+                  <Link
                     href={fullHref!} 
                     className={commonClass}
                     onClick={(e) => handleNavigation(e, fullHref!)}
+                    onMouseEnter={() => router.prefetch(fullHref!)}
                   >
                     <HoverTooltip label={label}>
                       <Icon className="w-6 h-6 font-medium" />
                     </HoverTooltip>
-                  </a>
+                  </Link>
                 ) : (
                   <button onClick={onClick} className={commonClass}>
                     <HoverTooltip label={label}>

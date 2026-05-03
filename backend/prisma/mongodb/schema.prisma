@@ -413,3 +413,40 @@ model StudentNotebook {
   @@index([studentId, isPinned])
   @@map("student_notebooks")
 }
+
+// Video Comments - Student comments on recorded livestreams
+model VideoComment {
+  id           String  @id @default(auto()) @map("_id") @mongodb.ObjectId
+  livestreamId String
+  studentId    String
+  author       String // Student's full name
+  authorAvatar String? // Student's avatar URL
+  content      String
+  likes        Int     @default(0)
+  dislikes     Int     @default(0)
+
+  // Track individual reactions per user
+  likedBy    String[] // Array of student IDs who liked this comment
+  dislikedBy String[] // Array of student IDs who disliked this comment
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([livestreamId, createdAt])
+  @@index([studentId])
+  @@map("video_comments")
+}
+
+// Video Reactions - Track likes and dislikes on videos by students
+model VideoReaction {
+  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  livestreamId String
+  studentId    String
+  reactionType String // 'like' or 'dislike'
+  createdAt    DateTime @default(now())
+
+  @@unique([livestreamId, studentId])
+  @@index([livestreamId])
+  @@index([studentId])
+  @@map("video_reactions")
+}

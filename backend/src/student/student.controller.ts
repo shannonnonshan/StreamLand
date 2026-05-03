@@ -158,6 +158,16 @@ export class StudentController {
     return this.studentService.getFollowedVideos(req.user.sub);
   }
 
+  // Get personalized recommendations for student home page
+  @Get('recommendations')
+  async getPersonalizedRecommendations(
+    @Request() req: { user: { sub: string } },
+    @Query('limit') limit?: string,
+  ) {
+    const limitNum = limit ? parseInt(limit, 10) : 24;
+    return this.studentService.getPersonalizedRecommendations(req.user.sub, limitNum);
+  }
+
   // Get all teachers (for search functionality - public endpoint)
   @Public()
   @Get('teachers/all')

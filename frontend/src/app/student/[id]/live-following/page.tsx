@@ -14,6 +14,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useFollow } from '@/hooks/useFollow';
 import Image from 'next/image';
+import { getStudentRoute } from '@/utils/student';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
@@ -130,7 +131,7 @@ function VideoCard({ video, index = 0 }: { video: Livestream | Video; index?: nu
     if (isLive) {
       router.push(`/student/livestream/${video.id}`);
     } else {
-      router.push(`/student/video/${video.id}`);
+      router.push(getStudentRoute(`video/${video.id}`));
     }
   };
 
@@ -140,7 +141,7 @@ function VideoCard({ video, index = 0 }: { video: Livestream | Video; index?: nu
     if (isLive) {
       router.prefetch(`/student/livestream/${video.id}`);
     } else {
-      router.prefetch(`/student/video/${video.id}`);
+      router.prefetch(getStudentRoute(`video/${video.id}`));
     }
   };
 

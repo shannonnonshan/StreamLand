@@ -1,5 +1,5 @@
 'use client';
-import { MagnifyingGlassIcon, XMarkIcon, ChevronDownIcon, UserCircleIcon, ShieldCheckIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, XMarkIcon, ChevronDownIcon, UserCircleIcon, ShieldCheckIcon, ArrowRightOnRectangleIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -13,6 +13,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/hooks/useAuth';
 
 const PrimaryColor = '161853';
+
+declare global {
+  interface Window {
+    webkitSpeechRecognition?: any;
+    SpeechRecognition?: any;
+  }
+}
 
 interface Teacher {
   id: string;
@@ -32,6 +39,10 @@ export default function Header() {
   const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isVoicePopupOpen, setIsVoicePopupOpen] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceInterim, setVoiceInterim] = useState('');
+  const [voiceFinal, setVoiceFinal] = useState('');
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [filteredTeachers, setFilteredTeachers] = useState<Teacher[]>([]);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -39,6 +50,7 @@ export default function Header() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   // Fetch all teachers on mount
   useEffect(() => {
@@ -137,8 +149,7 @@ export default function Header() {
     }
   }, [isSearchOpen]);
   
-  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const query = e.target.value;
+  const applySearchQuery = (query: string) => {
     setSearchQuery(query);
     
     if (query.trim() === '') {
@@ -160,6 +171,78 @@ export default function Header() {
     
     setFilteredTeachers(filtered);
   };
+
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    applySearchQuery(e.target.value);
+  };
+
+  const stopVoiceSearch = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    setIsListening(false);
+  };
+
+  const startVoiceSearch = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Your browser does not support speech recognition. Please use Chrome or Edge.');
+      return;
+    }
+
+    setIsVoicePopupOpen(true);
+    setVoiceInterim('');
+    setVoiceFinal('');
+
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    let finalText = '';
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onresult = (event: any) => {
+      let interimText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0]?.transcript || '';
+        if (event.results[i].isFinal) {
+          finalText += `${transcript} `;
+        } else {
+          interimText += transcript;
+        }
+      }
+
+      setVoiceFinal(finalText.trim());
+      setVoiceInterim(interimText.trim());
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      const submittedText = finalText.trim() || voiceFinal.trim();
+      if (submittedText) {
+        applySearchQuery(submittedText);
+      }
+    };
+
+    recognition.start();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
   
   const openLoginModal = () => {
     setIsLoginModalOpen(true);
@@ -289,6 +372,19 @@ export default function Header() {
                       value={searchQuery}
                       onChange={handleSearch}
                     />
+                    <button
+                      onClick={() => {
+                        if (isListening) {
+                          stopVoiceSearch();
+                        } else {
+                          startVoiceSearch();
+                        }
+                      }}
+                      className={`mr-1 p-1.5 rounded-full transition ${isListening ? 'bg-red-100 text-red-600' : 'hover:bg-gray-200 text-gray-500'}`}
+                      title={isListening ? 'Stop voice search' : 'Start voice search'}
+                    >
+                      <MicrophoneIcon className="h-4 w-4" />
+                    </button>
                     {searchQuery && (
                       <button 
                         onClick={() => {
@@ -301,6 +397,39 @@ export default function Header() {
                       </button>
                     )}
                   </div>
+
+                  {isVoicePopupOpen && (
+                    <div className="mt-3 rounded-md border border-gray-200 bg-white p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold text-gray-700">AI Voice Detect</p>
+                        <button
+                          onClick={() => {
+                            stopVoiceSearch();
+                            setIsVoicePopupOpen(false);
+                          }}
+                          className="text-xs text-gray-500 hover:text-gray-700"
+                        >
+                          Close
+                        </button>
+                      </div>
+
+                      <div className="min-h-16 rounded-md bg-gray-50 p-2 text-xs text-gray-700">
+                        {voiceFinal || voiceInterim ? (
+                          <>
+                            <span>{voiceFinal}</span>
+                            {voiceInterim && <span className="text-gray-400"> {voiceInterim}</span>}
+                          </>
+                        ) : (
+                          <span className="text-gray-400">Listening continuously... stop to auto-submit search.</span>
+                        )}
+                      </div>
+
+                      <div className="mt-2 flex items-center gap-2 text-[11px] text-gray-500">
+                        <span className={`inline-block h-2 w-2 rounded-full ${isListening ? 'bg-red-500 animate-pulse' : 'bg-gray-300'}`}></span>
+                        {isListening ? 'Recording voice' : 'Stopped'}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="max-h-80 overflow-y-auto">

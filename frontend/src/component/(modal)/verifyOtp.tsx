@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 const PrimaryColor = '161853'; // Dark Blue (primary color)
 const SecondaryColor = 'EC255A'; // Red/Pink
 const OTP_LENGTH = 6;
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 interface OTPModalProps {
   isOpen: boolean;
@@ -67,6 +68,40 @@ export default function OTPModal({
     setSuccessMessage('');
 
     try {
+      const applyPendingStudentProfile = async () => {
+        const key = `pending-student-profile:${email.toLowerCase()}`;
+        const rawData = sessionStorage.getItem(key);
+        if (!rawData) {
+          return;
+        }
+
+        const token = localStorage.getItem('accessToken');
+        if (!token) {
+          return;
+        }
+
+        const payload = JSON.parse(rawData) as {
+          interests?: string[];
+          school?: string;
+          grade?: string;
+        };
+
+        await fetch(`${API_URL}/auth/profile/student`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            interests: payload.interests || [],
+            school: payload.school || '',
+            grade: payload.grade || '',
+          }),
+        });
+
+        sessionStorage.removeItem(key);
+      };
+
       let result;
       
       // Use different API based on purpose
@@ -83,6 +118,10 @@ export default function OTPModal({
       }
 
       if (result.success) {
+        if (otpPurpose === 'registration' && result.user?.role === 'STUDENT') {
+          await applyPendingStudentProfile();
+        }
+
         setSuccessMessage('OTP verified successfully!');
         
         // Wait a moment to show success message

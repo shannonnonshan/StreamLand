@@ -382,4 +382,110 @@ export class R2StorageService {
       throw error;
     }
   }
+
+  /**
+   * Upload recording audio by recording ID
+   * Saves to audio-export/{recordingId}.wav in video bucket
+   */
+  async uploadRecordingAudioById(
+    recordingId: string,
+    audioBuffer: Buffer,
+  ): Promise<string> {
+    const key = `audio-export/${recordingId}.wav`;
+
+    try {
+      const command = new PutObjectCommand({
+        Bucket: this.videoBucketName,
+        Key: key,
+        Body: audioBuffer,
+        ContentType: 'audio/wav',
+      });
+
+      await this.videoS3Client.send(command);
+      this.logger.log(`Uploaded recording audio for ${recordingId}`);
+      return `${this.publicUrl}/${key}`;
+    } catch (error) {
+      this.logger.error(`Failed to upload recording audio ${recordingId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if recording audio exists by recording ID
+   */
+  async recordingAudioExistsById(recordingId: string): Promise<boolean> {
+    const key = `audio-export/${recordingId}.wav`;
+
+    try {
+      await this.videoS3Client.send(
+        new HeadObjectCommand({
+          Bucket: this.videoBucketName,
+          Key: key,
+        }),
+      );
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Get recording audio URL by recording ID
+   */
+  getRecordingAudioUrlById(recordingId: string): string {
+    return `${this.publicUrl}/audio-export/${recordingId}.wav`;
+  }
+
+  /**
+   * Upload document audio by document ID
+   * Saves to audio-export/{documentId}.wav in document bucket
+   */
+  async uploadDocumentAudioById(
+    documentId: string,
+    audioBuffer: Buffer,
+  ): Promise<string> {
+    const key = `audio-export/${documentId}.wav`;
+
+    try {
+      const command = new PutObjectCommand({
+        Bucket: this.documentBucketName,
+        Key: key,
+        Body: audioBuffer,
+        ContentType: 'audio/wav',
+      });
+
+      await this.documentS3Client.send(command);
+      this.logger.log(`Uploaded document audio for ${documentId}`);
+      return `${this.documentPublicUrl}/${key}`;
+    } catch (error) {
+      this.logger.error(`Failed to upload document audio ${documentId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if document audio exists by document ID
+   */
+  async documentAudioExistsById(documentId: string): Promise<boolean> {
+    const key = `audio-export/${documentId}.wav`;
+
+    try {
+      await this.documentS3Client.send(
+        new HeadObjectCommand({
+          Bucket: this.documentBucketName,
+          Key: key,
+        }),
+      );
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Get document audio URL by document ID
+   */
+  getDocumentAudioUrlById(documentId: string): string {
+    return `${this.documentPublicUrl}/audio-export/${documentId}.wav`;
+  }
 }

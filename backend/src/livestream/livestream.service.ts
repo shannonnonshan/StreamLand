@@ -32,7 +32,7 @@ interface AiTranscriptSummaryDocument {
 export class LivestreamService {
   private readonly logger = new Logger(LivestreamService.name);
   private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
-  private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
+  private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
   
   constructor(
     private prisma: PrismaService,
@@ -1522,8 +1522,8 @@ export class LivestreamService {
       };
     }
 
-    const audioExists = await this.r2StorageService.recordingAudioExistsByUrl(livestream.recordingUrl);
-    let audioUrl = existing?.audioUrl || (audioExists ? this.r2StorageService.getRecordingAudioUrlFromUrl(livestream.recordingUrl) : null);
+    const audioExists = await this.r2StorageService.recordingAudioExistsById(recordingId);
+    let audioUrl = existing?.audioUrl || (audioExists ? this.r2StorageService.getRecordingAudioUrlById(recordingId) : null);
     let audioBuffer: Buffer | null = null;
 
     if (audioUrl) {
@@ -1571,7 +1571,7 @@ export class LivestreamService {
         });
 
         audioBuffer = await fs.readFile(outputPath);
-        audioUrl = await this.r2StorageService.uploadRecordingAudioByUrl(livestream.recordingUrl, audioBuffer);
+        audioUrl = await this.r2StorageService.uploadRecordingAudioById(recordingId, audioBuffer);
       } finally {
         await Promise.all([
           fs.unlink(inputPath).catch(() => undefined),
@@ -1586,12 +1586,15 @@ export class LivestreamService {
 
     const formData = new FormData();
     const audioBytes = new Uint8Array(audioBuffer);
+    // Explicitly set audio/wav type for AI server to correctly process audio
     formData.append('file', new Blob([audioBytes], { type: 'audio/wav' }), `${recordingId}.wav`);
 
-    const aiResponse = await fetch(`${this.localAiBaseUrl}/transcribe`, {
+    // Set 10-minute timeout for transcribe to complete (transcription takes time)
+    const aiResponse = await (await import('../utils/aiFetch')).logFetch(`${this.localAiBaseUrl}/transcribe`, {
       method: 'POST',
       body: formData,
-    });
+      timeoutMs: 10 * 60 * 1000, // 10 minutes
+    }, this.logger as any);
 
     if (!aiResponse.ok) {
       const errorBody = await aiResponse.text();

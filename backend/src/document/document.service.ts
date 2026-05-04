@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
@@ -30,7 +31,8 @@ interface AiTranscriptSummaryDocument {
 @Injectable()
 export class DocumentService {
   private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
-  private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
+  private readonly logger = new Logger(DocumentService.name);
+  private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
 
   constructor(
     private prisma: PrismaService,
@@ -179,8 +181,8 @@ export class DocumentService {
       };
     }
 
-    const audioExists = await this.r2StorageService.documentAudioExistsByUrl(document.fileUrl);
-    let audioUrl = existing?.audioUrl || (audioExists ? this.r2StorageService.getDocumentAudioUrlFromUrl(document.fileUrl) : null);
+    const audioExists = await this.r2StorageService.documentAudioExistsById(documentId);
+    let audioUrl = existing?.audioUrl || (audioExists ? this.r2StorageService.getDocumentAudioUrlById(documentId) : null);
     let audioBuffer: Buffer | null = null;
 
     if (audioUrl) {
@@ -228,7 +230,7 @@ export class DocumentService {
         });
 
         audioBuffer = await fs.readFile(outputPath);
-        audioUrl = await this.r2StorageService.uploadDocumentAudioByUrl(document.fileUrl, audioBuffer);
+        audioUrl = await this.r2StorageService.uploadDocumentAudioById(documentId, audioBuffer);
       } finally {
         await Promise.all([
           fs.unlink(inputPath).catch(() => undefined),
@@ -243,12 +245,15 @@ export class DocumentService {
 
     const formData = new FormData();
     const audioBytes = new Uint8Array(audioBuffer);
+    // Explicitly set audio/wav type for AI server to correctly process audio
     formData.append('file', new Blob([audioBytes], { type: 'audio/wav' }), `${documentId}.wav`);
 
-    const aiResponse = await fetch(`${this.localAiBaseUrl}/transcribe`, {
+    // Set 10-minute timeout for transcribe to complete (transcription takes time)
+    const aiResponse = await (await import('../utils/aiFetch')).logFetch(`${this.localAiBaseUrl}/transcribe`, {
       method: 'POST',
       body: formData,
-    });
+      timeoutMs: 10 * 60 * 1000, // 10 minutes
+    }, this.logger as any);
 
     if (!aiResponse.ok) {
       const errorBody = await aiResponse.text();

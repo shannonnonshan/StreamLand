@@ -592,10 +592,6 @@ export default function VideoPlayerPage() {
     } catch (e) { console.error(e); }
   };
 
-  const handleCopyCommentShare = (text: string) => {
-    try { navigator.clipboard.writeText(text); alert('Comment copied'); } catch (e) { console.error(e); }
-  };
-
   const handleSubscribe = async () => {
     // Toggle locally; backend integration optional
     setIsSubscribed(prev => !prev);
@@ -881,7 +877,21 @@ export default function VideoPlayerPage() {
                   {isAuthenticated ? (
                     <div className="mb-4">
                       <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-[#161853] to-[#292C6D] flex items-center justify-center text-white text-sm font-bold">{(currentStudent?.fullName||'S').charAt(0)}</div>
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden bg-gray-200">
+                          {currentStudent?.avatar ? (
+                            <Image
+                              src={currentStudent.avatar}
+                              alt={currentStudent.fullName || 'Student'}
+                              width={32}
+                              height={32}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#161853] to-[#292C6D] text-white text-sm font-bold">
+                              {(currentStudent?.fullName || 'S').charAt(0)}
+                            </div>
+                          )}
+                        </div>
                         <textarea value={newComment} onChange={e=>setNewComment(e.target.value)} placeholder="Write your comment..." className="w-full resize-none bg-transparent text-sm text-gray-800 outline-none" rows={3} />
                       </div>
                       <div className="mt-3 flex justify-end">
@@ -900,7 +910,21 @@ export default function VideoPlayerPage() {
                       <div key={c.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
                         <div className="flex items-start justify-between">
                           <div className="flex items-start gap-3">
-                            <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold">{(c.author||'S').charAt(0)}</div>
+                            <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
+                              {c.authorAvatar ? (
+                                <Image
+                                  src={c.authorAvatar}
+                                  alt={c.author || 'Student'}
+                                  width={32}
+                                  height={32}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#161853] to-[#292C6D] text-white text-xs font-bold">
+                                  {(c.author||'S').charAt(0)}
+                                </div>
+                              )}
+                            </div>
                             <div>
                               <div className="text-sm font-semibold text-gray-900">{c.author}</div>
                               <div className="text-sm text-gray-700 mt-1">{c.content}</div>
@@ -909,7 +933,6 @@ export default function VideoPlayerPage() {
                           <div className="flex items-center gap-2">
                             <button onClick={() => handleCommentReaction(c.id, 'like')} className="text-sm px-2 py-1 bg-white rounded">👍 {c.likes}</button>
                             <button onClick={() => handleCommentReaction(c.id, 'dislike')} className="text-sm px-2 py-1 bg-white rounded">👎 {c.dislikes}</button>
-                            <button onClick={() => handleCopyCommentShare(c.content)} className="text-sm px-2 py-1 bg-white rounded">Share</button>
                           </div>
                         </div>
                       </div>
@@ -1030,6 +1053,7 @@ export default function VideoPlayerPage() {
           setShowRegisterModal(true);
         }}
         openForgotPasswordModal={() => {}}
+        stayOnCurrentPage
       />
 
       <RegisterModal

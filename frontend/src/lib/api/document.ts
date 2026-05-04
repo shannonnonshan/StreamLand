@@ -7,6 +7,8 @@ export interface DocumentAiAnalysis {
   transcript: string | null;
   summary?: string | null;
   audioUrl?: string | null;
+  transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
+  transcriptError?: string | null;
   transcriptGeneratedAt?: string | null;
   summaryGeneratedAt?: string | null;
   cached?: boolean;

@@ -19,6 +19,8 @@ interface AiTranscriptSummaryDocument {
   type: 'recording' | 'document';
   recordingId?: string;
   documentId?: string;
+  transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
+  transcriptError?: string | null;
   transcript?: string;
   summary?: string;
   audioUrl?: string;
@@ -157,6 +159,8 @@ export class DocumentService {
       transcript: analysis?.transcript || null,
       summary: analysis?.summary || null,
       audioUrl: analysis?.audioUrl || null,
+      transcriptStatus: analysis?.transcriptStatus || 'idle',
+      transcriptError: analysis?.transcriptError || null,
       transcriptGeneratedAt: analysis?.transcriptGeneratedAt || null,
       summaryGeneratedAt: analysis?.summaryGeneratedAt || null,
     };
@@ -181,107 +185,127 @@ export class DocumentService {
       };
     }
 
-    const audioExists = await this.r2StorageService.documentAudioExistsById(documentId);
-    let audioUrl = existing?.audioUrl || (audioExists ? this.r2StorageService.getDocumentAudioUrlById(documentId) : null);
-    let audioBuffer: Buffer | null = null;
+    if (!force && existing?.transcriptStatus === 'processing') {
+      return {
+        ...(await this.getDocumentAiAnalysis(documentId, user)),
+        cached: true,
+      };
+    }
 
-    if (audioUrl) {
-      audioBuffer = await this.downloadToBuffer(audioUrl);
-    } else {
-      const response = await fetch(document.fileUrl);
-      if (!response.ok || !response.body) {
-        throw new BadRequestException(`Cannot download document file: ${response.status}`);
-      }
+    try {
+      await this.upsertDocumentAiAnalysis(documentId, {
+        transcriptStatus: 'processing',
+        transcriptError: null,
+      });
 
-      const tempBase = `document-${documentId}-${Date.now()}`;
-      const inputPath = path.join(os.tmpdir(), `${tempBase}.${this.getInputExtension(document.mimeType)}`);
-      const outputPath = path.join(os.tmpdir(), `${tempBase}.wav`);
+      const audioExists = await this.r2StorageService.documentAudioExistsById(documentId);
+      let audioUrl = existing?.audioUrl || (audioExists ? this.r2StorageService.getDocumentAudioUrlById(documentId) : null);
+      let audioBuffer: Buffer | null = null;
 
-      try {
-        await pipeline(Readable.fromWeb(response.body as any), createWriteStream(inputPath));
+      if (audioUrl) {
+        audioBuffer = await this.downloadToBuffer(audioUrl);
+      } else {
+        const response = await fetch(document.fileUrl);
+        if (!response.ok || !response.body) {
+          throw new BadRequestException(`Cannot download document file: ${response.status}`);
+        }
 
-        await new Promise<void>((resolve, reject) => {
-          const ffmpeg = spawn('ffmpeg', [
-            '-y',
-            '-i',
-            inputPath,
-            '-vn',
-            '-ac',
-            '1',
-            '-ar',
-            '16000',
-            '-f',
-            'wav',
-            outputPath,
+        const tempBase = `document-${documentId}-${Date.now()}`;
+        const inputPath = path.join(os.tmpdir(), `${tempBase}.${this.getInputExtension(document.mimeType)}`);
+        const outputPath = path.join(os.tmpdir(), `${tempBase}.wav`);
+
+        try {
+          await pipeline(Readable.fromWeb(response.body as any), createWriteStream(inputPath));
+
+          await new Promise<void>((resolve, reject) => {
+            const ffmpeg = spawn('ffmpeg', [
+              '-y',
+              '-i',
+              inputPath,
+              '-vn',
+              '-ac',
+              '1',
+              '-ar',
+              '16000',
+              '-f',
+              'wav',
+              outputPath,
+            ]);
+
+            let stderr = '';
+            ffmpeg.stderr.on('data', (chunk) => {
+              stderr += chunk.toString();
+            });
+            ffmpeg.on('error', (err) => reject(err));
+            ffmpeg.on('close', (code) => {
+              if (code === 0) {
+                resolve();
+              } else {
+                reject(new Error(`ffmpeg failed (${code}): ${stderr}`));
+              }
+            });
+          });
+
+          audioBuffer = await fs.readFile(outputPath);
+          audioUrl = await this.r2StorageService.uploadDocumentAudioById(documentId, audioBuffer);
+        } finally {
+          await Promise.all([
+            fs.unlink(inputPath).catch(() => undefined),
+            fs.unlink(outputPath).catch(() => undefined),
           ]);
-
-          let stderr = '';
-          ffmpeg.stderr.on('data', (chunk) => {
-            stderr += chunk.toString();
-          });
-          ffmpeg.on('error', (err) => reject(err));
-          ffmpeg.on('close', (code) => {
-            if (code === 0) {
-              resolve();
-            } else {
-              reject(new Error(`ffmpeg failed (${code}): ${stderr}`));
-            }
-          });
-        });
-
-        audioBuffer = await fs.readFile(outputPath);
-        audioUrl = await this.r2StorageService.uploadDocumentAudioById(documentId, audioBuffer);
-      } finally {
-        await Promise.all([
-          fs.unlink(inputPath).catch(() => undefined),
-          fs.unlink(outputPath).catch(() => undefined),
-        ]);
+        }
       }
+
+      if (!audioBuffer) {
+        throw new BadRequestException('Audio export failed, cannot transcribe');
+      }
+
+      const formData = new FormData();
+      const audioBytes = new Uint8Array(audioBuffer);
+      // Explicitly set audio/wav type for AI server to correctly process audio
+      formData.append('file', new Blob([audioBytes], { type: 'audio/wav' }), `${documentId}.wav`);
+
+      // Stream transcribe response (handles heartbeats and long processing time)
+      const aiResponse = await (await import('../utils/aiFetch')).logStreamingTranscribe(
+        `${this.localAiBaseUrl}/transcribe`,
+        {
+          method: 'POST',
+          body: formData,
+          timeoutMs: 30 * 60 * 1000, // 30 minutes
+        },
+        this.logger as any,
+      );
+
+      // Extract transcript from the streaming response
+      const transcript = this.extractTranscriptFromPayload(aiResponse.data);
+
+      if (!transcript) {
+        await this.upsertDocumentAiAnalysis(documentId, {
+          transcriptStatus: 'error',
+          transcriptError: 'Transcribe service returned empty transcript',
+        });
+        throw new BadRequestException('Transcribe service returned empty transcript');
+      }
+
+      await this.upsertDocumentAiAnalysis(documentId, {
+        transcriptStatus: 'success',
+        transcriptError: null,
+        transcript,
+        audioUrl: audioUrl || undefined,
+        transcriptGeneratedAt: new Date(),
+      });
+
+      return {
+        ...(await this.getDocumentAiAnalysis(documentId, user)),
+        cached: false,
+      };
+    } catch (err: unknown) {
+      await this.upsertDocumentAiAnalysis(documentId, {
+        transcriptStatus: 'error',
+        transcriptError: err instanceof Error ? err.message : String(err),
+      }).catch(() => undefined);
+      throw err;
     }
-
-    if (!audioBuffer) {
-      throw new BadRequestException('Audio export failed, cannot transcribe');
-    }
-
-    const formData = new FormData();
-    const audioBytes = new Uint8Array(audioBuffer);
-    // Explicitly set audio/wav type for AI server to correctly process audio
-    formData.append('file', new Blob([audioBytes], { type: 'audio/wav' }), `${documentId}.wav`);
-
-    // Set 10-minute timeout for transcribe to complete (transcription takes time)
-    const aiResponse = await (await import('../utils/aiFetch')).logFetch(`${this.localAiBaseUrl}/transcribe`, {
-      method: 'POST',
-      body: formData,
-      timeoutMs: 10 * 60 * 1000, // 10 minutes
-    }, this.logger as any);
-
-    if (!aiResponse.ok) {
-      const errorBody = await aiResponse.text();
-      throw new BadRequestException(`Transcribe service error (${aiResponse.status}): ${errorBody}`);
-    }
-
-    const aiPayload = await aiResponse.json();
-    const aiError = this.extractAiErrorFromPayload(aiPayload);
-    if (aiError) {
-      throw new BadRequestException(`Transcribe service error: ${aiError}`);
-    }
-
-    const transcript = this.extractTranscriptFromPayload(aiPayload);
-
-    if (!transcript) {
-      throw new BadRequestException('Transcribe service returned empty transcript');
-    }
-
-    await this.upsertDocumentAiAnalysis(documentId, {
-      transcript,
-      audioUrl: audioUrl || undefined,
-      transcriptGeneratedAt: new Date(),
-    });
-
-    return {
-      ...(await this.getDocumentAiAnalysis(documentId, user)),
-      cached: false,
-    };
   }
 
   private extractTranscriptFromPayload(payload: unknown): string | null {

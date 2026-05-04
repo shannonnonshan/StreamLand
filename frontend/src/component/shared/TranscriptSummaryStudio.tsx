@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CircleHelp, FileText, GraduationCap, Loader2, Sparkles } from "lucide-react";
 import {
   generateRecordingSummary,
@@ -37,9 +37,70 @@ export default function TranscriptSummaryStudio({
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isLoadingExisting, setIsLoadingExisting] = useState(false);
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const [transcriptStatus, setTranscriptStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isDocumentMode = !!documentId && !recordingId;
   const canSummarize = !isDocumentMode && transcriptContent.trim().length > 0;
+
+  const stopPolling = () => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  };
+
+  const applyAnalysis = (analysis: {
+    transcript?: string | null;
+    summary?: string | null;
+    transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
+    transcriptError?: string | null;
+  }) => {
+    setTranscriptContent(analysis.transcript || "");
+    setSummaryContent(analysis.summary || "");
+
+    const nextStatus = analysis.transcriptStatus || (analysis.transcript ? 'success' : 'idle');
+    setTranscriptStatus(nextStatus);
+    setTranscriptError(nextStatus === 'error' ? analysis.transcriptError || "Cannot generate transcript right now." : null);
+
+    const isProcessing = nextStatus === 'processing';
+    setIsTranscribing(isProcessing);
+
+    if (!isProcessing) {
+      stopPolling();
+    }
+
+    return isProcessing;
+  };
+
+  const fetchCurrentAnalysis = async () => {
+    if (recordingId) {
+      const analysis = await getRecordingAiAnalysis(recordingId);
+      return applyAnalysis(analysis);
+    }
+
+    if (documentId) {
+      const analysis = await getDocumentAiAnalysis(documentId);
+      return applyAnalysis(analysis);
+    }
+
+    return false;
+  };
+
+  const startPolling = () => {
+    if (pollTimerRef.current) return;
+
+    pollTimerRef.current = setInterval(async () => {
+      try {
+        const isProcessing = await fetchCurrentAnalysis();
+        if (!isProcessing) {
+          stopPolling();
+        }
+      } catch (err) {
+        console.error("Failed to refresh AI analysis:", err);
+      }
+    }, 5000);
+  };
 
   useEffect(() => {
     const loadExistingAnalysis = async () => {
@@ -47,14 +108,9 @@ export default function TranscriptSummaryStudio({
 
       try {
         setIsLoadingExisting(true);
-        if (recordingId) {
-          const analysis = await getRecordingAiAnalysis(recordingId);
-          setTranscriptContent(analysis.transcript || "");
-          setSummaryContent(analysis.summary || "");
-        } else if (documentId) {
-          const analysis = await getDocumentAiAnalysis(documentId);
-          setTranscriptContent(analysis.transcript || "");
-          setSummaryContent(analysis.summary || "");
+        const isProcessing = await fetchCurrentAnalysis();
+        if (isProcessing) {
+          startPolling();
         }
       } catch (err) {
         console.error("Failed to load existing AI analysis:", err);
@@ -64,6 +120,7 @@ export default function TranscriptSummaryStudio({
     };
 
     loadExistingAnalysis();
+    return () => stopPolling();
   }, [documentId, recordingId]);
 
   const handleGenerateTranscript = async () => {
@@ -75,17 +132,22 @@ export default function TranscriptSummaryStudio({
 
       if (recordingId) {
         const result = await generateRecordingTranscript(recordingId, transcriptContent.trim().length > 0);
-        setTranscriptContent(result.transcript || "");
-        setSummaryContent(result.summary || "");
+        const isProcessing = applyAnalysis(result);
+        if (isProcessing) {
+          startPolling();
+        }
       } else if (documentId) {
         const result = await generateDocumentTranscript(documentId, transcriptContent.trim().length > 0);
-        setTranscriptContent(result.transcript || "");
-        setSummaryContent(result.summary || "");
+        const isProcessing = applyAnalysis(result);
+        if (isProcessing) {
+          startPolling();
+        }
       } else {
         // Placeholder flow until AI backend is connected.
         await new Promise((resolve) => setTimeout(resolve, 900));
         setTranscriptContent(transcriptSeedMessage);
         setSummaryContent("");
+        setTranscriptStatus('success');
       }
     } catch (err) {
       console.error("Failed to generate transcript:", err);
@@ -146,19 +208,29 @@ export default function TranscriptSummaryStudio({
         <button
           type="button"
           onClick={handleGenerateTranscript}
-          disabled={isTranscribing}
+          disabled={isTranscribing || transcriptStatus === 'processing'}
           className={`inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold transition ${
-            isTranscribing
+            isTranscribing || transcriptStatus === 'processing'
               ? "cursor-not-allowed bg-gray-200 text-gray-500"
               : "bg-[#292C6D] text-white hover:bg-[#1f2350]"
           }`}
         >
           {isTranscribing ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
-          {isTranscribing ? "Generating transcript..." : transcriptContent ? "Regenerate Transcript" : "Generate Transcript"}
+          {isTranscribing || transcriptStatus === 'processing'
+            ? "Transcription in progress..."
+            : transcriptContent
+              ? "Regenerate Transcript"
+              : "Generate Transcript"}
         </button>
 
         {transcriptError && (
           <p className="mt-2 text-xs font-medium text-red-600">{transcriptError}</p>
+        )}
+
+        {transcriptStatus === 'processing' && (
+          <p className="mt-2 text-xs font-medium text-sky-700">
+            Transcript is still processing. You can leave this page and come back later.
+          </p>
         )}
 
         <div className="mt-3 h-52 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm leading-relaxed text-gray-700">

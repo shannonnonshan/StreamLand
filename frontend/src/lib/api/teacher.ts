@@ -63,6 +63,8 @@ export interface RecordingAiAnalysis {
   summary: string | null;
   toxicWords: string[];
   validationRate: number;
+  transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
+  transcriptError?: string | null;
   transcriptGeneratedAt?: string | null;
   summaryGeneratedAt?: string | null;
   cached?: boolean;

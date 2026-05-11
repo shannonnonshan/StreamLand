@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
 import { createWriteStream, promises as fs } from 'fs';
@@ -21,7 +22,7 @@ interface AiTranscriptSummaryDocument {
   documentId?: string;
   transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
   transcriptError?: string | null;
-  transcript?: string;
+  transcript?: Prisma.JsonValue;
   summary?: string;
   audioUrl?: string;
   transcriptGeneratedAt?: Date;
@@ -267,7 +268,7 @@ export class DocumentService {
 
       // Stream transcribe response (handles heartbeats and long processing time)
       const aiResponse = await (await import('../utils/aiFetch')).logStreamingTranscribe(
-        `${this.localAiBaseUrl}/transcribe`,
+        `${this.localAiBaseUrl}/transcribe/replicate`,
         {
           method: 'POST',
           body: formData,
@@ -308,7 +309,7 @@ export class DocumentService {
     }
   }
 
-  private extractTranscriptFromPayload(payload: unknown): string | null {
+  private extractTranscriptFromPayload(payload: unknown): Prisma.JsonValue | null {
     if (typeof payload === 'string') {
       return payload.trim() || null;
     }
@@ -327,11 +328,7 @@ export class DocumentService {
     }
 
     if (transcriptCandidate && typeof transcriptCandidate === 'object') {
-      const resultData = transcriptCandidate as Record<string, unknown>;
-      const resultText = resultData.text ?? resultData.transcript;
-      if (typeof resultText === 'string') {
-        return resultText.trim() || null;
-      }
+      return transcriptCandidate as Prisma.JsonValue;
     }
 
     return null;

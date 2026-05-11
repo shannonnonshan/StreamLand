@@ -420,7 +420,7 @@ model AiTranscriptSummary {
   type                  String
   recordingId           String?
   documentId            String?
-  transcript            String?
+  transcript            Json?
   summary               String?
   toxicWords            String[] @default([])
   validationRate        Float    @default(0)

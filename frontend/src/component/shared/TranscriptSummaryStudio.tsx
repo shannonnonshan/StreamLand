@@ -34,11 +34,14 @@ export default function TranscriptSummaryStudio({
   const [transcriptContent, setTranscriptContent] = useState("");
   const [summaryContent, setSummaryContent] = useState("");
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isLoadingExisting, setIsLoadingExisting] = useState(false);
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const [transcriptStatus, setTranscriptStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isDocumentMode = !!documentId && !recordingId;
   const canSummarize = !isDocumentMode && transcriptContent.trim().length > 0;
@@ -48,6 +51,18 @@ export default function TranscriptSummaryStudio({
       clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
     }
+    if (elapsedTimerRef.current) {
+      clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
+  };
+
+  const startElapsedTimer = () => {
+    if (elapsedTimerRef.current) return;
+    setElapsedSeconds(0);
+    elapsedTimerRef.current = setInterval(() => {
+      setElapsedSeconds(prev => prev + 1);
+    }, 1000);
   };
 
   const applyAnalysis = (analysis: {
@@ -68,6 +83,23 @@ export default function TranscriptSummaryStudio({
 
     if (!isProcessing) {
       stopPolling();
+      // Log success data when transcription completes
+      if (nextStatus === 'success' && analysis.transcript) {
+        const logData = {
+          recordingId: recordingId,
+          documentId: documentId,
+          transcriptLength: analysis.transcript.length,
+          hasTranscript: !!analysis.transcript,
+          hasSummary: !!analysis.summary,
+          status: nextStatus,
+          timestamp: new Date().toISOString(),
+          elapsedSeconds: elapsedSeconds,
+        };
+        console.log('[Transcription Success]', logData);
+        console.log('[Transcript Data]', analysis.transcript.substring(0, 500) + (analysis.transcript.length > 500 ? '...' : ''));
+      }
+    } else {
+      startElapsedTimer();
     }
 
     return isProcessing;
@@ -89,6 +121,7 @@ export default function TranscriptSummaryStudio({
 
   const startPolling = () => {
     if (pollTimerRef.current) return;
+    startElapsedTimer();
 
     pollTimerRef.current = setInterval(async () => {
       try {
@@ -120,15 +153,35 @@ export default function TranscriptSummaryStudio({
     };
 
     loadExistingAnalysis();
-    return () => stopPolling();
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    };
   }, [documentId, recordingId]);
 
   const handleGenerateTranscript = async () => {
-    if (isTranscribing) return;
+    // Allow manual status check even while transcribing
+    if (isTranscribing && transcriptStatus === 'processing') {
+      setIsCheckingStatus(true);
+      try {
+        const isProcessing = await fetchCurrentAnalysis();
+        if (!isProcessing) {
+          stopPolling();
+        }
+      } catch (err) {
+        console.error("Failed to check status:", err);
+      } finally {
+        setIsCheckingStatus(false);
+      }
+      return;
+    }
+
+    if (isTranscribing || isCheckingStatus) return;
 
     try {
       setTranscriptError(null);
       setIsTranscribing(true);
+      startElapsedTimer();
 
       if (recordingId) {
         const result = await generateRecordingTranscript(recordingId, transcriptContent.trim().length > 0);
@@ -208,19 +261,34 @@ export default function TranscriptSummaryStudio({
         <button
           type="button"
           onClick={handleGenerateTranscript}
-          disabled={isTranscribing || transcriptStatus === 'processing'}
+          disabled={isCheckingStatus || (isTranscribing && transcriptStatus !== 'processing')}
           className={`inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold transition ${
-            isTranscribing || transcriptStatus === 'processing'
+            isCheckingStatus || (isTranscribing && transcriptStatus !== 'processing')
               ? "cursor-not-allowed bg-gray-200 text-gray-500"
               : "bg-[#292C6D] text-white hover:bg-[#1f2350]"
           }`}
         >
-          {isTranscribing ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
-          {isTranscribing || transcriptStatus === 'processing'
-            ? "Transcription in progress..."
-            : transcriptContent
-              ? "Regenerate Transcript"
-              : "Generate Transcript"}
+          {isCheckingStatus ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Checking status...
+            </>
+          ) : isTranscribing && transcriptStatus === 'processing' ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Click to refresh ({elapsedSeconds}s)
+            </>
+          ) : transcriptContent ? (
+            <>
+              <FileText size={16} />
+              Regenerate Transcript
+            </>
+          ) : (
+            <>
+              <FileText size={16} />
+              Generate Transcript
+            </>
+          )}
         </button>
 
         {transcriptError && (
@@ -229,7 +297,7 @@ export default function TranscriptSummaryStudio({
 
         {transcriptStatus === 'processing' && (
           <p className="mt-2 text-xs font-medium text-sky-700">
-            Transcript is still processing. You can leave this page and come back later.
+            ⏳ Transcript is being processed... (Running for {elapsedSeconds}s) You can leave this page and come back later. We'll continue processing in the background.
           </p>
         )}
 

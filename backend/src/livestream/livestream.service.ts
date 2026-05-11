@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateLivestreamDto } from './dto/create-livestream.dto';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
-import { LiveStreamStatus, ScheduleStatus } from '@prisma/client';
+import { Prisma, LiveStreamStatus, ScheduleStatus } from '@prisma/client';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
 import { Readable } from 'stream';
 import { createWriteStream, promises as fs } from 'fs';
@@ -19,7 +19,7 @@ interface AiTranscriptSummaryDocument {
   documentId?: string;
   transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
   transcriptError?: string | null;
-  transcript?: string;
+  transcript?: Prisma.JsonValue;
   summary?: string;
   audioUrl?: string;
   toxicWords?: string[];
@@ -1401,7 +1401,7 @@ export class LivestreamService {
     });
   }
 
-  private extractTranscriptFromPayload(payload: unknown): string | null {
+  private extractTranscriptFromPayload(payload: unknown): Prisma.JsonValue | null {
     if (typeof payload === 'string') {
       return payload.trim() || null;
     }
@@ -1420,14 +1420,34 @@ export class LivestreamService {
     }
 
     if (transcriptCandidate && typeof transcriptCandidate === 'object') {
-      const resultData = transcriptCandidate as Record<string, unknown>;
-      const resultText = resultData.text ?? resultData.transcript;
-      if (typeof resultText === 'string') {
-        return resultText.trim() || null;
-      }
+      return transcriptCandidate as Prisma.JsonValue;
     }
 
     return null;
+  }
+
+  private getTranscriptText(transcript: Prisma.JsonValue | null | undefined): string | null {
+    if (typeof transcript === 'string') {
+      return transcript.trim() || null;
+    }
+
+    if (!transcript) {
+      return null;
+    }
+
+    if (typeof transcript === 'object') {
+      const data = transcript as Record<string, unknown>;
+      const candidate = data.text ?? data.transcript ?? data.result;
+      if (typeof candidate === 'string') {
+        return candidate.trim() || null;
+      }
+    }
+
+    try {
+      return JSON.stringify(transcript);
+    } catch {
+      return null;
+    }
   }
 
   private extractAiErrorFromPayload(payload: unknown): string | null {
@@ -1608,7 +1628,7 @@ export class LivestreamService {
 
       // Stream transcribe response (handles heartbeats and long processing time)
       const aiResponse = await (await import('../utils/aiFetch')).logStreamingTranscribe(
-        `${this.localAiBaseUrl}/transcribe`,
+        `${this.localAiBaseUrl}/transcribe/replicate`,
         {
           method: 'POST',
           body: formData,
@@ -1636,8 +1656,24 @@ export class LivestreamService {
         transcriptGeneratedAt: new Date(),
       });
 
+      // Log transcription success with data
+      const analysis = await this.getRecordingAiAnalysis(recordingId);
+      const transcriptText = this.getTranscriptText(transcript);
+      const transcriptLength = transcriptText ? transcriptText.length : 0;
+      const transcriptPreview = transcriptText ? transcriptText.substring(0, 200) : '';
+
+      this.logger.log(`[TRANSCRIPT SUCCESS] RecordingID: ${recordingId}, Length: ${transcriptLength} chars, AudioUrl: ${audioUrl ? 'stored' : 'not stored'}`);
+      console.log('[Transcript Generation Complete]', {
+        recordingId,
+        transcriptLength,
+        transcriptPreview,
+        hasAudioUrl: !!audioUrl,
+        generatedAt: new Date().toISOString(),
+        status: 'success',
+      });
+
       return {
-        ...(await this.getRecordingAiAnalysis(recordingId)),
+        ...analysis,
         cached: false,
       };
     } catch (err: unknown) {
@@ -1645,6 +1681,8 @@ export class LivestreamService {
         transcriptStatus: 'error',
         transcriptError: err instanceof Error ? err.message : String(err),
       }).catch(() => undefined);
+      
+      this.logger.error(`[TRANSCRIPT ERROR] RecordingID: ${recordingId}, Error: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     }
   }
@@ -1669,12 +1707,17 @@ export class LivestreamService {
       throw new BadRequestException('Transcript is required before summarizing');
     }
 
+    const transcriptText = this.getTranscriptText(transcript);
+    if (!transcriptText) {
+      throw new BadRequestException('Transcript is required before summarizing');
+    }
+
     const aiResponse = await fetch(`${this.localAiBaseUrl}/summarize`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text: transcript }),
+      body: JSON.stringify({ text: transcriptText }),
     });
 
     if (!aiResponse.ok) {

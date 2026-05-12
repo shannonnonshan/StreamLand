@@ -11,6 +11,64 @@ const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
+interface VideoProgressSnapshot {
+  videoId: string;
+  userId: string;
+  currentTime: number;
+  duration: number;
+  updatedAt: number;
+}
+
+const getProgressStorageKey = (videoId: string, userId: string) =>
+  `streamland:video-progress:${userId}:${videoId}`;
+
+const getDashboardViewerId = () => {
+  if (typeof window === 'undefined') return 'anon';
+
+  try {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      const parsed = JSON.parse(storedUser) as { id?: string; userId?: string; email?: string };
+      return parsed.id || parsed.userId || parsed.email || 'anon';
+    }
+  } catch {
+    // ignore invalid storage payloads
+  }
+
+  return 'anon';
+};
+
+const readVideoProgress = (videoId: string): VideoProgressSnapshot | null => {
+  if (typeof window === 'undefined') return null;
+
+  const viewerId = getDashboardViewerId();
+  const key = getProgressStorageKey(videoId, viewerId);
+
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as VideoProgressSnapshot;
+    if (!parsed || typeof parsed.currentTime !== 'number' || typeof parsed.duration !== 'number') {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const getProgressRatio = (videoId: string, duration?: number) => {
+  const snapshot = readVideoProgress(videoId);
+  if (!snapshot) return 0;
+
+  const effectiveDuration = snapshot.duration || duration || 0;
+  if (!effectiveDuration || effectiveDuration <= 0) return 0;
+
+  return Math.max(0, Math.min(1, snapshot.currentTime / effectiveDuration));
+};
+
 interface LivestreamData {
   id: string;
   title: string;
@@ -44,6 +102,8 @@ interface VideoData {
     avatar?: string;
   };
   totalViews: number;
+  // optional: views in the last 7 days (preferred for trending)
+  viewsLast7Days?: number;
   thumbnailUrl?: string;
   duration?: number;
   recordingUrl: string;
@@ -218,6 +278,7 @@ function TrendingCard({ item, index }: { item: VideoData; index: number }) {
     const [isHovered, setIsHovered] = useState(false);
     const [imageError, setImageError] = useState(false);
     const router = useRouter();
+  const progressRatio = getProgressRatio(item.id, item.duration);
 
     const handleClick = () => {
         // Navigate to video player page for recorded stream
@@ -255,6 +316,15 @@ function TrendingCard({ item, index }: { item: VideoData; index: number }) {
                     <span className="text-xs text-gray-400 mt-2">No Thumbnail</span>
                   </div>
                 )}
+
+                {progressRatio > 0 && (
+                  <div className="absolute left-0 right-0 bottom-0 h-[3px] bg-black/25">
+                    <div
+                      className="h-full bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.65)]"
+                      style={{ width: `${(progressRatio * 100).toFixed(2)}%` }}
+                    />
+                  </div>
+                )}
             </div>
             <div className="p-3">
                 <p className={`text-sm font-semibold text-[#${PrimaryColor}] transition-colors duration-300 line-clamp-2`}>{item.title}</p>
@@ -266,7 +336,7 @@ function TrendingCard({ item, index }: { item: VideoData; index: number }) {
                       </>
                     )}
                     <span className={`text-[#${PrimaryColor}] ${isHovered ? 'font-bold' : 'font-medium'} transition-all duration-300`}>
-                      {item.totalViews.toLocaleString()} views
+                          {(item.viewsLast7Days !== undefined ? item.viewsLast7Days : item.totalViews).toLocaleString()} {item.viewsLast7Days !== undefined ? 'this week' : 'views'}
                     </span>
                     {item.endedAt && (
                       <>
@@ -284,6 +354,7 @@ function EnglishVideoCard({ item, index }: { item: VideoData; index: number }) {
   const [isHovered, setIsHovered] = useState(false);
   const [imageError, setImageError] = useState(false);
   const router = useRouter();
+  const progressRatio = getProgressRatio(item.id, item.duration);
 
   const handleClick = () => {
     router.push(getStudentRoute(`video/${item.id}`));
@@ -316,6 +387,15 @@ function EnglishVideoCard({ item, index }: { item: VideoData; index: number }) {
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-gray-400">
               <PlayCircleIcon className="h-10 w-10" />
+            </div>
+          )}
+
+          {progressRatio > 0 && (
+            <div className="absolute left-0 right-0 bottom-0 h-[3px] bg-black/25">
+              <div
+                className="h-full bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.65)]"
+                style={{ width: `${(progressRatio * 100).toFixed(2)}%` }}
+              />
             </div>
           )}
         </div>
@@ -477,13 +557,28 @@ export default function StudentDashboard() {
       console.log('🔴 First live thumbnail:', liveData[0]?.thumbnailUrl);
       console.log('📅 Scheduled Data:', scheduledData);
       
-      // Combine and sort by totalViews/priority
-      const combined = [...liveData, ...scheduledData].sort((a, b) => {
-        // Prioritize LIVE streams
+      // Combine and sort with dynamic logic:
+      // - LIVE streams first
+      // - Between LIVE streams sort by `currentViewers` (fallback to totalViews)
+      // - Between SCHEDULED streams sort by soonest `scheduledStartTime`
+      // - Fallback to totalViews
+      const combined = [...liveData, ...scheduledData];
+      combined.sort((a, b) => {
         if (a.status === 'LIVE' && b.status !== 'LIVE') return -1;
         if (a.status !== 'LIVE' && b.status === 'LIVE') return 1;
-        // Then by views
-        return (b.totalViews || 0) - (a.totalViews || 0);
+
+        // both LIVE -> sort by live viewer count
+        if (a.status === 'LIVE' && b.status === 'LIVE') {
+          return (b.currentViewers ?? b.totalViews ?? 0) - (a.currentViewers ?? a.totalViews ?? 0);
+        }
+
+        // both SCHEDULED -> soonest start first
+        if (a.status === 'SCHEDULED' && b.status === 'SCHEDULED') {
+          return (new Date(a.scheduledStartTime || 0).getTime() - new Date(b.scheduledStartTime || 0).getTime());
+        }
+
+        // fallback by totalViews
+        return (b.totalViews ?? 0) - (a.totalViews ?? 0);
       });
 
       setTopLivestreams(combined);
@@ -507,11 +602,13 @@ export default function StudentDashboard() {
         console.log('🎥 Trending Videos Data:', data);
         console.log('🎥 First video thumbnail:', data[0]?.thumbnailUrl);
         // Filter to only include streams with recordingUrl
-        const recordedStreams = (data as VideoData[]).filter((stream) => 
+        const recordedStreams = (data as VideoData[]).filter((stream) =>
           stream.status === 'ENDED' && stream.recordingUrl
         );
-        console.log('🎥 Filtered Videos:', recordedStreams);
-        setTopTrending(recordedStreams);
+        // Sort by weekly views (preferred) falling back to totalViews
+        recordedStreams.sort((a, b) => (b.viewsLast7Days ?? b.totalViews) - (a.viewsLast7Days ?? a.totalViews));
+        console.log('🎥 Filtered & Sorted Videos (weekly-first):', recordedStreams);
+        setTopTrending(recordedStreams.slice(0, 12));
       }
     } catch (error) {
       console.error('Error fetching trending videos:', error);
@@ -569,6 +666,16 @@ export default function StudentDashboard() {
   useEffect(() => {
     fetchVideosByInterest(selectedInterest);
   }, [selectedInterest]);
+
+  // Poll top livestreams periodically so `currentViewers` remains up-to-date
+  useEffect(() => {
+    const id = setInterval(() => {
+      fetchTopLivestreams();
+    }, 8000);
+    return () => clearInterval(id);
+  }, []);
+
+  
 
   const handleInterestClick = (topic: string) => {
     const nextParams = new URLSearchParams(searchParams.toString());

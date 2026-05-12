@@ -179,13 +179,35 @@ export class StudentController {
   @Post('track-activity')
   async trackWatchActivity(
     @Request() req: { user: { sub: string } },
-    @Body() body: { contentType: 'livestream' | 'video'; contentId: string },
+    @Body() body: {
+      contentType: 'livestream' | 'video';
+      contentId: string;
+      lastPosition?: number;
+      duration?: number;
+      progress?: number;
+      completed?: boolean;
+    },
   ) {
     return this.studentService.trackWatchActivity(
       req.user.sub,
       body.contentType,
       body.contentId,
+      {
+        lastPosition: body.lastPosition,
+        duration: body.duration,
+        progress: body.progress,
+        completed: body.completed,
+      },
     );
+  }
+
+  // Get watch progress for a video or livestream recording
+  @Get('watch-progress/:contentId')
+  async getWatchProgress(
+    @Request() req: { user: { sub: string } },
+    @Param('contentId') contentId: string,
+  ) {
+    return this.studentService.getWatchProgress(req.user.sub, contentId);
   }
 
   // Get student statistics
@@ -198,6 +220,15 @@ export class StudentController {
   @Get('stats/:userId')
   async getStudentStatsByUserId(@Param('userId') userId: string) {
     return this.studentService.getStudentStats(userId);
+  }
+
+  // Student help chatbot
+  @Post('help/chat')
+  async chatWithAi(
+    @Request() req: { user: { sub: string } },
+    @Body() body: { message: string },
+  ) {
+    return this.studentService.chatWithAi(req.user.sub, body.message);
   }
 
   // Save document from livestream

@@ -307,6 +307,7 @@ model WatchHistory {
 
   @@index([userId, watchedAt])
   @@index([livestreamId])
+  @@unique([userId, livestreamId])
   @@map("watch_history")
 }
 

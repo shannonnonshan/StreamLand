@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, SendHorizonal, Sparkles, User, WandSparkles } from "lucide-react";
+import { authenticatedFetch } from "@/lib/api/fetch";
 
 type Role = "user" | "assistant";
 
@@ -25,13 +26,15 @@ const nowLabel = () =>
     minute: "2-digit",
   });
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
 export default function StudentHelpPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "boot-1",
       role: "assistant",
       text: "Hi, I am StreamLand AI. Ask me anything about your courses, livestreams, documents, or study strategy.",
-      time: nowLabel(),
+      time: "",
     },
   ]);
   const [input, setInput] = useState("");
@@ -45,26 +48,29 @@ export default function StudentHelpPage() {
     listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [messages, isTyping]);
 
-  const mockAssistantReply = (userText: string) => {
-    setIsTyping(true);
+  useEffect(() => {
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.id === "boot-1" && !message.time
+          ? { ...message, time: nowLabel() }
+          : message,
+      ),
+    );
+  }, []);
 
-    window.setTimeout(() => {
-      const reply = `I got your request: "${userText}". I can break this down into steps, provide examples, and keep it aligned with your current learning progress. If you want, I can start with a short summary first.`;
+  const sendMessageToAi = async (text: string) => {
+    const body = await authenticatedFetch(`${API_URL}/student/help/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ message: text }),
+    });
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `a-${Date.now()}`,
-          role: "assistant",
-          text: reply,
-          time: nowLabel(),
-        },
-      ]);
-      setIsTyping(false);
-    }, 900);
+    return body.response || "No answer returned from AI.";
   };
 
-  const handleSend = (value?: string) => {
+  const handleSend = async (value?: string) => {
     const text = (value ?? input).trim();
     if (!text || isTyping) return;
 
@@ -78,7 +84,37 @@ export default function StudentHelpPage() {
       },
     ]);
     setInput("");
-    mockAssistantReply(text);
+    setIsTyping(true);
+
+    try {
+      const reply = await sendMessageToAi(text);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          text: reply,
+          time: nowLabel(),
+        },
+      ]);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "The AI service failed to respond. Please try again.";
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          text: `Sorry, I could not get an answer: ${message}`,
+          time: nowLabel(),
+        },
+      ]);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
@@ -127,7 +163,7 @@ export default function StudentHelpPage() {
               <Sparkles className="w-4 h-4 text-indigo-600" />
               <p className="font-semibold text-slate-900">AI Chat</p>
             </div>
-            <p className="text-xs text-slate-500">UI ready - connect your AI API next</p>
+            <p className="text-xs text-slate-500">Connected through backend proxy</p>
           </div>
 
           <div ref={listRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-slate-50/50">
@@ -149,7 +185,7 @@ export default function StudentHelpPage() {
                       : "bg-white border border-slate-200 text-slate-800 rounded-bl-md"
                   }`}
                 >
-                  <p>{message.text}</p>
+                  <p className="whitespace-pre-line">{message.text}</p>
                   <p
                     className={`mt-2 text-[11px] ${
                       message.role === "user" ? "text-indigo-100" : "text-slate-400"

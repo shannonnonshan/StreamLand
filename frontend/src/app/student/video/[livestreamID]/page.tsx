@@ -76,8 +76,27 @@ interface VideoComment {
 }
 
 interface CurrentStudentProfile {
+  id?: string;
   fullName: string;
   avatar?: string;
+}
+
+interface WatchProgressResponse {
+  userId: string;
+  livestreamId: string;
+  watchedAt: string;
+  duration: number;
+  completed: boolean;
+  progress: number;
+  lastPosition: number;
+}
+
+interface LocalVideoProgressSnapshot {
+  videoId: string;
+  userId: string;
+  currentTime: number;
+  duration: number;
+  updatedAt: number;
 }
 
 export default function VideoPlayerPage() {
@@ -121,6 +140,144 @@ export default function VideoPlayerPage() {
   const [displayedVideos, setDisplayedVideos] = useState(5);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reportedView, setReportedView] = useState(false);
+  const autoPlayAttemptedRef = useRef(false);
+  const progressSyncRef = useRef(false);
+  const pendingSeekRef = useRef<number | null>(null);
+  const lastProgressPostRef = useRef(0);
+  const restoreCompletedRef = useRef(false);
+
+  const getViewerIdForStorage = () => {
+    if (currentStudent?.id) return currentStudent.id;
+
+    try {
+      const storedUser = localStorage.getItem('user');
+      if (!storedUser) return 'anon';
+      const parsed = JSON.parse(storedUser) as { id?: string; userId?: string; email?: string };
+      return parsed.id || parsed.userId || parsed.email || 'anon';
+    } catch {
+      return 'anon';
+    }
+  };
+
+  const writeLocalProgressSnapshot = (position: number, totalDuration: number, force = false) => {
+    if (!videoInfo?.id || totalDuration <= 0) return;
+
+    const viewerId = getViewerIdForStorage();
+    const key = `streamland:video-progress:${viewerId}:${videoInfo.id}`;
+
+    // Do not overwrite a later saved position with an earlier one during initial autoplay startup.
+    try {
+      const existingRaw = localStorage.getItem(key);
+      if (existingRaw) {
+        const existing = JSON.parse(existingRaw) as LocalVideoProgressSnapshot;
+        if (!force && existing && typeof existing.currentTime === 'number' && existing.currentTime > position + 5) {
+          return;
+        }
+      }
+    } catch {
+      // ignore malformed existing snapshots
+    }
+
+    const payload: LocalVideoProgressSnapshot = {
+      videoId: videoInfo.id,
+      userId: viewerId,
+      currentTime: Math.max(0, Math.floor(position)),
+      duration: Math.max(1, Math.floor(totalDuration)),
+      updatedAt: Date.now(),
+    };
+
+    try {
+      localStorage.setItem(key, JSON.stringify(payload));
+    } catch (err) {
+      console.error('Failed to write local progress snapshot:', err);
+    }
+  };
+
+  const readLocalProgressSnapshot = () => {
+    if (!videoInfo?.id) return null;
+
+    const candidateViewerIds: string[] = [];
+    if (currentStudent?.id) candidateViewerIds.push(currentStudent.id);
+
+    try {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser) as { id?: string; userId?: string; email?: string };
+        if (parsed.id) candidateViewerIds.push(parsed.id);
+        if (parsed.userId) candidateViewerIds.push(parsed.userId);
+        if (parsed.email) candidateViewerIds.push(parsed.email);
+      }
+    } catch {
+      // ignore invalid storage payloads
+    }
+
+    candidateViewerIds.push('anon');
+
+    let best: LocalVideoProgressSnapshot | null = null;
+
+    for (const viewerId of Array.from(new Set(candidateViewerIds))) {
+      const key = `streamland:video-progress:${viewerId}:${videoInfo.id}`;
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw) as LocalVideoProgressSnapshot;
+        if (!parsed || typeof parsed.currentTime !== 'number' || typeof parsed.duration !== 'number') continue;
+
+        if (!best || (parsed.updatedAt || 0) > (best.updatedAt || 0)) {
+          best = parsed;
+        }
+      } catch {
+        // ignore malformed snapshots
+      }
+    }
+
+    return best;
+  };
+
+  const syncProgressToServer = async (position: number, totalDuration: number, force = false) => {
+    if (!videoInfo?.id || totalDuration <= 0) return;
+
+    // Always write local immediately so dashboard card reflects progress instantly
+    writeLocalProgressSnapshot(position, totalDuration, force);
+
+    // Wait until at least one restore pass completes to avoid posting near-zero progress too early.
+    if (!restoreCompletedRef.current && !force) {
+      return;
+    }
+
+    if (!isAuthenticated) return;
+    const token = localStorage.getItem('accessToken');
+    if (!token) return;
+
+    const now = Date.now();
+    if (!force && now - lastProgressPostRef.current < 8000) {
+      return;
+    }
+
+    lastProgressPostRef.current = now;
+
+    try {
+      const completed = position / totalDuration >= 0.95;
+      await fetch(`${API_URL}/student/track-activity`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          contentType: 'video',
+          contentId: videoInfo.id,
+          lastPosition: Math.max(0, Math.floor(position)),
+          duration: Math.max(1, Math.floor(totalDuration)),
+          progress: (position / totalDuration) * 100,
+          completed,
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to sync progress to server:', err);
+    }
+  };
 
   // Fetch video data
   useEffect(() => {
@@ -218,7 +375,7 @@ export default function VideoPlayerPage() {
           const p = await fetch(`${API_URL}/auth/profile`, { headers: { Authorization: `Bearer ${token}` } });
           if (p.ok) {
             const jd = await p.json();
-            setCurrentStudent({ fullName: jd.fullName || 'Student', avatar: jd.avatar });
+            setCurrentStudent({ id: jd.id || jd.userId || jd.sub || '', fullName: jd.fullName || 'Student', avatar: jd.avatar });
             setIsAuthenticated(true);
           }
         } catch (e) {
@@ -261,6 +418,7 @@ export default function VideoPlayerPage() {
         if (!resp.ok) return;
         const data = await resp.json();
         setCurrentStudent({
+          id: data?.id || data?.userId || data?.sub || '',
           fullName: data?.fullName || 'Student',
           avatar: data?.avatar || undefined,
         });
@@ -325,21 +483,139 @@ export default function VideoPlayerPage() {
         return;
       }
 
+      // Seed resume target before media events start firing.
+      const initialSnapshot = readLocalProgressSnapshot();
+      if (initialSnapshot && initialSnapshot.currentTime > 0) {
+        pendingSeekRef.current = initialSnapshot.currentTime;
+      }
+
+      const applyPendingSeek = () => {
+        const seekTo = pendingSeekRef.current;
+        if (seekTo === null || seekTo <= 0) return;
+
+        const maxDuration = video.duration && isFinite(video.duration) && video.duration > 0
+          ? video.duration
+          : (videoInfo?.duration || seekTo);
+
+        const target = Math.min(seekTo, Math.max(0, maxDuration - 1));
+        if (video.currentTime < target - 0.5) {
+          video.currentTime = target;
+          setCurrentTime(target);
+        }
+
+        pendingSeekRef.current = null;
+      };
+
       const updateTime = () => {
         setCurrentTime(video.currentTime);
         console.log('[Video] Time update:', video.currentTime, 'Duration:', video.duration); // Debug
+
+        if (!progressSyncRef.current) {
+          progressSyncRef.current = true;
+        }
+
+        // Report view when watched >= 2/3 for recorded videos only
+        try {
+          if (!reportedView && video.duration && isFinite(video.duration) && video.duration > 0) {
+            const fraction = video.currentTime / video.duration;
+            if (fraction >= 2 / 3) {
+              // Generate or reuse anonymous viewer id for unauthenticated users
+              const token = localStorage.getItem('accessToken');
+              let viewerId: string | undefined = undefined;
+              if (!token) {
+                viewerId = localStorage.getItem('streamland_anon_viewer_id') || undefined;
+                if (!viewerId) {
+                  viewerId = 'anon-' + Math.random().toString(36).slice(2, 12);
+                  try { localStorage.setItem('streamland_anon_viewer_id', viewerId); } catch (e) { /* ignore */ }
+                }
+              }
+
+              // Send report (do not await to avoid blocking UI)
+              (async () => {
+                try {
+                  const body: any = { watchedSeconds: Math.floor(video.currentTime), duration: Math.floor(video.duration) };
+                  if (viewerId) body.viewerId = viewerId;
+                  const resp = await fetch(`${API_URL}/livestream/${videoInfo!.id}/report-watch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+                    body: JSON.stringify(body),
+                  });
+                  if (resp.ok) {
+                    const data = await resp.json();
+                    if (data?.counted) {
+                      setReportedView(true);
+                      // Optionally update local totalViews
+                      setVideoInfo((prev) => prev ? { ...prev, totalViews: (data.totalViews ?? prev.totalViews) } : prev);
+                      console.log('[Video] View counted on server', data);
+                    } else {
+                      console.log('[Video] Reported but not counted:', data);
+                      setReportedView(true); // mark reported to avoid repeat even if not counted
+                    }
+                  }
+                } catch (err) {
+                  console.error('Failed to report watch:', err);
+                }
+              })();
+            }
+          }
+        } catch (e) {
+          console.error('Error in report check:', e);
+        }
+
+        const effectiveDuration = video.duration && isFinite(video.duration) && video.duration > 0
+          ? video.duration
+          : (videoInfo?.duration || 0);
+        if (effectiveDuration > 0) {
+          void syncProgressToServer(video.currentTime, effectiveDuration);
+        }
       };
       const updateDuration = () => {
         if (video.duration && isFinite(video.duration) && !isNaN(video.duration) && video.duration > 0) {
           setDuration(video.duration);
           console.log('[Video] Duration from video element:', video.duration);
         }
+        applyPendingSeek();
       };
-      const handleEnded = () => setIsPlaying(false);
+      const handlePlay = () => {
+        setIsPlaying(true);
+      };
+      const handlePause = () => {
+        setIsPlaying(false);
+        const effectiveDuration = video.duration && isFinite(video.duration) && video.duration > 0
+          ? video.duration
+          : (videoInfo?.duration || 0);
+        if (effectiveDuration > 0) {
+          void syncProgressToServer(video.currentTime, effectiveDuration, true);
+        }
+      };
+      const handleEnded = () => {
+        setIsPlaying(false);
+        const effectiveDuration = video.duration && isFinite(video.duration) && video.duration > 0
+          ? video.duration
+          : (videoInfo?.duration || 0);
+        if (effectiveDuration > 0) {
+          void syncProgressToServer(effectiveDuration, effectiveDuration, true);
+        }
+      };
       const handleCanPlay = () => {
         if (video.duration && isFinite(video.duration) && !isNaN(video.duration) && video.duration > 0) {
           setDuration(video.duration);
           console.log('[Video] Duration from canplay event:', video.duration);
+        }
+
+        applyPendingSeek();
+
+        if (!autoPlayAttemptedRef.current) {
+          autoPlayAttemptedRef.current = true;
+          video.play()
+            .then(() => {
+              setIsPlaying(true);
+              console.log('[Video] Auto-play started');
+            })
+            .catch((error) => {
+              console.warn('[Video] Auto-play blocked or failed:', error);
+              setIsPlaying(false);
+            });
         }
       };
 
@@ -348,6 +624,8 @@ export default function VideoPlayerPage() {
       video.addEventListener("loadedmetadata", updateDuration);
       video.addEventListener("durationchange", updateDuration);
       video.addEventListener("canplay", handleCanPlay);
+      video.addEventListener("play", handlePlay);
+      video.addEventListener("pause", handlePause);
       video.addEventListener("ended", handleEnded);
 
       // Store cleanup functions
@@ -357,11 +635,12 @@ export default function VideoPlayerPage() {
         video.removeEventListener("loadedmetadata", updateDuration);
         video.removeEventListener("durationchange", updateDuration);
         video.removeEventListener("canplay", handleCanPlay);
+        video.removeEventListener("play", handlePlay);
+        video.removeEventListener("pause", handlePause);
         video.removeEventListener("ended", handleEnded);
       });
 
-      // Force load metadata
-      video.load();
+      // Do not force `load()` here; it can reset currentTime and fight resume logic.
 
       // Try to get duration immediately if already loaded
       if (video.readyState >= 1) {
@@ -378,6 +657,91 @@ export default function VideoPlayerPage() {
       cleanupFns.forEach(fn => fn());
     };
   }, [videoInfo]);
+
+  useEffect(() => {
+    const syncWatchProgress = async () => {
+      if (!videoInfo?.id || !isAuthenticated) return;
+
+      const token = localStorage.getItem('accessToken');
+      if (!token) return;
+
+      try {
+        const resp = await fetch(`${API_URL}/student/watch-progress/${videoInfo.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!resp.ok) return;
+
+        const progress = (await resp.json()) as WatchProgressResponse | null;
+        if (!progress || typeof progress.lastPosition !== 'number' || progress.lastPosition <= 0) return;
+
+        const video = videoRef.current;
+        if (!video) {
+          pendingSeekRef.current = progress.lastPosition;
+          return;
+        }
+
+        const target = Math.max(0, Math.min(progress.lastPosition, (progress.duration || video.duration || 0) - 1));
+        pendingSeekRef.current = target;
+        if ((progress.duration || 0) > 0) {
+          writeLocalProgressSnapshot(target, progress.duration);
+        }
+
+        if (video.readyState >= 1 && video.currentTime < target - 1) {
+          video.currentTime = target;
+          setCurrentTime(target);
+        }
+      } catch (err) {
+        console.error('Failed to sync watch progress:', err);
+      } finally {
+        restoreCompletedRef.current = true;
+      }
+    };
+
+    syncWatchProgress();
+  }, [videoInfo?.id, isAuthenticated]);
+
+  // Restore local progress immediately so resume works even before auth/profile round-trip finishes
+  useEffect(() => {
+    if (!videoInfo?.id) return;
+
+    const snapshot = readLocalProgressSnapshot();
+    if (!snapshot || snapshot.currentTime <= 0) return;
+
+    const video = videoRef.current;
+    if (!video) {
+      pendingSeekRef.current = snapshot.currentTime;
+      return;
+    }
+
+    const target = Math.max(0, Math.min(snapshot.currentTime, (snapshot.duration || video.duration || 0) - 1));
+    pendingSeekRef.current = target;
+
+    if (video.readyState >= 1 && video.currentTime < target - 1) {
+      video.currentTime = target;
+      setCurrentTime(target);
+    }
+
+    restoreCompletedRef.current = true;
+  }, [videoInfo?.id, currentStudent?.id]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const video = videoRef.current;
+      if (!video || !videoInfo?.id) return;
+
+      const effectiveDuration = video.duration && isFinite(video.duration) && video.duration > 0
+        ? video.duration
+        : (videoInfo.duration || 0);
+
+      if (effectiveDuration > 0) {
+        void syncProgressToServer(video.currentTime, effectiveDuration, true);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [videoInfo?.duration, videoInfo?.id, isAuthenticated]);
 
   const togglePlay = () => {
     const video = videoRef.current;
@@ -664,6 +1028,8 @@ export default function VideoPlayerPage() {
                   ref={videoRef}
                   src={videoInfo.recordingUrl}
                   poster={videoInfo.thumbnailUrl}
+                  autoPlay
+                  playsInline
                   preload="metadata"
                   className="w-full aspect-video cursor-pointer"
                   onClick={togglePlay}

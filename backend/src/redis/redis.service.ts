@@ -171,6 +171,25 @@ export class RedisService implements OnModuleDestroy {
     return this.redis.zrevrange(key, 0, limit - 1);
   }
 
+  // ============= VIEW COUNT DEDUPLICATION HELPERS =============
+  // Check whether a given viewerId has already been counted for this video
+  async hasCountedView(itemType: 'video' | 'livestream', itemId: string, viewerId: string): Promise<boolean> {
+    const key = `${itemType}:${itemId}:counted_views`;
+    const res = await this.redis.sismember(key, viewerId);
+    return res === 1;
+  }
+
+  // Mark that a given viewerId has been counted for this video (with optional TTL days)
+  async markCountedView(itemType: 'video' | 'livestream', itemId: string, viewerId: string, ttlDays = 30) {
+    const key = `${itemType}:${itemId}:counted_views`;
+    await this.redis.sadd(key, viewerId);
+    // Set TTL only if not already set
+    const ttl = await this.redis.ttl(key);
+    if (ttl === -1) {
+      await this.redis.expire(key, ttlDays * 24 * 60 * 60);
+    }
+  }
+
   // Session management
   async createSession(sessionId: string, userId: string, ttl = 86400) {
     await this.redis.set(`session:${sessionId}`, userId, 'EX', ttl);

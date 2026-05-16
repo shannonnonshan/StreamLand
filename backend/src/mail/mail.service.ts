@@ -21,8 +21,9 @@ export class MailService {
       ? true
       : !['0', 'false', 'no'].includes(String(smtpRejectUnauthorizedRaw).toLowerCase());
     if (!smtpRejectUnauthorized) {
-      // Local testing only: allow self-signed certs during SMTP TLS handshake
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+      // Local testing only: transporter tls.rejectUnauthorized will be disabled.
+      // Avoid changing global TLS behavior; log a warning instead.
+      this.logger.warn('⚠️ SMTP TLS certificate verification is disabled for local testing (rejectUnauthorized=false). Do not use in production.');
     }
     if (smtpHost) {
       try {

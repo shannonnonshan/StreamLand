@@ -705,11 +705,11 @@ export default function BroadcasterPage() {
       // Step 5: Connect socket and emit broadcaster event
       if (!socket.connected) {
         socket.connect();
-        await new Promise((resolve) => {
+        await new Promise<void>((resolve) => {
           if (socket.connected) {
-            resolve(true);
+            resolve();
           } else {
-            socket.once('connect', resolve);
+            socket.once('connect', () => resolve());
           }
         });
       }
@@ -1775,7 +1775,7 @@ export default function BroadcasterPage() {
     <div className="relative w-full h-screen bg-black overflow-hidden">
       {/* Livestream Ended Screen */}
       {livestreamEnded && (
-        <div className="absolute inset-0 bg-gradient-to-b from-black via-gray-900 to-black flex flex-col items-center justify-center z-50">
+        <div className="absolute inset-0 bg-linear-to-b from-black via-gray-900 to-black flex flex-col items-center justify-center z-50">
           <div className="text-center">
             <div className="mb-6">
               <Square className="w-24 h-24 text-red-500 mx-auto mb-4 opacity-80" />
@@ -1815,7 +1815,7 @@ export default function BroadcasterPage() {
             />
             {/* Avatar overlay when camera is off */}
             {!isCameraOn && !isScreenSharing && (
-              <div className="w-full h-full bg-gradient-to-b from-gray-800 to-gray-900 flex flex-col items-center justify-center">
+              <div className="w-full h-full bg-linear-to-b from-gray-800 to-gray-900 flex flex-col items-center justify-center">
                 <div className="w-32 h-32 rounded-full bg-blue-600 flex items-center justify-center mb-4 shadow-lg">
                   <span className="text-white text-5xl font-bold">T</span>
                 </div>
@@ -2260,7 +2260,7 @@ export default function BroadcasterPage() {
                   onClick={() => handleDocumentClick(doc)}
                   className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-lg cursor-pointer transition group"
                 >
-                  <div className="flex-shrink-0">
+                  <div className="shrink-0">
                     {getFileIcon(doc.type)}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -2274,7 +2274,7 @@ export default function BroadcasterPage() {
                       e.stopPropagation();
                       removeFile(doc.id);
                     }}
-                    className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition"
+                    className="shrink-0 opacity-0 group-hover:opacity-100 transition"
                   >
                     <X size={14} className="text-red-600" />
                   </button>

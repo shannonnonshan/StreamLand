@@ -92,7 +92,18 @@ export async function authenticatedFetch(url: string, options: RequestInit = {},
     console.error('API request failed:', response.status, response.statusText);
     const errorText = await response.text();
     console.error('Error details:', errorText);
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    let message = `API Error: ${response.status} ${response.statusText}`;
+
+    if (errorText) {
+      try {
+        const parsed = JSON.parse(errorText) as { message?: string; error?: string; detail?: string };
+        message = parsed.message || parsed.error || parsed.detail || errorText;
+      } catch {
+        message = errorText;
+      }
+    }
+
+    throw new Error(message);
   }
 
   return response.json();

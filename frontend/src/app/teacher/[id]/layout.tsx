@@ -102,6 +102,22 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     }
   }, [loading, isAuthenticated, user, router, params?.id, pathname]);
 
+  // Stop showing redirect loader once route transition completes.
+  useEffect(() => {
+    if (isRedirecting) {
+      setIsRedirecting(false);
+    }
+  }, [pathname, isRedirecting]);
+
+  // Close start-live modal after navigation reaches livestream page
+  // to avoid overlay sticking on top of broadcaster UI.
+  useEffect(() => {
+    if (showStartLiveModal && pathname.includes('/livestream/')) {
+      setShowStartLiveModal(false);
+      setPendingLivestreamId(null);
+    }
+  }, [pathname, showStartLiveModal]);
+
   const id = user?.id || (params?.id as string) || "1"; // Use authenticated user's ID
 
   const handleStartLiveClick = () => {
@@ -172,16 +188,27 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         throw new Error(errorData.message || `Failed to create livestream (${response.status})`);
       }
 
-      const livestreamData = await response.json();
+      await response.json().catch(() => null);
 
-      // Close modal and prepare for redirect
+      // Keep modal open and show waiting state until route is ready.
       const livestreamIdToNavigate = pendingLivestreamId;
-      setShowStartLiveModal(false);
-      setPendingLivestreamId(null);
-      setIsRedirecting(true);
+
+      // Poll livestream details for a short time so user sees a clear progress state
+      // and only moves when the room is ready to open.
+      for (let i = 0; i < 8; i++) {
+        const readyResponse = await fetch(`${API_URL}/livestream/${livestreamIdToNavigate}`, {
+          cache: 'no-store',
+        }).catch(() => null);
+
+        if (readyResponse?.ok) {
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
       
       // Immediate redirect - no timeout needed
-      router.push(`/teacher/${id}/livestream/${livestreamIdToNavigate}`);
+      router.replace(`/teacher/${id}/livestream/${livestreamIdToNavigate}`);
     } catch (error) {
       showDialog({
         title: 'Error',
@@ -380,7 +407,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                       : "text-gray-600 hover:text-gray-900"
                   }`}
                 >
-                  <Search className="mr-2 flex-shrink-0" />
+                  <Search className="mr-2 shrink-0" />
                   <span className="absolute right-0 top-8 hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 transform translate-x-8">
                     Search
                   </span>

@@ -14,6 +14,7 @@ import { ChatModule } from './chat/chat.module';
 import { NotificationModule } from './notification/notification.module';
 import { R2StorageModule } from './r2-storage/r2-storage.module';
 import { AdminModule } from './admin/admin.module';
+import { DocumentModule } from './document/document.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { AdminModule } from './admin/admin.module';
     R2StorageModule,
     NotificationModule,
     AdminModule,
+    DocumentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

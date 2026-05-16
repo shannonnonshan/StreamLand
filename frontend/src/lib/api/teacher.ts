@@ -51,9 +51,65 @@ export interface LiveStream {
   peakViewers: number;
   duration: number;
   isRecorded: boolean;
+  isApprove: 'TRUE' | 'FALSE' | 'REJECTED' | 'true' | 'false' | 'rejected';
   isPublic: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface RecordingAiAnalysis {
+  recordingId: string;
+  transcript: string | null;
+  summary: string | null;
+  toxicWords: string[];
+  validationRate: number;
+  transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
+  transcriptError?: string | null;
+  transcriptGeneratedAt?: string | null;
+  summaryGeneratedAt?: string | null;
+  cached?: boolean;
+}
+
+async function optionalAuthJsonFetch(url: string, options: RequestInit = {}): Promise<any> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {};
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  if (options.body && !options.headers) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (options.headers) {
+    Object.entries(options.headers).forEach(([key, value]) => {
+      if (typeof value === 'string') {
+        headers[key] = value;
+      }
+    });
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    if (!errorText) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+
+    try {
+      const parsed = JSON.parse(errorText) as { message?: string; error?: string; detail?: string };
+      throw new Error(parsed.message || parsed.error || parsed.detail || errorText);
+    } catch {
+      throw new Error(errorText);
+    }
+  }
+
+  return response.json();
 }
 
 // ============ DOCUMENTS API ============
@@ -164,6 +220,37 @@ export async function getRecordedLivestreams(teacherId: string): Promise<LiveStr
 
 export async function getLivestreamById(livestreamId: string): Promise<LiveStream> {
   return authenticatedFetch(`${API_URL}/livestream/${livestreamId}`);
+}
+
+export async function updateLivestreamVisibility(livestreamId: string, isPublic: boolean): Promise<LiveStream> {
+  return authenticatedFetch(`${API_URL}/livestream/${livestreamId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ isPublic }),
+  });
+}
+
+export async function getRecordingAiAnalysis(livestreamId: string): Promise<RecordingAiAnalysis> {
+  return optionalAuthJsonFetch(`${API_URL}/livestream/${livestreamId}/ai-analysis`);
+}
+
+export async function generateRecordingTranscript(livestreamId: string, force = false): Promise<RecordingAiAnalysis> {
+  return optionalAuthJsonFetch(`${API_URL}/livestream/${livestreamId}/transcript`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ force }),
+  });
+}
+
+export async function generateRecordingSummary(livestreamId: string, force = false): Promise<RecordingAiAnalysis> {
+  return optionalAuthJsonFetch(`${API_URL}/livestream/${livestreamId}/summary`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ force }),
+  });
 }
 
 export async function startLivestreamEarly(livestreamId: string, title: string, category?: string): Promise<LiveStream> {

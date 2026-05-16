@@ -2,13 +2,14 @@
 
 import { raleway } from "@/utils/front";
 import { AlertTriangle, XCircle, CheckCircle2, Info, X } from 'lucide-react';
+import { ReactNode } from 'react';
 
 export type ConfirmDialogType = 'danger' | 'warning' | 'success' | 'info';
 
 interface ConfirmDialogProps {
   open: boolean;
   title: string;
-  message: string;
+  message: ReactNode;
   type?: ConfirmDialogType;
   confirmText?: string;
   cancelText?: string;

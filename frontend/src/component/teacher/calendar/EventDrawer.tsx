@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { CalendarEvent } from "@/utils/data/teacher/calendar";
 import pastelize from "@/utils/colorise";
 import { raleway } from "@/utils/front";
@@ -26,6 +27,8 @@ export default function EventDrawer({
   onClose,
   onUpdate,
 }: EventDrawerProps) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [openUpdate, setOpenUpdate] = useState(false);
   const [organizerName, setOrganizerName] = useState("System");
   const [isRedirecting, setIsRedirecting] = useState(false);
@@ -50,6 +53,14 @@ export default function EventDrawer({
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (showStartLiveModal && pathname.includes('/livestream/')) {
+      setShowStartLiveModal(false);
+      setPendingLivestreamId(null);
+      setIsRedirecting(false);
+    }
+  }, [pathname, showStartLiveModal]);
 
   if (!isOpen || !event) return null; // hook đã gọi hết rồi, giờ mới return
 
@@ -129,7 +140,7 @@ export default function EventDrawer({
               <button
                 onClick={() => {
                   setIsRedirecting(true);
-                  window.location.href = `/teacher/${event.teacherId}/recordings/detail/${event.livestreamId}`;
+                  router.push(`/teacher/${event.teacherId}/recordings/detail/${event.livestreamId}`);
                 }}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={isRedirecting}
@@ -175,7 +186,7 @@ export default function EventDrawer({
                 } else {
                   // Đã tới ngày - join livestream
                   setIsRedirecting(true);
-                  window.location.href = `/teacher/${event.teacherId}/livestream/${event.livestreamId}`;
+                  router.push(`/teacher/${event.teacherId}/livestream/${event.livestreamId}`);
                 }
               }}
               className="inline-flex items-center gap-2 px-4 py-2 bg-[#292C6D] text-white text-sm font-semibold rounded-lg hover:bg-[#1f2350] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -256,7 +267,7 @@ export default function EventDrawer({
             
             // Redirect to the new livestream
             setIsRedirecting(true);
-            window.location.href = `/teacher/${event.teacherId}/livestream/${newLivestreamId}`;
+            router.push(`/teacher/${event.teacherId}/livestream/${newLivestreamId}`);
           } catch (error) {
             console.error('Failed to start livestream early:', error);
             setIsStartingEarly(false);
@@ -327,14 +338,24 @@ export default function EventDrawer({
               throw new Error(errorData.message || `Failed to create livestream (${response.status})`);
             }
 
+            await response.json().catch(() => null);
+
             const livestreamIdToNavigate = pendingLivestreamId;
-            setShowStartLiveModal(false);
-            setPendingLivestreamId(null);
-            
-            setTimeout(() => {
-              setIsRedirecting(true);
-              window.location.href = `/teacher/${event?.teacherId}/livestream/${livestreamIdToNavigate}`;
-            }, 0);
+
+            for (let i = 0; i < 8; i++) {
+              const readyResponse = await fetch(`${API_URL}/livestream/${livestreamIdToNavigate}`, {
+                cache: 'no-store',
+              }).catch(() => null);
+
+              if (readyResponse?.ok) {
+                break;
+              }
+
+              await new Promise((resolve) => setTimeout(resolve, 500));
+            }
+
+            setIsRedirecting(true);
+            router.push(`/teacher/${event?.teacherId}/livestream/${livestreamIdToNavigate}`);
           } catch (error) {
             showDialog({
               title: 'Error',

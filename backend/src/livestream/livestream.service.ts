@@ -3,13 +3,38 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateLivestreamDto } from './dto/create-livestream.dto';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
-import { LiveStreamStatus, ScheduleStatus } from '@prisma/client';
+import { Prisma, LiveStreamStatus, ScheduleStatus } from '@prisma/client';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
 import { Readable } from 'stream';
+import { createWriteStream, promises as fs } from 'fs';
+import { spawn } from 'child_process';
+import { pipeline } from 'stream/promises';
+import * as os from 'os';
+import * as path from 'path';
+
+interface AiTranscriptSummaryDocument {
+  id?: string;
+  type: 'recording' | 'document';
+  recordingId?: string;
+  documentId?: string;
+  transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
+  transcriptError?: string | null;
+  transcript?: Prisma.JsonValue;
+  summary?: string;
+  audioUrl?: string;
+  toxicWords?: string[];
+  validationRate?: number;
+  transcriptGeneratedAt?: Date;
+  summaryGeneratedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
 
 @Injectable()
 export class LivestreamService {
   private readonly logger = new Logger(LivestreamService.name);
+  private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
+  private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
   
   constructor(
     private prisma: PrismaService,
@@ -445,7 +470,8 @@ export class LivestreamService {
         videoBuffer = Buffer.from(videoBase64, 'base64');
       } catch (decodeError) {
         console.error(`[Service] Failed to decode base64:`, decodeError);
-        throw new Error(`Invalid base64 data: ${decodeError.message}`);
+        const decodeMessage = decodeError instanceof Error ? decodeError.message : String(decodeError);
+        throw new Error(`Invalid base64 data: ${decodeMessage}`);
       }
       
       console.log(`[Service] Video buffer decoded: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB (${videoBuffer.length} bytes)`);
@@ -476,6 +502,7 @@ export class LivestreamService {
         data: {
           recordingUrl: videoUrl,
           isRecorded: true,
+          isApprove: 'FALSE',
           duration: duration || 0,
         },
       });
@@ -963,6 +990,7 @@ export class LivestreamService {
       thumbnailUrl: video.thumbnail,
       duration: video.duration,
       recordingUrl: video.recordingUrl,
+      isApprove: (video as { isApprove?: string }).isApprove ?? 'FALSE',
       endedAt: video.endedAt,
       status: video.status,
       category: video.category,
@@ -993,6 +1021,7 @@ export class LivestreamService {
         currentViewers: true,
         peakViewers: true,
         isRecorded: true,
+        isApprove: true,
         isPublic: true,
       },
       orderBy: [
@@ -1028,6 +1057,7 @@ export class LivestreamService {
         currentViewers: true,
         peakViewers: true,
         isRecorded: true,
+        isApprove: true,
         isPublic: true,
       },
       orderBy: [
@@ -1205,7 +1235,7 @@ export class LivestreamService {
     }
   }
 
-  async updateLivestream(id: string, updateData: { description?: string }) {
+  async updateLivestream(id: string, updateData: { description?: string; isPublic?: boolean }) {
     const livestream = await this.prisma.postgres.liveStream.findUnique({
       where: { id },
     });
@@ -1244,6 +1274,7 @@ export class LivestreamService {
         id: { not: videoId },
         status: LiveStreamStatus.ENDED,
         recordingUrl: { not: null },
+        isPublic: true,
       },
       select: {
         id: true,
@@ -1323,6 +1354,393 @@ export class LivestreamService {
 
     // Remove score from final result
     return relatedVideos.map(({ score, ...video }) => video);
+  }
+
+  private async getRecordingAiAnalysisDocument(recordingId: string): Promise<AiTranscriptSummaryDocument | null> {
+    const result = await this.prisma.mongo.$runCommandRaw({
+      find: this.aiTranscriptSummaryCollection,
+      filter: { type: 'recording', recordingId },
+      limit: 1,
+    });
+
+    const firstBatch = (result as { cursor?: { firstBatch?: AiTranscriptSummaryDocument[] } }).cursor?.firstBatch || [];
+    return firstBatch[0] || null;
+  }
+
+  private async upsertRecordingAiAnalysis(
+    recordingId: string,
+    payload: Partial<AiTranscriptSummaryDocument>,
+  ): Promise<void> {
+    await this.prisma.mongo.$runCommandRaw({
+      update: this.aiTranscriptSummaryCollection,
+      updates: [
+        {
+          q: { type: 'recording', recordingId },
+          u: {
+            $set: {
+              id: recordingId,
+              type: 'recording',
+              recordingId,
+              documentId: null,
+              ...payload,
+              updatedAt: new Date(),
+            },
+            $setOnInsert: {
+              id: recordingId,
+              type: 'recording',
+              recordingId,
+              documentId: null,
+              toxicWords: [],
+              validationRate: 0,
+              createdAt: new Date(),
+            },
+          },
+          upsert: true,
+        },
+      ],
+    });
+  }
+
+  private extractTranscriptFromPayload(payload: unknown): Prisma.JsonValue | null {
+    if (typeof payload === 'string') {
+      return payload.trim() || null;
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const data = payload as Record<string, unknown>;
+    const nestedData = data.data && typeof data.data === 'object' ? (data.data as Record<string, unknown>) : null;
+    const nestedCandidate = nestedData?.result ?? nestedData?.text ?? nestedData?.transcript;
+    const transcriptCandidate = data.text ?? data.transcript ?? data.result ?? nestedCandidate;
+
+    if (typeof transcriptCandidate === 'string') {
+      return transcriptCandidate.trim() || null;
+    }
+
+    if (transcriptCandidate && typeof transcriptCandidate === 'object') {
+      return transcriptCandidate as Prisma.JsonValue;
+    }
+
+    return null;
+  }
+
+  private getTranscriptText(transcript: Prisma.JsonValue | null | undefined): string | null {
+    if (typeof transcript === 'string') {
+      return transcript.trim() || null;
+    }
+
+    if (!transcript) {
+      return null;
+    }
+
+    if (typeof transcript === 'object') {
+      const data = transcript as Record<string, unknown>;
+      const candidate = data.text ?? data.transcript ?? data.result;
+      if (typeof candidate === 'string') {
+        return candidate.trim() || null;
+      }
+    }
+
+    try {
+      return JSON.stringify(transcript);
+    } catch {
+      return null;
+    }
+  }
+
+  private extractAiErrorFromPayload(payload: unknown): string | null {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const data = payload as Record<string, unknown>;
+    if (data.status !== 'error') {
+      return null;
+    }
+
+    const errorValue = data.error;
+    if (typeof errorValue === 'string') {
+      return errorValue.trim() || null;
+    }
+
+    if (errorValue && typeof errorValue === 'object') {
+      const errorData = errorValue as Record<string, unknown>;
+      const message = errorData.message ?? errorData.detail ?? errorData.error;
+      if (typeof message === 'string') {
+        return message.trim() || null;
+      }
+    }
+
+    return 'Unknown error from transcribe service';
+  }
+
+  private extractSummaryFromPayload(payload: unknown): string | null {
+    if (typeof payload === 'string') {
+      return payload.trim() || null;
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const data = payload as Record<string, unknown>;
+    const summaryCandidate = data.summary || data.result || data.text;
+    if (typeof summaryCandidate === 'string') {
+      return summaryCandidate.trim() || null;
+    }
+
+    return null;
+  }
+
+  async getRecordingAiAnalysis(recordingId: string) {
+    const analysis = await this.getRecordingAiAnalysisDocument(recordingId);
+
+    return {
+      recordingId,
+      transcript: analysis?.transcript || null,
+      summary: analysis?.summary || undefined,
+      audioUrl: analysis?.audioUrl || null,
+      toxicWords: analysis?.toxicWords || [],
+      validationRate: analysis?.validationRate ?? 0,
+      transcriptStatus: analysis?.transcriptStatus || 'idle',
+      transcriptError: analysis?.transcriptError || null,
+      transcriptGeneratedAt: analysis?.transcriptGeneratedAt || null,
+      summaryGeneratedAt: analysis?.summaryGeneratedAt || null,
+    };
+  }
+
+  private async downloadToBuffer(url: string): Promise<Buffer> {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new BadRequestException(`Cannot download file: ${response.status}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  async generateRecordingTranscript(recordingId: string, force = false) {
+    const livestream = await this.prisma.postgres.liveStream.findUnique({
+      where: { id: recordingId },
+      select: {
+        id: true,
+        recordingUrl: true,
+      },
+    });
+
+    if (!livestream) {
+      throw new NotFoundException('Recording not found');
+    }
+
+    if (!livestream.recordingUrl) {
+      throw new BadRequestException('Recording URL is missing, cannot transcribe');
+    }
+
+    const existing = await this.getRecordingAiAnalysisDocument(recordingId);
+    if (!force && existing?.transcript) {
+      return {
+        ...(await this.getRecordingAiAnalysis(recordingId)),
+        cached: true,
+      };
+    }
+
+    if (!force && existing?.transcriptStatus === 'processing') {
+      return {
+        ...(await this.getRecordingAiAnalysis(recordingId)),
+        cached: true,
+      };
+    }
+
+    try {
+      await this.upsertRecordingAiAnalysis(recordingId, {
+        transcriptStatus: 'processing',
+        transcriptError: null,
+      });
+
+      const audioExists = await this.r2StorageService.recordingAudioExistsById(recordingId);
+      let audioUrl = existing?.audioUrl || (audioExists ? this.r2StorageService.getRecordingAudioUrlById(recordingId) : null);
+      let audioBuffer: Buffer | null = null;
+
+      if (audioUrl) {
+        audioBuffer = await this.downloadToBuffer(audioUrl);
+      } else {
+        const recordingResponse = await fetch(livestream.recordingUrl);
+        if (!recordingResponse.ok || !recordingResponse.body) {
+          throw new BadRequestException(`Cannot download recording file: ${recordingResponse.status}`);
+        }
+
+        const tempBase = `recording-${recordingId}-${Date.now()}`;
+        const inputPath = path.join(os.tmpdir(), `${tempBase}.mp4`);
+        const outputPath = path.join(os.tmpdir(), `${tempBase}.wav`);
+
+        try {
+          await pipeline(Readable.fromWeb(recordingResponse.body as any), createWriteStream(inputPath));
+
+          await new Promise<void>((resolve, reject) => {
+            const ffmpeg = spawn('ffmpeg', [
+              '-y',
+              '-i',
+              inputPath,
+              '-vn',
+              '-ac',
+              '1',
+              '-ar',
+              '16000',
+              '-f',
+              'wav',
+              outputPath,
+            ]);
+
+            let stderr = '';
+            ffmpeg.stderr.on('data', (chunk) => {
+              stderr += chunk.toString();
+            });
+            ffmpeg.on('error', (err) => reject(err));
+            ffmpeg.on('close', (code) => {
+              if (code === 0) {
+                resolve();
+              } else {
+                reject(new Error(`ffmpeg failed (${code}): ${stderr}`));
+              }
+            });
+          });
+
+          audioBuffer = await fs.readFile(outputPath);
+          audioUrl = await this.r2StorageService.uploadRecordingAudioById(recordingId, audioBuffer);
+        } finally {
+          await Promise.all([
+            fs.unlink(inputPath).catch(() => undefined),
+            fs.unlink(outputPath).catch(() => undefined),
+          ]);
+        }
+      }
+
+      if (!audioBuffer) {
+        throw new BadRequestException('Audio export failed, cannot transcribe');
+      }
+
+      const formData = new FormData();
+      const audioBytes = new Uint8Array(audioBuffer);
+      // Explicitly set audio/wav type for AI server to correctly process audio
+      formData.append('file', new Blob([audioBytes], { type: 'audio/wav' }), `${recordingId}.wav`);
+
+      // Stream transcribe response (handles heartbeats and long processing time)
+      const aiResponse = await (await import('../utils/aiFetch')).logStreamingTranscribe(
+        `${this.localAiBaseUrl}/transcribe/replicate`,
+        {
+          method: 'POST',
+          body: formData,
+          timeoutMs: 30 * 60 * 1000, // 30 minutes
+        },
+        this.logger as any,
+      );
+
+      // Extract transcript from the streaming response
+      const transcript = this.extractTranscriptFromPayload(aiResponse.data);
+
+      if (!transcript) {
+        await this.upsertRecordingAiAnalysis(recordingId, {
+          transcriptStatus: 'error',
+          transcriptError: 'Transcribe service returned empty transcript',
+        });
+        throw new BadRequestException('Transcribe service returned empty transcript');
+      }
+
+      await this.upsertRecordingAiAnalysis(recordingId, {
+        transcriptStatus: 'success',
+        transcriptError: null,
+        transcript,
+        audioUrl: audioUrl || undefined,
+        transcriptGeneratedAt: new Date(),
+      });
+
+      // Log transcription success with data
+      const analysis = await this.getRecordingAiAnalysis(recordingId);
+      const transcriptText = this.getTranscriptText(transcript);
+      const transcriptLength = transcriptText ? transcriptText.length : 0;
+      const transcriptPreview = transcriptText ? transcriptText.substring(0, 200) : '';
+
+      this.logger.log(`[TRANSCRIPT SUCCESS] RecordingID: ${recordingId}, Length: ${transcriptLength} chars, AudioUrl: ${audioUrl ? 'stored' : 'not stored'}`);
+      console.log('[Transcript Generation Complete]', {
+        recordingId,
+        transcriptLength,
+        transcriptPreview,
+        hasAudioUrl: !!audioUrl,
+        generatedAt: new Date().toISOString(),
+        status: 'success',
+      });
+
+      return {
+        ...analysis,
+        cached: false,
+      };
+    } catch (err: unknown) {
+      await this.upsertRecordingAiAnalysis(recordingId, {
+        transcriptStatus: 'error',
+        transcriptError: err instanceof Error ? err.message : String(err),
+      }).catch(() => undefined);
+      
+      this.logger.error(`[TRANSCRIPT ERROR] RecordingID: ${recordingId}, Error: ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
+    }
+  }
+
+  async generateRecordingSummary(recordingId: string, force = false) {
+    const existing = await this.getRecordingAiAnalysisDocument(recordingId);
+
+    if (!force && existing?.summary) {
+      return {
+        ...(await this.getRecordingAiAnalysis(recordingId)),
+        cached: true,
+      };
+    }
+
+    let transcript = existing?.transcript || null;
+    if (!transcript) {
+      const transcriptResult = await this.generateRecordingTranscript(recordingId, false);
+      transcript = transcriptResult.transcript;
+    }
+
+    if (!transcript) {
+      throw new BadRequestException('Transcript is required before summarizing');
+    }
+
+    const transcriptText = this.getTranscriptText(transcript);
+    if (!transcriptText) {
+      throw new BadRequestException('Transcript is required before summarizing');
+    }
+
+    const aiResponse = await fetch(`${this.localAiBaseUrl}/summarize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: transcriptText }),
+    });
+
+    if (!aiResponse.ok) {
+      const errorBody = await aiResponse.text();
+      throw new BadRequestException(`Summarize service error (${aiResponse.status}): ${errorBody}`);
+    }
+
+    const aiPayload = await aiResponse.json();
+    const summary = this.extractSummaryFromPayload(aiPayload);
+
+    if (!summary) {
+      throw new BadRequestException('Summarize service returned empty summary');
+    }
+
+    await this.upsertRecordingAiAnalysis(recordingId, {
+      summary,
+      summaryGeneratedAt: new Date(),
+    });
+
+    return {
+      ...(await this.getRecordingAiAnalysis(recordingId)),
+      cached: false,
+    };
   }
 }
 

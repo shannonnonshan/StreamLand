@@ -9,7 +9,7 @@ const PrimaryColor = '161853';
 interface StartLivestreamModalProps {
   isOpen: boolean;
   closeModal: () => void;
-  onStartLivestream: (data: LivestreamData) => void;
+  onStartLivestream: (data: LivestreamData) => Promise<void> | void;
   teacherId: string;
 }
 
@@ -146,7 +146,20 @@ export default function StartLivestreamModal({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className={`w-full max-w-2xl transform overflow-hidden rounded-2xl bg-white p-8 text-left align-middle shadow-2xl transition-all border-t-4 border-[#${PrimaryColor}]`}>
+              <Dialog.Panel className={`relative w-full max-w-2xl transform overflow-hidden rounded-2xl bg-white p-8 text-left align-middle shadow-2xl transition-all border-t-4 border-[#${PrimaryColor}]`}>
+
+                {isSubmitting && (
+                  <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-white/95 backdrop-blur-sm">
+                    <div className={`flex h-14 w-14 items-center justify-center rounded-full bg-[#${PrimaryColor}]`}>
+                      <VideoCameraIcon className="h-8 w-8 text-white" />
+                    </div>
+                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#EC255A]/25 border-t-[#EC255A]" />
+                    <div className="text-center">
+                      <p className={`text-lg font-bold text-[#${PrimaryColor}]`}>Preparing livestream room...</p>
+                      <p className="mt-1 text-sm text-gray-600">Please wait, you will be redirected automatically.</p>
+                    </div>
+                  </div>
+                )}
                 
                 {/* Close Button */}
                 <button
@@ -305,7 +318,7 @@ export default function StartLivestreamModal({
                     <button
                       type="submit"
                       disabled={isSubmitting}
-                      className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-[#${PrimaryColor}] to-[#EC255A] text-white rounded-lg font-semibold hover:shadow-lg transform hover:scale-[1.02] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none`}
+                      className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-linear-to-r from-[#${PrimaryColor}] to-[#EC255A] text-white rounded-lg font-semibold hover:shadow-lg transform hover:scale-[1.02] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none`}
                     >
                       {isSubmitting ? (
                         <>

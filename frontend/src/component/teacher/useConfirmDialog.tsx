@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import ConfirmDialog, { ConfirmDialogType } from "@/component/ConfirmDialog";
+import { ReactNode } from "react";
 
 interface ConfirmDialogConfig {
   title: string;
-  message: string;
+  message: ReactNode;
   type?: ConfirmDialogType;
   confirmText?: string;
   cancelText?: string;

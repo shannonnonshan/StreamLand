@@ -14,7 +14,8 @@ import {
   Camera,
   Play,
   ArrowLeft,
-  Loader2
+  Loader2,
+  Share2
 } from "lucide-react";
 import { useToast } from "@/hooks/useToast";
 
@@ -118,6 +119,31 @@ export default function TeacherProfilePage() {
     showError("Avatar upload will be implemented");
   };
 
+  const handleShare = async () => {
+    if (!teacherId || !teacher) return;
+    const teacherProfile = teacher;
+
+    const shareUrl = `${window.location.origin}/teacher/public/${teacherId}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: teacherProfile.name,
+          text: `View ${teacherProfile.name}'s public profile`,
+          url: shareUrl,
+        });
+        success('Profile shared successfully!');
+        return;
+      }
+
+      await navigator.clipboard.writeText(shareUrl);
+      success('Profile link copied to clipboard!');
+    } catch (err) {
+      console.error('Failed to share profile:', err);
+      showError('Failed to share profile');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
@@ -211,7 +237,14 @@ export default function TeacherProfilePage() {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={handleShare}
+                    className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    <Share2 size={18} />
+                    Share
+                  </button>
                   <button
                     onClick={() => router.push(`/teacher/${teacherId}/settings`)}
                     className="flex items-center gap-2 px-4 py-2 bg-[#292C6D] text-white rounded-lg hover:bg-[#1f2350] transition-colors"

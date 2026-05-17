@@ -1,8 +1,27 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, BadGatewayException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FriendStatus } from '@prisma/client';
 import { SendFriendRequestDto, UpdateFriendRequestDto, FollowTeacherDto, UnfollowTeacherDto } from './dto';
 import { NotificationService } from '../notification/notification.service';
+
+type RecommendationCandidate = {
+  id: string;
+  title: string;
+  category: string | null;
+  thumbnail: string | null;
+  duration: number;
+  totalViews: number;
+  endedAt: Date | null;
+  recordingUrl: string | null;
+  teacherId: string;
+  teacher: {
+    id: string;
+    fullName: string;
+    avatar: string | null;
+  };
+};
+
+type PartProgressMap = Map<string, number>;
 
 @Injectable()
 export class StudentService {
@@ -1174,8 +1193,18 @@ export class StudentService {
     }));
   }
 
-  // Track watch activity and update streak
-  async trackWatchActivity(userId: string, contentType: 'livestream' | 'video', contentId: string) {
+  // Track watch activity, update streak, and persist watch progress
+  async trackWatchActivity(
+    userId: string,
+    contentType: 'livestream' | 'video',
+    contentId: string,
+    progressData?: {
+      lastPosition?: number;
+      duration?: number;
+      progress?: number;
+      completed?: boolean;
+    },
+  ) {
     // Get student profile
     const student = await this.prisma.postgres.user.findUnique({
       where: { id: userId },
@@ -1232,16 +1261,38 @@ export class StudentService {
       });
     }
 
-    // Record watch history in MongoDB
-    await this.prisma.mongo.watchHistory.create({
-      data: {
+    const lastPosition = Math.max(0, Math.floor(progressData?.lastPosition || 0));
+    const duration = Math.max(0, Math.floor(progressData?.duration || 0));
+    const progress = typeof progressData?.progress === 'number'
+      ? Math.max(0, Math.min(100, progressData.progress))
+      : duration > 0
+        ? Math.max(0, Math.min(100, (lastPosition / duration) * 100))
+        : 0;
+    const completed = progressData?.completed ?? progress >= 66.67;
+
+    // Record watch history in MongoDB using a stable per-user/per-video record
+    await this.prisma.mongo.watchHistory.upsert({
+      where: {
+        userId_livestreamId: {
+          userId,
+          livestreamId: contentId,
+        },
+      },
+      create: {
         userId,
         livestreamId: contentId,
         watchedAt: now,
-        duration: 0,
-        completed: false,
-        progress: 0,
-        lastPosition: 0,
+        duration,
+        completed,
+        progress,
+        lastPosition,
+      },
+      update: {
+        watchedAt: now,
+        duration: duration || undefined,
+        completed,
+        progress,
+        lastPosition,
       },
     });
 
@@ -1249,6 +1300,19 @@ export class StudentService {
       streak: newStreak,
       updated: shouldUpdate,
     };
+  }
+
+  async getWatchProgress(userId: string, contentId: string) {
+    const progress = await this.prisma.mongo.watchHistory.findUnique({
+      where: {
+        userId_livestreamId: {
+          userId,
+          livestreamId: contentId,
+        },
+      },
+    });
+
+    return progress || null;
   }
 
   // Get student stats
@@ -1296,6 +1360,118 @@ export class StudentService {
       documents: documents,
       studyHours: student.studentProfile.studyHours,
       streak: student.studentProfile.studyStreak,
+    };
+  }
+
+  // Send student help/chat message to ai-service
+  async chatWithAi(userId: string, message: string) {
+    if (!message || message.trim().length === 0) {
+      throw new BadRequestException('Message cannot be empty');
+    }
+
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: {
+        studentProfile: true,
+      },
+    });
+
+    if (!user || !user.studentProfile) {
+      throw new ForbiddenException('Only students can use the help chatbot');
+    }
+
+    const directEndpoint = process.env.AI_SERVICE_URL;
+    const hfEndpoint = process.env.HUGGINGFACE_ENDPOINT_URL;
+    const hfModelId = process.env.HUGGINGFACE_MODEL_ID;
+    const requestMode = (process.env.AI_REQUEST_MODE || 'hf').toLowerCase();
+
+    let targetUrl = directEndpoint;
+    if (!targetUrl) {
+      if (hfEndpoint) {
+        targetUrl = hfEndpoint;
+      } else if (hfModelId) {
+        targetUrl = `https://router.huggingface.co/hf-inference/models/${hfModelId}`;
+      }
+    }
+
+    if (!targetUrl) {
+      throw new BadGatewayException('AI endpoint is not configured');
+    }
+
+    const normalizedTarget = targetUrl.replace(/\/$/, '');
+    const aiServiceUrl =
+      requestMode === 'custom'
+        ? normalizedTarget.replace(/\/chat$/, '') + '/chat'
+        : normalizedTarget;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+    let response: Response;
+    try {
+      const payload =
+        requestMode === 'custom'
+          ? { message: message.trim() }
+          : {
+              inputs: message.trim(),
+              parameters: {
+                max_new_tokens: 256,
+                temperature: 0.7,
+                return_full_text: false,
+              },
+              options: {
+                wait_for_model: true,
+              },
+            };
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (process.env.HUGGINGFACE_API_TOKEN) {
+        headers.Authorization = `Bearer ${process.env.HUGGINGFACE_API_TOKEN}`;
+      }
+
+      response = await fetch(aiServiceUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      throw new BadGatewayException(`AI service request failed: ${messageText}`);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new BadGatewayException(
+        `AI service error: ${response.status} ${response.statusText} - ${errorText}`,
+      );
+    }
+
+    const body = await response.json();
+
+    const normalized =
+      body?.answer ||
+      body?.response ||
+      body?.generated_text ||
+      body?.[0]?.generated_text ||
+      body?.[0]?.summary_text ||
+      null;
+
+    if (!normalized) {
+      if (body?.error) {
+        throw new BadGatewayException(body.error);
+      }
+      throw new BadGatewayException('AI service returned no response');
+    }
+
+    return {
+      success: true,
+      response: normalized,
     };
   }
 
@@ -1458,6 +1634,270 @@ export class StudentService {
     });
 
     return { isSaved: !!saved, document: saved };
+  }
+
+  // Personalized recommendations for student home
+  async getPersonalizedRecommendations(userId: string, limit: number = 24) {
+    const safeLimit = Math.min(Math.max(limit || 24, 6), 48);
+
+    const student = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: true },
+    });
+
+    if (!student || !student.studentProfile) {
+      throw new NotFoundException('Student profile not found');
+    }
+
+    const interests = (student.studentProfile.interests || [])
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0)
+      .slice(0, 5);
+
+    const watchHistory = await this.prisma.mongo.watchHistory.findMany({
+      where: { userId },
+      orderBy: { watchedAt: 'desc' },
+      take: 200,
+      select: {
+        livestreamId: true,
+      },
+    });
+
+    const watchedIds: string[] = [];
+    const watchedSet = new Set<string>();
+    for (const item of watchHistory) {
+      if (!watchedSet.has(item.livestreamId)) {
+        watchedSet.add(item.livestreamId);
+        watchedIds.push(item.livestreamId);
+      }
+    }
+
+    const watchedVideos = watchedIds.length
+      ? await this.prisma.postgres.liveStream.findMany({
+          where: {
+            id: { in: watchedIds },
+            status: 'ENDED',
+            recordingUrl: { not: null },
+          },
+          select: {
+            id: true,
+            title: true,
+            category: true,
+            teacherId: true,
+          },
+        })
+      : [];
+
+    const interestSet = new Set(interests.map((x) => this.normalizeTopic(x)));
+    const categorySignal = new Map<string, number>();
+    const teacherSignal = new Map<string, number>();
+
+    for (const interest of interestSet) {
+      categorySignal.set(interest, (categorySignal.get(interest) || 0) + 4);
+    }
+
+    watchedVideos.forEach((video, index) => {
+      const recencyWeight = Math.max(1, 5 - Math.floor(index / 5));
+      const normalizedCategory = this.normalizeTopic(video.category || '');
+
+      if (normalizedCategory) {
+        categorySignal.set(
+          normalizedCategory,
+          (categorySignal.get(normalizedCategory) || 0) + recencyWeight,
+        );
+      }
+
+      teacherSignal.set(
+        video.teacherId,
+        (teacherSignal.get(video.teacherId) || 0) + recencyWeight,
+      );
+    });
+
+    const nextPartMap = this.buildNextPartMap(watchedVideos);
+
+    const candidates = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        status: 'ENDED',
+        recordingUrl: { not: null },
+        id: {
+          notIn: watchedIds,
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        thumbnail: true,
+        duration: true,
+        totalViews: true,
+        endedAt: true,
+        recordingUrl: true,
+        teacherId: true,
+        teacher: {
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true,
+          },
+        },
+      },
+      orderBy: [{ endedAt: 'desc' }, { totalViews: 'desc' }],
+      take: 300,
+    });
+
+    const scored = candidates
+      .map((video) => this.scoreCandidate(video, categorySignal, teacherSignal, interestSet, nextPartMap))
+      .sort((a, b) => b.score - a.score);
+
+    const byInterests = scored
+      .filter((item) => item.reasons.includes('interest'))
+      .slice(0, Math.min(8, safeLimit));
+
+    const continueWatching = scored
+      .filter((item) => item.reasons.includes('next_part'))
+      .slice(0, Math.min(8, safeLimit));
+
+    const merged = this.uniqueById([
+      ...continueWatching,
+      ...byInterests,
+      ...scored,
+    ]).slice(0, safeLimit);
+
+    return {
+      onboardingNeeded: interests.length === 0,
+      interests,
+      byInterests,
+      continueWatching,
+      recommendations: merged,
+    };
+  }
+
+  private scoreCandidate(
+    candidate: RecommendationCandidate,
+    categorySignal: Map<string, number>,
+    teacherSignal: Map<string, number>,
+    interestSet: Set<string>,
+    nextPartMap: PartProgressMap,
+  ) {
+    let score = 0;
+    const reasons: string[] = [];
+
+    const normalizedCategory = this.normalizeTopic(candidate.category || '');
+    if (normalizedCategory) {
+      if (interestSet.has(normalizedCategory)) {
+        score += 40;
+        reasons.push('interest');
+      }
+
+      const categoryWeight = categorySignal.get(normalizedCategory) || 0;
+      if (categoryWeight > 0) {
+        score += Math.min(30, categoryWeight * 5);
+        reasons.push('watch_history_category');
+      }
+    }
+
+    const teacherWeight = teacherSignal.get(candidate.teacherId) || 0;
+    if (teacherWeight > 0) {
+      score += Math.min(18, teacherWeight * 3);
+      reasons.push('watch_history_teacher');
+    }
+
+    if (this.isNextPart(candidate, nextPartMap)) {
+      score += 65;
+      reasons.push('next_part');
+    }
+
+    score += Math.min(10, (candidate.totalViews || 0) / 1000);
+
+    if (candidate.endedAt) {
+      const daysOld =
+        (Date.now() - new Date(candidate.endedAt).getTime()) /
+        (1000 * 60 * 60 * 24);
+      score += Math.max(0, 8 - daysOld / 15);
+    }
+
+    return {
+      id: candidate.id,
+      title: candidate.title,
+      category: candidate.category,
+      thumbnailUrl: candidate.thumbnail,
+      duration: candidate.duration,
+      totalViews: candidate.totalViews,
+      endedAt: candidate.endedAt,
+      recordingUrl: candidate.recordingUrl,
+      teacher: candidate.teacher,
+      score: Number(score.toFixed(2)),
+      reasons: Array.from(new Set(reasons)),
+    };
+  }
+
+  private buildNextPartMap(
+    watchedVideos: Array<{ teacherId: string; title: string }>,
+  ): PartProgressMap {
+    const map: PartProgressMap = new Map();
+
+    for (const item of watchedVideos) {
+      const parsed = this.parsePart(item.title);
+      if (!parsed) continue;
+
+      const key = `${item.teacherId}:${parsed.base}`;
+      const nextPart = parsed.part + 1;
+      const currentMax = map.get(key) || 0;
+      if (nextPart > currentMax) {
+        map.set(key, nextPart);
+      }
+    }
+
+    return map;
+  }
+
+  private isNextPart(candidate: RecommendationCandidate, nextPartMap: PartProgressMap): boolean {
+    const parsed = this.parsePart(candidate.title);
+    if (!parsed) return false;
+
+    const key = `${candidate.teacherId}:${parsed.base}`;
+    const expectedPart = nextPartMap.get(key);
+
+    return !!expectedPart && parsed.part === expectedPart;
+  }
+
+  private parsePart(title: string): { base: string; part: number } | null {
+    const cleanTitle = title.trim().toLowerCase();
+    const match = cleanTitle.match(/^(.*?)(?:\s*[-:|]?\s*)(?:part|episode|ep|phan|bai)\s*(\d+)\b/i);
+
+    if (!match) {
+      return null;
+    }
+
+    const base = (match[1] || '')
+      .replace(/[^a-z0-9\s]/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const part = Number(match[2]);
+    if (!base || Number.isNaN(part)) {
+      return null;
+    }
+
+    return { base, part };
+  }
+
+  private normalizeTopic(value: string): string {
+    return value.trim().toLowerCase();
+  }
+
+  private uniqueById<T extends { id: string }>(items: T[]): T[] {
+    const seen = new Set<string>();
+    const result: T[] = [];
+
+    for (const item of items) {
+      if (!seen.has(item.id)) {
+        seen.add(item.id);
+        result.push(item);
+      }
+    }
+
+    return result;
   }
 }
 

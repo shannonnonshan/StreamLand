@@ -1,10 +1,11 @@
-import { Injectable, ConflictException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, BadRequestException, UnauthorizedException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLivestreamDto } from './dto/create-livestream.dto';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { Prisma, LiveStreamStatus, ScheduleStatus } from '@prisma/client';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
+import { RedisService } from '../redis/redis.service';
 import { Readable } from 'stream';
 import { createWriteStream, promises as fs } from 'fs';
 import { spawn } from 'child_process';
@@ -39,6 +40,7 @@ export class LivestreamService {
   constructor(
     private prisma: PrismaService,
     private r2StorageService: R2StorageService,
+    private redisService: RedisService,
   ) {}
 
   async createLivestream(createLivestreamDto: CreateLivestreamDto) {
@@ -953,12 +955,32 @@ export class LivestreamService {
   }
 
   // Get recorded livestreams (ENDED with recordingUrl) - public
-  async getRecordedLivestreams(limit: number = 20) {
+  async getRecordedLivestreams(limit: number = 20, category?: string) {
+    const normalizedCategory = category?.trim();
+
     const videos = await this.prisma.postgres.liveStream.findMany({
       where: {
         status: LiveStreamStatus.ENDED,
         isPublic: true,
         recordingUrl: { not: null },
+        ...(normalizedCategory
+          ? {
+              OR: [
+                {
+                  category: {
+                    equals: normalizedCategory,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  category: {
+                    contains: normalizedCategory,
+                    mode: 'insensitive',
+                  },
+                },
+              ],
+            }
+          : {}),
       },
       include: {
         teacher: {
@@ -1122,6 +1144,47 @@ export class LivestreamService {
         totalViews: { increment: 1 },
       },
     });
+  }
+
+  // Count a recorded-video view only when watched strictly more than 2/3 and dedupe by viewer
+  async reportWatch(id: string, viewerId?: string, watchedSeconds?: number, duration?: number) {
+    const watched = typeof watchedSeconds === 'number' ? watchedSeconds : 0;
+    const total = typeof duration === 'number' ? duration : 0;
+
+    if (total <= 0) {
+      return { counted: false, reason: 'invalid_duration' };
+    }
+
+    const ratio = watched / total;
+    // Business rule: only count when watched strictly greater than 2/3
+    if (ratio <= 2 / 3) {
+      return { counted: false, reason: 'below_threshold', ratio };
+    }
+
+    // If viewer id exists, dedupe in Redis to avoid multiple increments
+    if (viewerId) {
+      const alreadyCounted = await this.redisService.hasCountedView('video', id, viewerId);
+      if (alreadyCounted) {
+        return { counted: false, reason: 'already_counted' };
+      }
+    }
+
+    const updated = await this.prisma.postgres.liveStream.update({
+      where: { id },
+      data: {
+        totalViews: { increment: 1 },
+      },
+      select: {
+        id: true,
+        totalViews: true,
+      },
+    });
+
+    if (viewerId) {
+      await this.redisService.markCountedView('video', id, viewerId, 30);
+    }
+
+    return { counted: true, totalViews: updated.totalViews, ratio };
   }
 
   // Update current viewers count
@@ -1354,6 +1417,235 @@ export class LivestreamService {
 
     // Remove score from final result
     return relatedVideos.map(({ score, ...video }) => video);
+  }
+
+  // Video Comment service methods
+  async saveVideoComment(
+    livestreamId: string,
+    studentId: string,
+    author: string,
+    authorAvatar: string | undefined,
+    content: string,
+  ) {
+    try {
+      const comment = await this.prisma.mongo.videoComment.create({
+        data: {
+          livestreamId,
+          studentId,
+          author,
+          authorAvatar: authorAvatar || null,
+          content,
+          likes: 0,
+          dislikes: 0,
+          likedBy: [],
+          dislikedBy: [],
+        },
+      });
+
+      this.logger.log(`Comment saved for livestream ${livestreamId} by student ${studentId}`);
+      return comment;
+    } catch (error) {
+      this.logger.error(`Failed to save video comment: ${error}`);
+      throw new BadRequestException('Failed to save video comment');
+    }
+  }
+
+  async getVideoComments(livestreamId: string, limit: number = 50) {
+    try {
+      const comments = await this.prisma.mongo.videoComment.findMany({
+        where: { livestreamId },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      });
+
+      return comments;
+    } catch (error) {
+      this.logger.error(`Failed to fetch video comments: ${error}`);
+      throw new BadRequestException('Failed to fetch video comments');
+    }
+  }
+
+  async addCommentReaction(
+    commentId: string,
+    studentId: string,
+    reactionType: 'like' | 'dislike',
+  ) {
+    try {
+      const comment = await this.prisma.mongo.videoComment.findUnique({
+        where: { id: commentId },
+      });
+
+      if (!comment) {
+        throw new NotFoundException('Comment not found');
+      }
+
+      let likedBy = [...(comment.likedBy || [])];
+      let dislikedBy = [...(comment.dislikedBy || [])];
+      let likes = comment.likes;
+      let dislikes = comment.dislikes;
+
+      if (reactionType === 'like') {
+        // If already liked, remove like
+        if (likedBy.includes(studentId)) {
+          likedBy = likedBy.filter((id) => id !== studentId);
+          likes = Math.max(0, likes - 1);
+        } else {
+          // Add like and remove dislike if exists
+          likedBy.push(studentId);
+          likes += 1;
+
+          if (dislikedBy.includes(studentId)) {
+            dislikedBy = dislikedBy.filter((id) => id !== studentId);
+            dislikes = Math.max(0, dislikes - 1);
+          }
+        }
+      } else if (reactionType === 'dislike') {
+        // If already disliked, remove dislike
+        if (dislikedBy.includes(studentId)) {
+          dislikedBy = dislikedBy.filter((id) => id !== studentId);
+          dislikes = Math.max(0, dislikes - 1);
+        } else {
+          // Add dislike and remove like if exists
+          dislikedBy.push(studentId);
+          dislikes += 1;
+
+          if (likedBy.includes(studentId)) {
+            likedBy = likedBy.filter((id) => id !== studentId);
+            likes = Math.max(0, likes - 1);
+          }
+        }
+      }
+
+      const updatedComment = await this.prisma.mongo.videoComment.update({
+        where: { id: commentId },
+        data: {
+          likes,
+          dislikes,
+          likedBy,
+          dislikedBy,
+        },
+      });
+
+      this.logger.log(`Reaction ${reactionType} added to comment ${commentId} by student ${studentId}`);
+      return updatedComment;
+    } catch (error) {
+      this.logger.error(`Failed to add comment reaction: ${error}`);
+      throw new BadRequestException('Failed to add comment reaction');
+    }
+  }
+
+  async deleteVideoComment(commentId: string, studentId: string) {
+    try {
+      const comment = await this.prisma.mongo.videoComment.findUnique({
+        where: { id: commentId },
+      });
+
+      if (!comment) {
+        throw new NotFoundException('Comment not found');
+      }
+
+      // Only the comment author or admin can delete
+      if (comment.studentId !== studentId) {
+        throw new UnauthorizedException('You can only delete your own comments');
+      }
+
+      await this.prisma.mongo.videoComment.delete({
+        where: { id: commentId },
+      });
+
+      this.logger.log(`Comment ${commentId} deleted by student ${studentId}`);
+      return { message: 'Comment deleted successfully' };
+    } catch (error) {
+      this.logger.error(`Failed to delete video comment: ${error}`);
+      throw new BadRequestException('Failed to delete video comment');
+    }
+  }
+
+  // Video Reaction (Like/Dislike) service methods
+  async saveVideoReaction(
+    livestreamId: string,
+    studentId: string,
+    reactionType: 'like' | 'dislike',
+  ) {
+    try {
+      // Check if reaction already exists
+      const existingReaction = await this.prisma.mongo.videoReaction.findUnique({
+        where: {
+          livestreamId_studentId: {
+            livestreamId,
+            studentId,
+          },
+        },
+      });
+
+      if (existingReaction) {
+        // If same reaction, remove it; if different, update it
+        if (existingReaction.reactionType === reactionType) {
+          await this.prisma.mongo.videoReaction.delete({
+            where: { id: existingReaction.id },
+          });
+          this.logger.log(`Reaction removed for video ${livestreamId} by student ${studentId}`);
+          return { reactionType: null };
+        } else {
+          // Update to new reaction type
+          const updated = await this.prisma.mongo.videoReaction.update({
+            where: { id: existingReaction.id },
+            data: { reactionType },
+          });
+          this.logger.log(`Reaction updated for video ${livestreamId} by student ${studentId}`);
+          return { reactionType: updated.reactionType };
+        }
+      }
+
+      // Create new reaction
+      const newReaction = await this.prisma.mongo.videoReaction.create({
+        data: {
+          livestreamId,
+          studentId,
+          reactionType,
+        },
+      });
+
+      this.logger.log(`Reaction saved for video ${livestreamId} by student ${studentId}`);
+      return { reactionType: newReaction.reactionType };
+    } catch (error) {
+      this.logger.error(`Failed to save video reaction: ${error}`);
+      throw new BadRequestException('Failed to save video reaction');
+    }
+  }
+
+  async getVideoReaction(livestreamId: string, studentId: string) {
+    try {
+      const reaction = await this.prisma.mongo.videoReaction.findUnique({
+        where: {
+          livestreamId_studentId: {
+            livestreamId,
+            studentId,
+          },
+        },
+      });
+
+      return reaction ? { reactionType: reaction.reactionType } : { reactionType: null };
+    } catch (error) {
+      this.logger.error(`Failed to fetch video reaction: ${error}`);
+      throw new BadRequestException('Failed to fetch video reaction');
+    }
+  }
+
+  async getVideoReactionStats(livestreamId: string) {
+    try {
+      const reactions = await this.prisma.mongo.videoReaction.findMany({
+        where: { livestreamId },
+      });
+
+      const likes = reactions.filter((r) => r.reactionType === 'like').length;
+      const dislikes = reactions.filter((r) => r.reactionType === 'dislike').length;
+
+      return { likes, dislikes };
+    } catch (error) {
+      this.logger.error(`Failed to fetch video reaction stats: ${error}`);
+      throw new BadRequestException('Failed to fetch video reaction stats');
+    }
   }
 
   private async getRecordingAiAnalysisDocument(recordingId: string): Promise<AiTranscriptSummaryDocument | null> {

@@ -21,6 +21,20 @@ import {
 
 const PrimaryColor = '161853'; // Xanh Đậm (màu chủ đạo mới)
 const SecondaryColor = 'EC255A'; // Đỏ/Hồng
+const STUDENT_INTEREST_OPTIONS = [
+  'Toan hoc',
+  'Lap trinh',
+  'Tieng Anh',
+  'Vat ly',
+  'Hoa hoc',
+  'Sinh hoc',
+  'Lich su',
+  'Dia ly',
+  'Van hoc',
+  'Ky nang mem',
+  'Data Science',
+  'AI/ML',
+];
 
 // Component cho các bước
 const steps = [
@@ -90,6 +104,7 @@ export default function RegisterModal({
     studentID: '',
     studentSchool: '',
     studentClass: '',
+    studentInterests: [] as string[],
   });
   const [formErrors, setFormErrors] = useState({
     fullName: '',
@@ -106,6 +121,7 @@ export default function RegisterModal({
     studentID: '',
     studentSchool: '',
     studentClass: '',
+    studentInterests: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -232,17 +248,45 @@ export default function RegisterModal({
       const studentIDError = !formData.studentID ? 'Please enter your student ID' : '';
       const studentSchoolError = !formData.studentSchool ? 'Please enter your school name' : '';
       const studentClassError = !formData.studentClass ? 'Please enter your class' : '';
+      const studentInterestsError = formData.studentInterests.length === 0
+        ? 'Please choose at least 1 interest for personalization'
+        : '';
       
       setFormErrors({
         ...formErrors,
         studentID: studentIDError,
         studentSchool: studentSchoolError,
         studentClass: studentClassError,
+        studentInterests: studentInterestsError,
       });
       
-      return !studentIDError && !studentSchoolError && !studentClassError;
+      return !studentIDError && !studentSchoolError && !studentClassError && !studentInterestsError;
     }
     return false;
+  };
+
+  const toggleStudentInterest = (topic: string) => {
+    const selected = formData.studentInterests;
+    const hasTopic = selected.includes(topic);
+
+    if (hasTopic) {
+      setFormData({
+        ...formData,
+        studentInterests: selected.filter((item) => item !== topic),
+      });
+      setFormErrors({ ...formErrors, studentInterests: '' });
+      return;
+    }
+
+    if (selected.length >= 5) {
+      return;
+    }
+
+    setFormData({
+      ...formData,
+      studentInterests: [...selected, topic],
+    });
+    setFormErrors({ ...formErrors, studentInterests: '' });
   };
 
   const handleNext = async () => {
@@ -276,6 +320,19 @@ export default function RegisterModal({
         });
         
         if (result.success) {
+          if (role === 'STUDENT') {
+            const pendingStudentProfile = {
+              interests: formData.studentInterests,
+              school: formData.studentSchool,
+              grade: formData.studentClass,
+            };
+
+            sessionStorage.setItem(
+              `pending-student-profile:${formData.email.toLowerCase()}`,
+              JSON.stringify(pendingStudentProfile),
+            );
+          }
+
           // Registration successful, move to OTP verification
           closeModal();
           openOTPModal(formData.email, 'registration');
@@ -798,6 +855,45 @@ export default function RegisterModal({
                 </div>
                 {formErrors.studentClass && (
                   <p className="mt-1 text-sm text-red-600">{formErrors.studentClass}</p>
+                )}
+              </div>
+
+              {/* Interests */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Top 5 Interests <span className="text-red-500">*</span>
+                </label>
+                <p className="text-xs text-gray-500 mb-3">
+                  Choose up to 5 topics so StreamLand can personalize your home feed right after account creation.
+                </p>
+
+                <div className="flex flex-wrap gap-2">
+                  {STUDENT_INTEREST_OPTIONS.map((topic) => {
+                    const selected = formData.studentInterests.includes(topic);
+                    const disabled = !selected && formData.studentInterests.length >= 5;
+
+                    return (
+                      <button
+                        key={topic}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => toggleStudentInterest(topic)}
+                        className={`px-3 py-1.5 rounded-full text-sm border transition-all duration-150 ${selected
+                          ? `bg-[#${PrimaryColor}] text-white border-[#${PrimaryColor}]`
+                          : `bg-white text-[#${PrimaryColor}] border-[#${PrimaryColor}]/30 hover:bg-[#${PrimaryColor}]/10`} ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      >
+                        {topic}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <p className="mt-2 text-xs text-gray-500">
+                  Selected {formData.studentInterests.length}/5
+                </p>
+
+                {formErrors.studentInterests && (
+                  <p className="mt-1 text-sm text-red-600">{formErrors.studentInterests}</p>
                 )}
               </div>
             </div>

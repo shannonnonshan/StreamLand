@@ -130,9 +130,12 @@ export class LivestreamController {
   }
 
   @Get('recorded/all')
-  async getRecordedLivestreams(@Query('limit') limit: string) {
+  async getRecordedLivestreams(
+    @Query('limit') limit: string,
+    @Query('category') category?: string,
+  ) {
     const limitNum = limit ? parseInt(limit, 10) : 20;
-    return await this.livestreamService.getRecordedLivestreams(limitNum);
+    return await this.livestreamService.getRecordedLivestreams(limitNum, category);
   }
 
   @Get('scheduled/upcoming')
@@ -201,6 +204,21 @@ export class LivestreamController {
   @Post(':id/increment-view')
   async incrementViewCount(@Param('id') id: string) {
     return await this.livestreamService.incrementViewCount(id);
+  }
+
+  @Post(':id/report-watch')
+  async reportWatch(
+    @Param('id') id: string,
+    @Body() body: { watchedSeconds?: number; duration?: number; viewerId?: string },
+    @Request() req: any,
+  ) {
+    const viewerId = req?.user?.sub || body?.viewerId;
+    return await this.livestreamService.reportWatch(
+      id,
+      viewerId,
+      body?.watchedSeconds,
+      body?.duration,
+    );
   }
 
   @Patch(':id/start')
@@ -529,5 +547,84 @@ export class LivestreamController {
   ) {
     const limitNum = limit ? parseInt(limit, 10) : 10;
     return await this.livestreamService.getRelatedVideos(id, limitNum);
+  }
+
+  // Comment Endpoints
+  @Post(':id/comments')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  async saveComment(
+    @Param('id') id: string,
+    @Body() body: { author: string; authorAvatar?: string; content: string },
+    @Request() req: any,
+  ) {
+    return await this.livestreamService.saveVideoComment(
+      id,
+      req.user.sub,
+      body.author,
+      body.authorAvatar,
+      body.content,
+    );
+  }
+
+  @Get(':id/comments')
+  async getComments(
+    @Param('id') id: string,
+    @Query('limit') limit: string,
+  ) {
+    const limitNum = limit ? parseInt(limit, 10) : 50;
+    return await this.livestreamService.getVideoComments(id, limitNum);
+  }
+
+  @Post('comments/:commentId/react')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async reactToComment(
+    @Param('commentId') commentId: string,
+    @Body() body: { reactionType: 'like' | 'dislike' },
+    @Request() req: any,
+  ) {
+    return await this.livestreamService.addCommentReaction(commentId, req.user.sub, body.reactionType);
+  }
+
+  @Delete('comments/:commentId')
+  @UseGuards(JwtAuthGuard)
+  async deleteComment(
+    @Param('commentId') commentId: string,
+    @Request() req: any,
+  ) {
+    return await this.livestreamService.deleteVideoComment(commentId, req.user.sub);
+  }
+
+  // Video Reaction Endpoints
+  @Post(':id/react')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async saveVideoReaction(
+    @Param('id') id: string,
+    @Body() body: { reactionType: 'like' | 'dislike' },
+    @Request() req: any,
+  ) {
+    return await this.livestreamService.saveVideoReaction(
+      id,
+      req.user.sub,
+      body.reactionType,
+    );
+  }
+
+  @Get(':id/user-reaction')
+  @UseGuards(JwtAuthGuard)
+  async getUserVideoReaction(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    return await this.livestreamService.getVideoReaction(id, req.user.sub);
+  }
+
+  @Get(':id/reaction-stats')
+  async getReactionStats(
+    @Param('id') id: string,
+  ) {
+    return await this.livestreamService.getVideoReactionStats(id);
   }
 }

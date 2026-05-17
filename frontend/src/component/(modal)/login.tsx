@@ -14,11 +14,19 @@ type LoginModalProps = {
   openRegisterModal: () => void;
   openForgotPasswordModal: () => void;
   openOTPModal?: (email: string, purpose: '2fa') => void;
+  stayOnCurrentPage?: boolean;
 };
 
 type NotificationType = 'success' | 'error' | null;
 
-export default function LoginModal({ isOpen, closeModal, openRegisterModal, openForgotPasswordModal, openOTPModal }: LoginModalProps) {
+export default function LoginModal({
+  isOpen,
+  closeModal,
+  openRegisterModal,
+  openForgotPasswordModal,
+  openOTPModal,
+  stayOnCurrentPage = false,
+}: LoginModalProps) {
   const router = useRouter();
   const { login, loginWithGoogle, loginWithGithub, loading } = useAuth();
   
@@ -106,11 +114,16 @@ export default function LoginModal({ isOpen, closeModal, openRegisterModal, open
       }
       
       if (result.success && result.user) {
+        if (stayOnCurrentPage) {
+          closeModal();
+          return;
+        }
+
         setNotification({
           type: 'success',
           message: 'Login successful!'
         });
-        
+
         // Redirect based on role
         setTimeout(() => {
           const userId = result.user?.id;

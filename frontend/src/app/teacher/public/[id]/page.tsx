@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useFollow } from "@/hooks/useFollow";
 import { useAuth } from "@/hooks/useAuth";
+import { getStudentRoute } from "@/utils/student";
 import toast, { Toaster } from 'react-hot-toast';
 import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
 
@@ -244,7 +245,7 @@ export default function PublicTeacherProfilePage() {
     if (video.status === 'LIVE') {
       router.push(`/student/livestream/${video.id}`);
     } else if (video.status === 'ENDED' && video.recordingUrl) {
-      router.push(`/student/video/${video.id}`);
+      router.push(getStudentRoute(`video/${video.id}`));
     } else if (video.status === 'SCHEDULED') {
       const scheduledTime = video.scheduledStartTime 
         ? new Date(video.scheduledStartTime).toLocaleString('en-US', {

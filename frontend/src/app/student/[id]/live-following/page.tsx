@@ -7,13 +7,15 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   UserPlusIcon,
-  CheckCircleIcon
+  CheckCircleIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
 import { motion } from 'framer-motion';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useFollow } from '@/hooks/useFollow';
 import Image from 'next/image';
+import { getStudentRoute } from '@/utils/student';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
@@ -58,6 +60,86 @@ interface Video {
   duration?: string;
   uploadedAt: string;
 }
+
+interface RecentHistoryVideo extends Video {
+  lastPosition: number;
+  progress: number;
+  watchedAt: string;
+}
+
+interface VideoProgressSnapshot {
+  videoId: string;
+  userId: string;
+  currentTime: number;
+  duration: number;
+  updatedAt: number;
+}
+
+interface WatchHistoryItem {
+  id: string;
+  livestreamId: string;
+  title: string;
+  thumbnailUrl?: string;
+  watchedAt: string;
+  duration: number;
+  lastPosition: number;
+  progress: number;
+  teacher: {
+    id: string;
+    fullName: string;
+    avatar?: string;
+  };
+}
+
+const getProgressStorageKey = (videoId: string, userId: string) =>
+  `streamland:video-progress:${userId}:${videoId}`;
+
+const getViewerIdForStorage = () => {
+  if (typeof window === 'undefined') return 'anon';
+
+  try {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      const parsed = JSON.parse(storedUser) as { id?: string; userId?: string; email?: string };
+      return parsed.id || parsed.userId || parsed.email || 'anon';
+    }
+  } catch {
+    // ignore invalid storage payloads
+  }
+
+  return 'anon';
+};
+
+const readVideoProgress = (videoId: string): VideoProgressSnapshot | null => {
+  if (typeof window === 'undefined') return null;
+
+  const viewerId = getViewerIdForStorage();
+  const key = getProgressStorageKey(videoId, viewerId);
+
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as VideoProgressSnapshot;
+    if (!parsed || typeof parsed.currentTime !== 'number' || typeof parsed.duration !== 'number') {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const getProgressRatio = (videoId: string, duration?: number) => {
+  const snapshot = readVideoProgress(videoId);
+  if (!snapshot) return 0;
+
+  const effectiveDuration = snapshot.duration || duration || 0;
+  if (!effectiveDuration || effectiveDuration <= 0) return 0;
+
+  return Math.max(0, Math.min(1, snapshot.currentTime / effectiveDuration));
+};
 
 function ChannelCard({ channel }: { channel: Teacher }) {
   const [isHovered, setIsHovered] = useState(false);
@@ -123,14 +205,16 @@ function ChannelCard({ channel }: { channel: Teacher }) {
 
 function VideoCard({ video, index = 0 }: { video: Livestream | Video; index?: number }) {
   const [isHovered, setIsHovered] = useState(false);
+  const [imageError, setImageError] = useState(false);
   const router = useRouter();
   const isLive = 'isLive' in video && video.isLive;
+  const progressRatio = !isLive ? getProgressRatio(video.id) : 0;
 
   const handleClick = () => {
     if (isLive) {
       router.push(`/student/livestream/${video.id}`);
     } else {
-      router.push(`/student/video/${video.id}`);
+      router.push(getStudentRoute(`video/${video.id}`));
     }
   };
 
@@ -140,7 +224,7 @@ function VideoCard({ video, index = 0 }: { video: Livestream | Video; index?: nu
     if (isLive) {
       router.prefetch(`/student/livestream/${video.id}`);
     } else {
-      router.prefetch(`/student/video/${video.id}`);
+      router.prefetch(getStudentRoute(`video/${video.id}`));
     }
   };
 
@@ -153,13 +237,13 @@ function VideoCard({ video, index = 0 }: { video: Livestream | Video; index?: nu
 
   return (
     <div
-      className="relative h-full w-full overflow-hidden rounded-xl bg-white shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-[1.02] cursor-pointer flex flex-col"
+      className={`w-full h-full bg-white rounded-xl overflow-hidden ${isHovered ? 'shadow-md' : 'shadow-sm'} transition-all duration-300 border border-gray-200 ${isHovered ? `border-[#${PrimaryColor}] border-opacity-40` : ''} cursor-pointer`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
     >
-      <div className="relative aspect-video bg-gray-200 flex-shrink-0">
-        {video.thumbnailUrl ? (
+      <div className="h-40 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden relative">
+        {video.thumbnailUrl && !imageError ? (
           <Image
             src={video.thumbnailUrl}
             alt={video.title}
@@ -167,18 +251,29 @@ function VideoCard({ video, index = 0 }: { video: Livestream | Video; index?: nu
             priority={index < 4}
             loading={index < 4 ? 'eager' : 'lazy'}
             className="object-cover"
-            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
+            onError={() => setImageError(true)}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-400 to-pink-500">
-            <PlayCircleIcon className="h-16 w-16 text-white opacity-50" />
+          <div className="flex flex-col items-center justify-center">
+            <PlayCircleIcon className={`h-12 w-12 transition-all duration-300 ${isHovered ? `text-[#${PrimaryColor}] scale-125 transform rotate-12` : 'text-gray-400'}`} />
+            <span className="text-xs text-gray-400 mt-2">No Thumbnail</span>
           </div>
         )}
 
         {isLive && (
-          <div className="absolute top-2 left-2 flex items-center space-x-1 bg-red-600 text-white px-2 py-1 rounded-md text-xs font-bold">
+          <div className="absolute top-3 left-3 flex items-center space-x-1 p-1 rounded-md text-xs font-bold text-white bg-[#EC255A]">
             <SignalIcon className="h-3 w-3 animate-pulse" />
             <span>LIVE</span>
+          </div>
+        )}
+
+        {!isLive && progressRatio > 0 && (
+          <div className="absolute left-0 right-0 bottom-0 h-[3px] bg-black/25">
+            <div
+              className="h-full bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.65)]"
+              style={{ width: `${(progressRatio * 100).toFixed(2)}%` }}
+            />
           </div>
         )}
 
@@ -187,42 +282,39 @@ function VideoCard({ video, index = 0 }: { video: Livestream | Video; index?: nu
             {video.duration}
           </div>
         )}
+      </div>
 
-        <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent text-white">
-          <p className="font-semibold text-sm line-clamp-1">{video.title}</p>
-          <div className="flex items-center text-xs mt-1">
+      <div className="p-3 flex justify-between items-center min-h-[4rem]">
+        <div className="flex flex-col flex-1 min-w-0">
+          <p className={`text-sm font-semibold text-[#${PrimaryColor}] transition-colors duration-300 line-clamp-2`}>
+            {video.title}
+          </p>
+          <div className="flex items-center text-xs mt-1 text-gray-600 min-w-0">
             {video.teacher.avatar ? (
               <Image
                 src={video.teacher.avatar}
                 alt={video.teacher.fullName}
                 width={20}
                 height={20}
-                className="rounded-full mr-2 border border-white object-cover"
+                className="rounded-full mr-2 border border-gray-200 object-cover flex-shrink-0"
               />
             ) : (
-              <div className="h-5 w-5 rounded-full bg-[#161853]/70 mr-2 border border-white flex items-center justify-center flex-shrink-0">
-                <span className="text-xs">{video.teacher.fullName.charAt(0)}</span>
+              <div className="h-5 w-5 rounded-full bg-[#161853]/10 mr-2 border border-gray-200 flex items-center justify-center flex-shrink-0">
+                <span className="text-xs text-[#161853]">{video.teacher.fullName.charAt(0)}</span>
               </div>
             )}
             <span className="font-medium truncate">{video.teacher.fullName}</span>
           </div>
-        </div>
-      </div>
-
-      <div className="p-3 flex justify-between items-center flex-shrink-0 min-h-[4rem]">
-        <div className="flex flex-col flex-1">
-          <span className={`text-xs font-medium text-[#${PrimaryColor}]`}>
-            {formatViews(video.viewCount)} views
-          </span>
-          {!isLive && 'uploadedAt' in video && (
-            <span className="text-xs text-gray-500 mt-0.5">
-              {new Date(video.uploadedAt).toLocaleDateString()}
+          <div className="flex items-center flex-wrap gap-x-2 gap-y-1 mt-1">
+            <span className={`text-xs font-medium text-[#${PrimaryColor}]`}>
+              {formatViews(video.viewCount)} views
             </span>
-          )}
-        </div>
-        <div className="flex items-center space-x-2 flex-shrink-0">
-          <HeartIcon className={`h-4 w-4 ${isHovered ? `text-[#${SecondaryColor}]` : `text-[#${PrimaryColor}]`} transition-colors duration-300`} />
-          <PlayCircleIcon className={`h-4 w-4 ${isHovered ? `text-[#${SecondaryColor}]` : `text-[#${PrimaryColor}]`} transition-colors duration-300`} />
+            {isLive ? (
+              <span className="text-xs text-gray-500">• live now</span>
+            ) : 'uploadedAt' in video ? (
+              <span className="text-xs text-gray-500">• {new Date(video.uploadedAt).toLocaleDateString()}</span>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
@@ -231,10 +323,11 @@ function VideoCard({ video, index = 0 }: { video: Livestream | Video; index?: nu
 
 export default function LiveFollowingPage() {
   const [isLoaded, setIsLoaded] = useState(false);
-  const [activeTab, setActiveTab] = useState<'all' | 'live' | 'videos'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'live' | 'videos' | 'history'>('all');
   const [followedChannels, setFollowedChannels] = useState<Teacher[]>([]);
   const [livestreams, setLivestreams] = useState<Livestream[]>([]);
   const [videos, setVideos] = useState<Video[]>([]);
+  const [recentHistory, setRecentHistory] = useState<RecentHistoryVideo[]>([]);
   const [loading, setLoading] = useState(true);
   const { getFollowedTeachers } = useFollow();
 
@@ -290,6 +383,51 @@ export default function LiveFollowingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const loadHistory = () => {
+      const viewerId = getViewerIdForStorage();
+      const keys = Object.keys(localStorage).filter((key) => key.startsWith(`streamland:video-progress:${viewerId}:`));
+
+      const snapshots = keys
+        .map((key) => {
+          try {
+            const raw = localStorage.getItem(key);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw) as VideoProgressSnapshot;
+            if (!parsed || typeof parsed.videoId !== 'string' || typeof parsed.currentTime !== 'number') return null;
+            return parsed;
+          } catch {
+            return null;
+          }
+        })
+        .filter((item): item is VideoProgressSnapshot => !!item)
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+      const historyItems: RecentHistoryVideo[] = snapshots
+        .map((snapshot) => {
+          const matchedVideo = videos.find((video) => video.id === snapshot.videoId);
+          if (!matchedVideo) return null;
+
+          return {
+            ...matchedVideo,
+            lastPosition: snapshot.currentTime,
+            progress: snapshot.duration > 0 ? Math.min(100, (snapshot.currentTime / snapshot.duration) * 100) : 0,
+            watchedAt: new Date(snapshot.updatedAt).toISOString(),
+          };
+        })
+        .filter((item): item is RecentHistoryVideo => !!item)
+        .slice(0, 12);
+
+      setRecentHistory(historyItems);
+    };
+
+    loadHistory();
+    window.addEventListener('storage', loadHistory);
+    return () => window.removeEventListener('storage', loadHistory);
+  }, [videos]);
+
   const fadeInUp = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
@@ -310,6 +448,7 @@ export default function LiveFollowingPage() {
   // FIXED: explicit checks so 'all' shows both lists
   const filteredLivestreams = activeTab === 'all' || activeTab === 'live' ? livestreams : [];
   const filteredVideos = activeTab === 'all' || activeTab === 'videos' ? videos : [];
+  const filteredHistory = activeTab === 'history' ? recentHistory : [];
 
   if (loading) {
     return (
@@ -357,6 +496,17 @@ export default function LiveFollowingPage() {
               <span className="flex items-center gap-2">
                 <PlayCircleIcon className="h-4 w-4" />
                 Videos ({videos.length})
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveTab('history')}
+              className={`px-6 py-3 text-sm font-medium transition-all duration-300 border-b-2 ${
+                activeTab === 'history' ? `text-[#${SecondaryColor}] border-[#${SecondaryColor}]` : 'text-gray-500 border-transparent hover:text-gray-700'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <ClockIcon className="h-4 w-4" />
+                History ({recentHistory.length})
               </span>
             </button>
           </div>
@@ -446,6 +596,35 @@ export default function LiveFollowingPage() {
                   className="h-full"
                   variants={fadeInUp} 
                   transition={{ delay: 0.05 * (index < 8 ? index : 8) }} 
+                  whileHover={{ y: -5, transition: { duration: 0.3 } }}
+                >
+                  <VideoCard video={video} index={index} />
+                </motion.div>
+              ))}
+            </div>
+          </motion.section>
+        )}
+
+        {/* HISTORY */}
+        {filteredHistory.length > 0 && (
+          <motion.section key={`history-section-${activeTab}`} variants={fadeInUp} className="mb-12">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center">
+                <h2 className={`text-xl font-bold text-[#${SecondaryColor}] mr-3 flex items-center gap-2`}>
+                  <ClockIcon className="h-5 w-5" />
+                  Recently Watched
+                </h2>
+                <span className="text-sm text-gray-500">{filteredHistory.length} videos</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 md:gap-6">
+              {filteredHistory.map((video, index) => (
+                <motion.div
+                  key={`history-${video.id}`}
+                  className="h-full"
+                  variants={fadeInUp}
+                  transition={{ delay: 0.05 * (index < 8 ? index : 8) }}
                   whileHover={{ y: -5, transition: { duration: 0.3 } }}
                 >
                   <VideoCard video={video} index={index} />

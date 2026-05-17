@@ -3,9 +3,10 @@ import { LivestreamController } from './livestream.controller';
 import { LivestreamService } from './livestream.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { R2StorageModule } from '../r2-storage/r2-storage.module';
+import { RedisModule } from '../redis/redis.module';
 
 @Module({
-  imports: [PrismaModule, R2StorageModule],
+  imports: [PrismaModule, R2StorageModule, RedisModule],
   controllers: [LivestreamController],
   providers: [LivestreamService],
   exports: [LivestreamService],

@@ -5,6 +5,7 @@ import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { LiveStreamStatus, ScheduleStatus } from '@prisma/client';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
+import { RedisService } from '../redis/redis.service';
 import { Readable } from 'stream';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class LivestreamService {
   constructor(
     private prisma: PrismaService,
     private r2StorageService: R2StorageService,
+    private redisService: RedisService,
   ) {}
 
   async createLivestream(createLivestreamDto: CreateLivestreamDto) {
@@ -445,7 +447,8 @@ export class LivestreamService {
         videoBuffer = Buffer.from(videoBase64, 'base64');
       } catch (decodeError) {
         console.error(`[Service] Failed to decode base64:`, decodeError);
-        throw new Error(`Invalid base64 data: ${decodeError.message}`);
+        const message = decodeError instanceof Error ? decodeError.message : 'Unknown decode error';
+        throw new Error(`Invalid base64 data: ${message}`);
       }
       
       console.log(`[Service] Video buffer decoded: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB (${videoBuffer.length} bytes)`);
@@ -1112,6 +1115,47 @@ export class LivestreamService {
         totalViews: { increment: 1 },
       },
     });
+  }
+
+  // Count a recorded-video view only when watched strictly more than 2/3 and dedupe by viewer
+  async reportWatch(id: string, viewerId?: string, watchedSeconds?: number, duration?: number) {
+    const watched = typeof watchedSeconds === 'number' ? watchedSeconds : 0;
+    const total = typeof duration === 'number' ? duration : 0;
+
+    if (total <= 0) {
+      return { counted: false, reason: 'invalid_duration' };
+    }
+
+    const ratio = watched / total;
+    // Business rule: only count when watched strictly greater than 2/3
+    if (ratio <= 2 / 3) {
+      return { counted: false, reason: 'below_threshold', ratio };
+    }
+
+    // If viewer id exists, dedupe in Redis to avoid multiple increments
+    if (viewerId) {
+      const alreadyCounted = await this.redisService.hasCountedView('video', id, viewerId);
+      if (alreadyCounted) {
+        return { counted: false, reason: 'already_counted' };
+      }
+    }
+
+    const updated = await this.prisma.postgres.liveStream.update({
+      where: { id },
+      data: {
+        totalViews: { increment: 1 },
+      },
+      select: {
+        id: true,
+        totalViews: true,
+      },
+    });
+
+    if (viewerId) {
+      await this.redisService.markCountedView('video', id, viewerId, 30);
+    }
+
+    return { counted: true, totalViews: updated.totalViews, ratio };
   }
 
   // Update current viewers count

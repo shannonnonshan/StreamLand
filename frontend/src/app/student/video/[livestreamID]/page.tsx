@@ -146,6 +146,7 @@ export default function VideoPlayerPage() {
   const pendingSeekRef = useRef<number | null>(null);
   const lastProgressPostRef = useRef(0);
   const restoreCompletedRef = useRef(false);
+  const reportWatchInFlightRef = useRef(false);
 
   const getViewerIdForStorage = () => {
     if (currentStudent?.id) return currentStudent.id;
@@ -516,9 +517,9 @@ export default function VideoPlayerPage() {
 
         // Report view when watched >= 2/3 for recorded videos only
         try {
-          if (!reportedView && video.duration && isFinite(video.duration) && video.duration > 0) {
+          if (!reportedView && !reportWatchInFlightRef.current && video.duration && isFinite(video.duration) && video.duration > 0) {
             const fraction = video.currentTime / video.duration;
-            if (fraction >= 2 / 3) {
+            if (fraction > 2 / 3) {
               // Generate or reuse anonymous viewer id for unauthenticated users
               const token = localStorage.getItem('accessToken');
               let viewerId: string | undefined = undefined;
@@ -532,6 +533,7 @@ export default function VideoPlayerPage() {
 
               // Send report (do not await to avoid blocking UI)
               (async () => {
+                reportWatchInFlightRef.current = true;
                 try {
                   const body: any = { watchedSeconds: Math.floor(video.currentTime), duration: Math.floor(video.duration) };
                   if (viewerId) body.viewerId = viewerId;
@@ -549,11 +551,15 @@ export default function VideoPlayerPage() {
                       console.log('[Video] View counted on server', data);
                     } else {
                       console.log('[Video] Reported but not counted:', data);
-                      setReportedView(true); // mark reported to avoid repeat even if not counted
+                      if (data?.reason === 'already_counted') {
+                        setReportedView(true);
+                      }
                     }
                   }
                 } catch (err) {
                   console.error('Failed to report watch:', err);
+                } finally {
+                  reportWatchInFlightRef.current = false;
                 }
               })();
             }

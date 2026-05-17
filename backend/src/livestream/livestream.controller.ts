@@ -148,6 +148,21 @@ export class LivestreamController {
     return await this.livestreamService.incrementViewCount(id);
   }
 
+  @Post(':id/report-watch')
+  async reportWatch(
+    @Param('id') id: string,
+    @Body() body: { watchedSeconds?: number; duration?: number; viewerId?: string },
+    @Request() req: any,
+  ) {
+    const viewerId = req?.user?.sub || body?.viewerId;
+    return await this.livestreamService.reportWatch(
+      id,
+      viewerId,
+      body?.watchedSeconds,
+      body?.duration,
+    );
+  }
+
   @Patch(':id/start')
   @UseGuards(JwtAuthGuard)
   async startLivestream(

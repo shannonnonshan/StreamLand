@@ -2,6 +2,7 @@
 import { MagnifyingGlassIcon, XMarkIcon, ChevronDownIcon, UserCircleIcon, ShieldCheckIcon, ArrowRightOnRectangleIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Image from 'next/image';
 import LoginModal from '@/component/(modal)/login';
 import RegisterModal from '@/component/(modal)/register';
@@ -28,6 +29,17 @@ interface Teacher {
   profilePicture?: string;
 }
 
+interface SearchResult {
+  id: string;
+  title: string;
+  description?: string;
+  teacherName?: string;
+  totalViews?: number;
+  status?: string;
+  type: string;
+  score?: number;
+}
+
 export default function Header() {
   const router = useRouter();
   const { user, isAuthenticated, logout } = useAuth();
@@ -45,12 +57,50 @@ export default function Header() {
   const [voiceFinal, setVoiceFinal] = useState('');
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [filteredTeachers, setFilteredTeachers] = useState<Teacher[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+
+  const searchApiBaseUrl = process.env.NEXT_PUBLIC_SEARCH_API_URL || 'http://127.0.0.1:8000';
+
+  const getHistoryStorageKey = () => `streamland:search-history:${user?.id || 'guest'}`;
+
+  const loadSearchHistory = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(getHistoryStorageKey());
+      const parsed = raw ? (JSON.parse(raw) as string[]) : [];
+      setSearchHistory(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setSearchHistory([]);
+    }
+  };
+
+  const addSearchHistory = (query: string) => {
+    if (typeof window === 'undefined') return;
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    const key = getHistoryStorageKey();
+    const existing = searchHistory.filter((item) => item.toLowerCase() !== trimmed.toLowerCase());
+    const nextHistory = [trimmed, ...existing].slice(0, 10);
+    setSearchHistory(nextHistory);
+    localStorage.setItem(key, JSON.stringify(nextHistory));
+  };
+
+  const clearSearchHistory = () => {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem(getHistoryStorageKey());
+    setSearchHistory([]);
+  };
 
   // Fetch all teachers on mount
   useEffect(() => {
@@ -148,28 +198,142 @@ export default function Header() {
       searchInputRef.current.focus();
     }
   }, [isSearchOpen]);
+
+  useEffect(() => {
+    if (isSearchOpen) {
+      loadSearchHistory();
+    }
+  }, [isSearchOpen, user?.id]);
   
-  const applySearchQuery = (query: string) => {
-    setSearchQuery(query);
-    
+  const filterTeachersLocally = (query: string) => {
     if (query.trim() === '') {
       setFilteredTeachers(teachers);
       return;
     }
-    
-    // Split query into words and filter
+
     const queryWords = query.toLowerCase().trim().split(/\s+/);
-    
     const filtered = teachers.filter(teacher => {
       const teacherName = teacher.name.toLowerCase();
       const teacherBio = (teacher.bio || '').toLowerCase();
       const searchableText = `${teacherName} ${teacherBio}`;
-      
-      // Match if ALL query words are found in teacher data
       return queryWords.every(word => searchableText.includes(word));
     });
-    
+
     setFilteredTeachers(filtered);
+  };
+
+  const normalizeSearchResults = (payload: any): SearchResult[] => {
+    const rawResults = Array.isArray(payload)
+      ? payload
+      : payload?.results || payload?.data || payload?.items || [];
+
+    if (!Array.isArray(rawResults)) return [];
+
+    return rawResults
+      .map((item: any) => {
+        const metadata = item?.metadata ?? item ?? {};
+        const title = metadata?.title ?? metadata?.name ?? metadata?.content ?? '';
+
+        if (!metadata?.id || !title) return null;
+
+        return {
+          id: String(metadata.id),
+          title: String(title),
+          description: metadata?.description ?? '',
+          teacherName: metadata?.teacher_name ?? metadata?.teacherName ?? '',
+          totalViews: typeof metadata?.totalViews === 'number' ? metadata.totalViews : undefined,
+          status: metadata?.status ?? undefined,
+          type: metadata?.type ?? 'video',
+          score: typeof item?.score === 'number' ? item.score : undefined,
+        } as SearchResult;
+      })
+      .filter((result: SearchResult | null): result is SearchResult => !!result);
+  };
+
+  const requestSearch = async (query: string, signal: AbortSignal) => {
+    const params = new URLSearchParams({ query });
+    const response = await fetch(`${searchApiBaseUrl}/search?${params.toString()}`, {
+      method: 'POST',
+      signal,
+    });
+
+    if (response.ok) {
+      return response.json();
+    }
+
+    if (response.status === 404 || response.status === 405) {
+      const fallbackResponse = await fetch(`${searchApiBaseUrl}/search?${params.toString()}`, {
+        method: 'GET',
+        signal,
+      });
+
+      if (!fallbackResponse.ok) {
+        throw new Error('Search request failed');
+      }
+
+      return fallbackResponse.json();
+    }
+
+    throw new Error('Search request failed');
+  };
+
+  const runSearch = async (query: string) => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      setFilteredTeachers(teachers);
+      setSearchResults([]);
+      return;
+    }
+
+    if (searchAbortRef.current) {
+      searchAbortRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    setIsSearchLoading(true);
+
+    try {
+      const payload = await requestSearch(trimmedQuery, controller.signal);
+      const normalizedResults = normalizeSearchResults(payload);
+
+      if (normalizedResults.length > 0) {
+        setSearchResults(normalizedResults);
+      } else {
+        setSearchResults([]);
+        filterTeachersLocally(trimmedQuery);
+      }
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') {
+        setSearchResults([]);
+        filterTeachersLocally(trimmedQuery);
+      }
+    } finally {
+      setIsSearchLoading(false);
+    }
+  };
+
+  const openSearchResultsPage = (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    const viewerId = user?.id || 'guest';
+    const params = new URLSearchParams({ query: trimmed });
+    router.push(`/student/${viewerId}/search?${params.toString()}`);
+    setIsSearchOpen(false);
+    addSearchHistory(trimmed);
+  };
+
+  const applySearchQuery = (query: string) => {
+    setSearchQuery(query);
+
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+
+    searchDebounceRef.current = setTimeout(() => {
+      runSearch(query);
+    }, 300);
   };
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -240,6 +404,12 @@ export default function Header() {
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
+      }
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+      if (searchAbortRef.current) {
+        searchAbortRef.current.abort();
       }
     };
   }, []);
@@ -333,12 +503,14 @@ export default function Header() {
     }
   };
   
+  const dashboardHref = `/student/${user?.id || 'guest'}/dashboard`;
+
   return (
     <header className={`fixed top-0 left-0 right-0 h-16 bg-white/80 backdrop-blur-md flex items-center justify-between px-8 shadow-sm border-b border-gray-100/50 z-40`}>
       {/* Logo on left */}
-      <div className="flex items-center">
+      <Link href={dashboardHref} className="flex items-center cursor-pointer" aria-label="Go to dashboard">
         <Image src="/logo.png" alt="StreamLand Logo" width={32} height={32} className="h-8 w-auto" />
-      </div>
+      </Link>
       
       {/* Right side icons */}
       <div className="flex items-center space-x-4">
@@ -371,6 +543,12 @@ export default function Header() {
                       className="w-full p-2 bg-transparent border-none focus:outline-none text-sm"
                       value={searchQuery}
                       onChange={handleSearch}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          openSearchResultsPage(searchQuery);
+                        }
+                      }}
                     />
                     <button
                       onClick={() => {
@@ -433,7 +611,41 @@ export default function Header() {
                 </div>
 
                 <div className="max-h-80 overflow-y-auto">
-                  {filteredTeachers.length > 0 ? (
+                  {searchQuery && searchResults.length > 0 ? (
+                    <div>
+                      {searchResults.map((result) => (
+                        <div
+                          key={`${result.type}-${result.id}`}
+                          className="px-4 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100"
+                          onClick={() => openSearchResultsPage(result.title)}
+                        >
+                          <p className="text-sm font-medium text-[#161853] truncate">{result.title}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : !searchQuery && searchHistory.length > 0 ? (
+                    <div>
+                      <div className="flex items-center justify-between px-4 py-2 text-xs text-gray-500 border-b border-gray-100">
+                        <span>Recent searches</span>
+                        <button
+                          type="button"
+                          onClick={clearSearchHistory}
+                          className="text-[#161853] hover:underline"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      {searchHistory.map((term) => (
+                        <div
+                          key={term}
+                          className="px-4 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100"
+                          onClick={() => openSearchResultsPage(term)}
+                        >
+                          <p className="text-sm font-medium text-[#161853] truncate">{term}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : !searchQuery && filteredTeachers.length > 0 ? (
                     <div>
                       {filteredTeachers.map((teacher) => (
                         <div 
@@ -473,15 +685,21 @@ export default function Header() {
                     </div>
                   ) : (
                     <div className="p-4 text-center text-gray-500">
-                      {searchQuery ? 'No teachers found.' : 'Start typing to search teachers...'}
+                      {isSearchLoading
+                        ? 'Searching...'
+                        : searchQuery
+                          ? 'No results found.'
+                          : 'Start typing to search teachers...'}
                     </div>
                   )}
                 </div>
                 
-                {filteredTeachers.length > 0 && (
+                {(searchQuery ? searchResults.length > 0 : filteredTeachers.length > 0) && (
                   <div className="p-2 text-center border-t border-gray-100">
                     <p className="text-xs text-gray-500">
-                      {filteredTeachers.length} teacher{filteredTeachers.length !== 1 ? 's' : ''} found
+                      {searchQuery
+                        ? `${searchResults.length} result${searchResults.length !== 1 ? 's' : ''} found`
+                        : `${filteredTeachers.length} teacher${filteredTeachers.length !== 1 ? 's' : ''} found`}
                     </p>
                   </div>
                 )}

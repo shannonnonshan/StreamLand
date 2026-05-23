@@ -15,6 +15,14 @@ export class DocumentController {
     return this.documentService.getDocumentAiAnalysis(documentId, req.user);
   }
 
+  @Get(':id/moderation')
+  async getDocumentModeration(
+    @Param('id') documentId: string,
+    @Request() req: { user: { sub: string; role?: string } },
+  ) {
+    return this.documentService.getDocumentModeration(documentId, req.user);
+  }
+
   @Post(':id/transcript')
   async generateDocumentTranscript(
     @Param('id') documentId: string,
@@ -22,5 +30,14 @@ export class DocumentController {
     @Request() req: { user: { sub: string; role?: string } },
   ) {
     return this.documentService.generateDocumentTranscript(documentId, !!body?.force, req.user);
+  }
+
+  @Post(':id/summary')
+  async generateDocumentSummary(
+    @Param('id') documentId: string,
+    @Body() body: { force?: boolean },
+    @Request() req: { user: { sub: string; role?: string } },
+  ) {
+    return this.documentService.generateDocumentSummary(documentId, !!body?.force, req.user);
   }
 }

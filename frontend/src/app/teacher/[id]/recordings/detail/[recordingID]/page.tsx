@@ -8,6 +8,21 @@ import { getLivestreamById, updateLivestreamVisibility } from "@/lib/api/teacher
 import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
 import TranscriptSummaryStudio from "@/component/shared/TranscriptSummaryStudio";
 
+const recordingDateFormatter = new Intl.DateTimeFormat("en-US", {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+const formatRecordingDate = (value?: string) => {
+  if (!value) {
+    return "";
+  }
+
+  return recordingDateFormatter.format(new Date(value));
+};
+
 interface LiveStream {
   id: string;
   teacherId: string;
@@ -212,7 +227,7 @@ export default function RecordingDetailPage() {
               <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-6">
                 <div className="flex items-center gap-2">
                   <Calendar size={16} className="text-[#292C6D]" />
-                  <span>{new Date(recording.endedAt || recording.createdAt).toLocaleDateString()}</span>
+                  <span>{formatRecordingDate(recording.endedAt || recording.createdAt)}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock size={16} className="text-[#292C6D]" />
@@ -318,7 +333,7 @@ export default function RecordingDetailPage() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600">Date</span>
-                  <span className="font-semibold text-gray-900">{new Date(recording.endedAt || recording.createdAt).toLocaleDateString()}</span>
+                  <span className="font-semibold text-gray-900">{formatRecordingDate(recording.endedAt || recording.createdAt)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600">Duration</span>
@@ -390,7 +405,7 @@ export default function RecordingDetailPage() {
                           <h4 className="font-medium text-sm text-gray-900 line-clamp-2 group-hover:text-[#292C6D] transition-colors">
                             {rec.title}
                           </h4>
-                          <p className="text-xs text-gray-500 mt-1">{new Date(rec.endedAt || rec.createdAt).toLocaleDateString()}</p>
+                          <p className="text-xs text-gray-500 mt-1">{formatRecordingDate(rec.endedAt || rec.createdAt)}</p>
                         </div>
                       </div>
                     ))}

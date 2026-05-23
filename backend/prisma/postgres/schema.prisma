@@ -25,6 +25,7 @@ model User {
   location         String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
+  documents        Document[]
   livestreams      LiveStream[]
   studentProfile   StudentProfile?
   teacherProfile   TeacherProfile?
@@ -105,32 +106,32 @@ model FollowedTeacher {
 }
 
 model LiveStream {
-  id             String           @id @default(uuid())
+  id             String                  @id @default(uuid())
   teacherId      String
   title          String
   description    String?
   thumbnail      String?
-  status         LiveStreamStatus @default(SCHEDULED)
+  status         LiveStreamStatus        @default(SCHEDULED)
   recordingUrl   String?
   scheduledAt    DateTime?
   startedAt      DateTime?
   endedAt        DateTime?
-  currentViewers Int              @default(0)
-  totalViews     Int              @default(0)
-  peakViewers    Int              @default(0)
-  duration       Int              @default(0)
-  isRecorded     Boolean          @default(true)
-  isApprove      RecordingApprovalStatus @default(FALSE)
-  isPublic       Boolean          @default(true)
-  allowComments  Boolean          @default(true)
-  allowQuestions Boolean          @default(true)
+  currentViewers Int                     @default(0)
+  totalViews     Int                     @default(0)
+  peakViewers    Int                     @default(0)
+  duration       Int                     @default(0)
+  isRecorded     Boolean                 @default(true)
+  isPublic       Boolean                 @default(true)
+  allowComments  Boolean                 @default(true)
+  allowQuestions Boolean                 @default(true)
   maxViewers     Int?
-  chatMode       ChatMode         @default(EVERYONE)
+  chatMode       ChatMode                @default(EVERYONE)
   analyticsId    String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
   category       String?
-  teacher        User             @relation(fields: [teacherId], references: [id])
+  isApprove      RecordingApprovalStatus @default(FALSE)
+  teacher        User                    @relation(fields: [teacherId], references: [id])
   schedule       Schedule?
   tags           Tag[]
 
@@ -141,18 +142,20 @@ model LiveStream {
 }
 
 model Document {
-  id          String   @id @default(uuid())
+  id          String                  @id @default(uuid())
   title       String
   description String?
   fileUrl     String
   fileType    String
   fileSize    Int
   mimeType    String
-  uploadedAt  DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  uploadedAt  DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
   fileName    String
   teacherId   String
   thumbnail   String?
+  isApprove   RecordingApprovalStatus @default(FALSE)
+  teacher     User                    @relation(fields: [teacherId], references: [id])
 
   @@index([fileType])
   @@index([teacherId])

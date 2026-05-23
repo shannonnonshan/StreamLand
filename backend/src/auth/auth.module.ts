@@ -20,7 +20,7 @@ import { R2StorageModule } from '../r2-storage/r2-storage.module';
     JwtModule.register({
       secret:
         process.env.JWT_SECRET || 'your-secret-key-change-this-in-production',
-      signOptions: { expiresIn: '15m' },
+      signOptions: { expiresIn: '30m' },
     }),
   ],
   controllers: [AuthController],

@@ -17,7 +17,7 @@ import * as path from 'path';
 
 interface AiTranscriptSummaryDocument {
   id?: string;
-  type: 'recording' | 'document';
+  type: 'LIVESTREAM' | 'DOCUMENT';
   recordingId?: string;
   documentId?: string;
   transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
@@ -25,17 +25,37 @@ interface AiTranscriptSummaryDocument {
   transcript?: Prisma.JsonValue;
   summary?: string;
   audioUrl?: string;
+  toxicWords?: string[];
+  validationRate?: number;
+  moderationLabel?: string | null;
+  moderationCategories?: string[];
   transcriptGeneratedAt?: Date;
   summaryGeneratedAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
+export interface DocumentAiAnalysisResponse {
+  documentId: string;
+  transcript: Prisma.JsonValue | null;
+  summary: string | null;
+  audioUrl: string | null;
+  toxicWords: string[];
+  validationRate: number;
+  moderationLabel: string | null;
+  moderationCategories: string[];
+  transcriptStatus: 'idle' | 'processing' | 'success' | 'error';
+  transcriptError: string | null;
+  transcriptGeneratedAt: Date | null;
+  summaryGeneratedAt: Date | null;
+  cached?: boolean;
+}
+
 @Injectable()
 export class DocumentService {
   private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
   private readonly logger = new Logger(DocumentService.name);
-  private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
+  private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
 
   constructor(
     private prisma: PrismaService,
@@ -45,7 +65,7 @@ export class DocumentService {
   private async getDocumentAiAnalysisDocument(documentId: string): Promise<AiTranscriptSummaryDocument | null> {
     const result = await this.prisma.mongo.$runCommandRaw({
       find: this.aiTranscriptSummaryCollection,
-      filter: { type: 'document', documentId },
+      filter: { type: 'DOCUMENT', documentId },
       limit: 1,
     });
 
@@ -61,11 +81,11 @@ export class DocumentService {
       update: this.aiTranscriptSummaryCollection,
       updates: [
         {
-          q: { type: 'document', documentId },
+          q: { type: 'DOCUMENT', documentId },
           u: {
             $set: {
               id: documentId,
-              type: 'document',
+              type: 'DOCUMENT',
               documentId,
               recordingId: null,
               ...payload,
@@ -73,7 +93,7 @@ export class DocumentService {
             },
             $setOnInsert: {
               id: documentId,
-              type: 'document',
+              type: 'DOCUMENT',
               documentId,
               recordingId: null,
               createdAt: new Date(),
@@ -151,15 +171,27 @@ export class DocumentService {
     return document;
   }
 
-  async getDocumentAiAnalysis(documentId: string, user: { sub: string; role?: string }) {
+  async getDocumentAiAnalysis(
+    documentId: string,
+    user: { sub: string; role?: string },
+    autoTranscribe: boolean = true,
+  ): Promise<DocumentAiAnalysisResponse> {
     await this.assertDocumentAccess(documentId, user);
     const analysis = await this.getDocumentAiAnalysisDocument(documentId);
+
+    if (autoTranscribe && (!analysis || !analysis.transcript)) {
+      return await this.generateDocumentTranscript(documentId, false, user);
+    }
 
     return {
       documentId,
       transcript: analysis?.transcript || null,
       summary: analysis?.summary || null,
       audioUrl: analysis?.audioUrl || null,
+      toxicWords: analysis?.toxicWords || [],
+      validationRate: analysis?.validationRate ?? 0,
+      moderationLabel: analysis?.moderationLabel || null,
+      moderationCategories: analysis?.moderationCategories || [],
       transcriptStatus: analysis?.transcriptStatus || 'idle',
       transcriptError: analysis?.transcriptError || null,
       transcriptGeneratedAt: analysis?.transcriptGeneratedAt || null,
@@ -167,11 +199,43 @@ export class DocumentService {
     };
   }
 
+  async getDocumentModeration(documentId: string, user: { sub: string; role?: string }) {
+    const analysis = await this.getDocumentAiAnalysis(documentId, user, false);
+    const transcriptText = this.getTranscriptText(analysis.transcript);
+    if (transcriptText) {
+      this.logger.log(`[Moderation] Document ${documentId} - invoking moderation API; textLen=${transcriptText.length}`);
+    }
+    const moderationResult = transcriptText ? await this.callModerationApi(transcriptText) : null;
+
+    if (moderationResult) {
+      const { score, toxic_word, label, categories } = moderationResult;
+
+      return {
+        ...analysis,
+        score: typeof score === 'number' ? score : 0,
+        toxicWords: toxic_word || analysis.toxicWords || [],
+        label: label || null,
+        categories: categories || [],
+        text: transcriptText,
+      };
+    }
+
+    return {
+      ...analysis,
+      score: analysis.validationRate ?? 0,
+      toxicWords: analysis.toxicWords || [],
+      label: analysis.moderationLabel || null,
+      categories: analysis.moderationCategories || [],
+      text: transcriptText,
+    };
+  }
+
   async generateDocumentTranscript(
     documentId: string,
     force: boolean,
     user: { sub: string; role?: string },
-  ) {
+  ): Promise<DocumentAiAnalysisResponse> {
+    this.logger.log(`[Transcribe] generateDocumentTranscript start documentId=${documentId} force=${force}`);
     const document = await this.assertDocumentAccess(documentId, user);
 
     if (!this.isTranscribable(document.mimeType, document.fileType)) {
@@ -179,16 +243,44 @@ export class DocumentService {
     }
 
     const existing = await this.getDocumentAiAnalysisDocument(documentId);
+    this.logger.debug(`[Transcribe] existing transcript present=${!!existing?.transcript} status=${existing?.transcriptStatus}`);
     if (!force && existing?.transcript) {
+      try {
+        await this.generateDocumentSummary(documentId, false, user);
+      } catch (summaryErr) {
+        this.logger.warn('Summary call failed', String(summaryErr));
+      }
+
+      try {
+        const transcriptText = this.getTranscriptText(existing.transcript);
+        if (transcriptText) {
+          this.logger.log(`[Moderation] Document ${documentId} (existing) - invoking moderation API; textLen=${transcriptText.length}`);
+        }
+        const moderationResult = await this.callModerationApi(transcriptText);
+
+        if (moderationResult) {
+          const { score, toxic_word, label, categories } = moderationResult;
+
+          await this.upsertDocumentAiAnalysis(documentId, {
+            toxicWords: toxic_word || [],
+            validationRate: typeof score === 'number' ? score : 0,
+            moderationLabel: label || null,
+            moderationCategories: categories || [],
+          });
+        }
+      } catch (modErr) {
+        this.logger.warn('Moderation call failed', String(modErr));
+      }
+
       return {
-        ...(await this.getDocumentAiAnalysis(documentId, user)),
+        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
         cached: true,
       };
     }
 
     if (!force && existing?.transcriptStatus === 'processing') {
       return {
-        ...(await this.getDocumentAiAnalysis(documentId, user)),
+        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
         cached: true,
       };
     }
@@ -268,7 +360,7 @@ export class DocumentService {
 
       // Stream transcribe response (handles heartbeats and long processing time)
       const aiResponse = await (await import('../utils/aiFetch')).logStreamingTranscribe(
-        `${this.localAiBaseUrl}/transcribe/replicate`,
+        `${this.localAiBaseUrl}/transcribe`,
         {
           method: 'POST',
           body: formData,
@@ -296,8 +388,10 @@ export class DocumentService {
         transcriptGeneratedAt: new Date(),
       });
 
+      await this.generateDocumentSummary(documentId, false, user);
+
       return {
-        ...(await this.getDocumentAiAnalysis(documentId, user)),
+        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
         cached: false,
       };
     } catch (err: unknown) {
@@ -307,6 +401,104 @@ export class DocumentService {
       }).catch(() => undefined);
       throw err;
     }
+  }
+
+  async generateDocumentSummary(
+    documentId: string,
+    force: boolean,
+    user: { sub: string; role?: string },
+  ): Promise<DocumentAiAnalysisResponse> {
+    const document = await this.assertDocumentAccess(documentId, user);
+
+    if (!this.isTranscribable(document.mimeType, document.fileType)) {
+      throw new BadRequestException('Document type is not supported for summarization');
+    }
+
+    const existing = await this.getDocumentAiAnalysisDocument(documentId);
+    const shouldModerate = true;
+
+    let transcript = existing?.transcript || null;
+    if (!transcript) {
+      return await this.generateDocumentTranscript(documentId, false, user);
+    }
+
+    const transcriptText = this.getTranscriptText(transcript);
+    if (!transcriptText) {
+      throw new BadRequestException('Transcript is required before summarizing');
+    }
+
+    if (transcriptText) {
+      this.logger.log(`[Moderation] Document ${documentId} - invoking moderation API during summarization (will call after summarize); textLen=${transcriptText.length}`);
+    }
+
+    const aiResponse = await fetch(`${this.localAiBaseUrl}/summarize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: transcriptText }),
+    });
+
+    if (!aiResponse.ok) {
+      const errorBody = await aiResponse.text();
+      throw new BadRequestException(`Summarize service error (${aiResponse.status}): ${errorBody}`);
+    }
+
+    const aiPayload = await aiResponse.json();
+    const summary = this.extractSummaryFromPayload(aiPayload);
+
+    if (!summary) {
+      throw new BadRequestException('Summarize service returned empty summary');
+    }
+
+    await this.upsertDocumentAiAnalysis(documentId, {
+      summary,
+      summaryGeneratedAt: new Date(),
+    });
+
+    if (shouldModerate) {
+      try {
+        const transcriptText = this.getTranscriptText(transcript);
+        if (transcriptText) {
+          this.logger.log(`[Moderation] Document ${documentId} - invoking moderation API after summarization; textLen=${transcriptText.length}`);
+        }
+        const moderationResult = await this.callModerationApi(transcriptText);
+
+        if (moderationResult) {
+          const { score, toxic_word, label, categories } = moderationResult;
+
+          await this.upsertDocumentAiAnalysis(documentId, {
+            toxicWords: toxic_word || [],
+            validationRate: typeof score === 'number' ? score : 0,
+            moderationLabel: label || null,
+            moderationCategories: categories || [],
+          });
+
+          if (!transcriptText || transcriptText.length === 0) {
+            await this.prisma.postgres.document.update({
+              where: { id: documentId },
+              data: {
+                isApprove: 'TRUE',
+              },
+            }).catch(() => undefined);
+          } else if (score >= 0.5) {
+            await this.prisma.postgres.document.update({
+              where: { id: documentId },
+              data: {
+                isApprove: 'REJECTED',
+              },
+            }).catch(() => undefined);
+          }
+        }
+      } catch (modErr) {
+        this.logger.warn('Moderation call failed', String(modErr));
+      }
+    }
+
+    return {
+      ...(await this.getDocumentAiAnalysis(documentId, user, false)),
+      cached: false,
+    };
   }
 
   private extractTranscriptFromPayload(payload: unknown): Prisma.JsonValue | null {
@@ -334,6 +526,68 @@ export class DocumentService {
     return null;
   }
 
+  private getTranscriptText(transcript: Prisma.JsonValue | null | undefined): string | null {
+    if (typeof transcript === 'string') {
+      return transcript.trim() || null;
+    }
+
+    if (!transcript) {
+      return null;
+    }
+
+    if (typeof transcript === 'object') {
+      const data = transcript as Record<string, unknown>;
+      const candidate = data.text ?? data.transcript ?? data.result;
+      if (typeof candidate === 'string') {
+        return candidate.trim() || null;
+      }
+    }
+
+    try {
+      return JSON.stringify(transcript);
+    } catch {
+      return null;
+    }
+  }
+
+  private async callModerationApi(text: string | null | undefined) {
+    const api = `${this.localAiBaseUrl}/moderation/text`;
+    try {
+      const payload = { text: text || '', rewrite: true };
+      this.logger.log(`[Moderation] POST ${api} | payloadLen=${(text || '').length}`);
+
+      const res = await fetch(api, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const respText = await res.text();
+      this.logger.log(`[Moderation] Response status=${res.status}`);
+      if (respText && respText.length > 0) {
+        const preview = respText.length > 1000 ? `${respText.substring(0, 1000)}...` : respText;
+        this.logger.debug(`[Moderation] Response body preview: ${preview}`);
+      }
+
+      if (!res.ok) {
+        this.logger.warn(`[Moderation] Non-ok response from AI moderation: ${res.status}`);
+        return null;
+      }
+
+      let data: any = null;
+      try {
+        data = respText ? JSON.parse(respText) : null;
+      } catch (parseErr) {
+        this.logger.warn('[Moderation] Failed to parse JSON response', String(parseErr));
+      }
+
+      return data?.moderation || null;
+    } catch (err) {
+      this.logger.error('[Moderation] call failed', err as any);
+      return null;
+    }
+  }
+
   private extractAiErrorFromPayload(payload: unknown): string | null {
     if (!payload || typeof payload !== 'object') {
       return null;
@@ -358,5 +612,23 @@ export class DocumentService {
     }
 
     return 'Unknown error from transcribe service';
+  }
+
+  private extractSummaryFromPayload(payload: unknown): string | null {
+    if (typeof payload === 'string') {
+      return payload.trim() || null;
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const data = payload as Record<string, unknown>;
+    const summaryCandidate = data.summary ?? data.result ?? data.text;
+    if (typeof summaryCandidate === 'string') {
+      return summaryCandidate.trim() || null;
+    }
+
+    return null;
   }
 }

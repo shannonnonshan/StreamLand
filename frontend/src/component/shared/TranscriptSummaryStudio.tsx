@@ -12,6 +12,61 @@ import {
   getDocumentAiAnalysis,
 } from "@/lib/api/document";
 
+type TranscriptPayload =
+  | string
+  | {
+      full_text?: unknown;
+      text?: unknown;
+      transcript?: unknown;
+      result?: unknown;
+      segments?: unknown[];
+    };
+
+const normalizeTranscriptContent = (transcript: unknown): string => {
+  if (typeof transcript === "string") {
+    return transcript.trim();
+  }
+
+  if (!transcript || typeof transcript !== "object") {
+    return "";
+  }
+
+  const data = transcript as Record<string, unknown>;
+  const directText = [data.full_text, data.text, data.transcript, data.result].find(
+    (value) => typeof value === "string",
+  );
+
+  if (typeof directText === "string") {
+    return directText.trim();
+  }
+
+  if (Array.isArray(data.segments)) {
+    const segments = data.segments
+      .map((segment) => {
+        if (typeof segment === "string") {
+          return segment.trim();
+        }
+
+        if (!segment || typeof segment !== "object") {
+          return "";
+        }
+
+        const segmentData = segment as Record<string, unknown>;
+        const segmentText = segmentData.text ?? segmentData.full_text ?? segmentData.transcript ?? segmentData.result;
+        return typeof segmentText === "string" ? segmentText.trim() : "";
+      })
+      .filter(Boolean);
+
+    return segments.join("\n").trim();
+  }
+
+  try {
+    return JSON.stringify(transcript);
+  } catch {
+    return "";
+  }
+};
+
 interface TranscriptSummaryStudioProps {
   transcriptSeedMessage: string;
   transcriptHint?: string;
@@ -45,6 +100,8 @@ export default function TranscriptSummaryStudio({
 
   const isDocumentMode = !!documentId && !recordingId;
   const canSummarize = !isDocumentMode && transcriptContent.trim().length > 0;
+  const hasTranscript = transcriptContent.trim().length > 0 || transcriptStatus === 'success';
+  const hasSummary = summaryContent.trim().length > 0;
 
   const stopPolling = () => {
     if (pollTimerRef.current) {
@@ -66,15 +123,17 @@ export default function TranscriptSummaryStudio({
   };
 
   const applyAnalysis = (analysis: {
-    transcript?: string | null;
+    transcript?: TranscriptPayload | null;
     summary?: string | null;
     transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
     transcriptError?: string | null;
   }) => {
-    setTranscriptContent(analysis.transcript || "");
+    const transcriptText = normalizeTranscriptContent(analysis.transcript);
+
+    setTranscriptContent(transcriptText);
     setSummaryContent(analysis.summary || "");
 
-    const nextStatus = analysis.transcriptStatus || (analysis.transcript ? 'success' : 'idle');
+    const nextStatus = analysis.transcriptStatus || (transcriptText ? 'success' : 'idle');
     setTranscriptStatus(nextStatus);
     setTranscriptError(nextStatus === 'error' ? analysis.transcriptError || "Cannot generate transcript right now." : null);
 
@@ -88,15 +147,15 @@ export default function TranscriptSummaryStudio({
         const logData = {
           recordingId: recordingId,
           documentId: documentId,
-          transcriptLength: analysis.transcript.length,
-          hasTranscript: !!analysis.transcript,
+          transcriptLength: transcriptText.length,
+          hasTranscript: !!transcriptText,
           hasSummary: !!analysis.summary,
           status: nextStatus,
           timestamp: new Date().toISOString(),
           elapsedSeconds: elapsedSeconds,
         };
         console.log('[Transcription Success]', logData);
-        console.log('[Transcript Data]', analysis.transcript.substring(0, 500) + (analysis.transcript.length > 500 ? '...' : ''));
+        console.log('[Transcript Data]', transcriptText.substring(0, 500) + (transcriptText.length > 500 ? '...' : ''));
       }
     } else {
       startElapsedTimer();
@@ -261,9 +320,14 @@ export default function TranscriptSummaryStudio({
         <button
           type="button"
           onClick={handleGenerateTranscript}
-          disabled={isCheckingStatus || (isTranscribing && transcriptStatus !== 'processing')}
+          disabled={
+            isCheckingStatus ||
+            (isTranscribing && transcriptStatus !== 'processing') ||
+            hasTranscript ||
+            hasSummary
+          }
           className={`inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold transition ${
-            isCheckingStatus || (isTranscribing && transcriptStatus !== 'processing')
+            isCheckingStatus || (isTranscribing && transcriptStatus !== 'processing') || hasTranscript || hasSummary
               ? "cursor-not-allowed bg-gray-200 text-gray-500"
               : "bg-[#292C6D] text-white hover:bg-[#1f2350]"
           }`}
@@ -295,6 +359,10 @@ export default function TranscriptSummaryStudio({
           <p className="mt-2 text-xs font-medium text-red-600">{transcriptError}</p>
         )}
 
+        {hasTranscript && (
+          <p className="mt-2 text-xs font-medium text-emerald-700">Transcript already exists.</p>
+        )}
+
         {transcriptStatus === 'processing' && (
           <p className="mt-2 text-xs font-medium text-sky-700">
             ⏳ Transcript is being processed... (Running for {elapsedSeconds}s) You can leave this page and come back later. We'll continue processing in the background.
@@ -310,9 +378,9 @@ export default function TranscriptSummaryStudio({
         <button
           type="button"
           onClick={handleSummarize}
-          disabled={!canSummarize || isSummarizing || isTranscribing}
+          disabled={!canSummarize || isSummarizing || isTranscribing || hasSummary}
           className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition ${
-            canSummarize
+            canSummarize && !hasSummary
               ? "bg-[#292C6D] text-white hover:bg-[#1f2350]"
               : "cursor-not-allowed bg-gray-200 text-gray-500"
           }`}
@@ -321,13 +389,17 @@ export default function TranscriptSummaryStudio({
           Summarize
         </button>
 
+        {hasSummary && (
+          <p className="mt-2 text-xs font-medium text-emerald-700">Summary already exists.</p>
+        )}
+
         {!canSummarize && !isDocumentMode && (
           <p className="mt-2 text-xs font-medium text-amber-700">
             Generate transcript first.
           </p>
         )}
 
-        {isDocumentMode && (
+        {isDocumentMode && !hasSummary && (
           <p className="mt-2 text-xs font-medium text-amber-700">
             Summary is not available for documents yet.
           </p>

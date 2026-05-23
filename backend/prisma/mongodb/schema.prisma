@@ -454,8 +454,8 @@ model VideoReaction {
 
 // AI analysis cache per recording/livestream
 model AiTranscriptSummary {
-  id                    String    @id @default(auto()) @map("_id") @mongodb.ObjectId
-  type                  String
+  id                    String        @id @default(auto()) @map("_id") @mongodb.ObjectId
+  type                  TranscriptType
   recordingId           String?
   documentId            String?
   transcript            Json?
@@ -464,10 +464,14 @@ model AiTranscriptSummary {
   validationRate        Float     @default(0)
   transcriptGeneratedAt DateTime?
   summaryGeneratedAt    DateTime?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
-
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
   @@index([recordingId])
   @@index([documentId])
   @@map("ai_transcript_summary")
+}
+
+enum TranscriptType {
+  LIVESTREAM
+  DOCUMENT
 }

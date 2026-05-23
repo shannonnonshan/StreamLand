@@ -13,7 +13,7 @@ import { R2StorageModule } from '../r2-storage/r2-storage.module';
     R2StorageModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'your-secret-key',
-      signOptions: { expiresIn: '15m' },
+      signOptions: { expiresIn: '30m' },
     }),
   ],
   controllers: [ChatController],

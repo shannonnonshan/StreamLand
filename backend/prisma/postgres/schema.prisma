@@ -123,14 +123,11 @@ model LiveStream {
   isRecorded     Boolean                 @default(true)
   isPublic       Boolean                 @default(true)
   allowComments  Boolean                 @default(true)
-  allowQuestions Boolean                 @default(true)
-  maxViewers     Int?
-  chatMode       ChatMode                @default(EVERYONE)
-  analyticsId    String?
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
   category       String?
   isApprove      RecordingApprovalStatus @default(FALSE)
+  rejectReason   String?
   teacher        User                    @relation(fields: [teacherId], references: [id])
   schedule       Schedule?
   tags           Tag[]

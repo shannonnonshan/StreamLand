@@ -1,6 +1,6 @@
 "use client"
 import React, { useState, useMemo, useEffect } from 'react'
-import { Check, X, Trash2, Search, ChevronUp, ChevronDown, Filter } from 'lucide-react'
+import { Check, X, Search, ChevronUp, ChevronDown, Filter } from 'lucide-react'
 
 interface ReportedContent {
   id: string
@@ -9,8 +9,9 @@ interface ReportedContent {
   type: 'recording' | 'document'
   reportReason: string
   reportedBy: string
+  reportedAt: string
   dateReported: string
-  status: 'pending' | 'approved' | 'rejected' | 'removed'
+  status: 'pending' | 'approved' | 'rejected'
   isApproved: boolean
   videoUrl?: string
 }
@@ -22,41 +23,29 @@ export default function ContentModerationPage() {
   const [rejectReason, setRejectReason] = useState("")
   const [showModal, setShowModal] = useState(false)
   const [moderation, setModeration] = useState<{
+    raw: Record<string, unknown> | null
+    status: string
     score: number
     toxicWords: string[]
-    label?: string | null
     categories?: string[]
-    text?: string
   } | null>(null)
   const [moderationLoading, setModerationLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState<'all' | 'recording' | 'document'>('all')
+  const [approvalFilter, setApprovalFilter] = useState<'all' | 'approved' | 'rejected' | 'pending'>('all')
+  const [dateFromFilter, setDateFromFilter] = useState('')
+  const [dateToFilter, setDateToFilter] = useState('')
   const [sortConfig, setSortConfig] = useState<{
     key: keyof ReportedContent
     direction: 'asc' | 'desc'
   }>({ key: 'dateReported', direction: 'desc' })
 
-  const parseTranscriptText = (transcript: unknown): string | undefined => {
-    if (typeof transcript === 'string') {
-      return transcript
-    }
+  const normalizeApprovalStatus = (value: unknown): ReportedContent['status'] => {
+    const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
 
-    if (!transcript || typeof transcript !== 'object') {
-      return undefined
-    }
-
-    const data = transcript as Record<string, unknown>
-    const candidate = data.text ?? data.transcript ?? data.result
-
-    if (typeof candidate === 'string') {
-      return candidate
-    }
-
-    try {
-      return JSON.stringify(transcript)
-    } catch {
-      return undefined
-    }
+    if (status === 'approved') return 'approved';
+    if (status === 'rejected' || status === 'removed') return 'rejected';
+    return 'pending';
   }
 
   // Fetch livestreams and documents from backend
@@ -78,8 +67,9 @@ export default function ContentModerationPage() {
         if (livestreamsResponse.ok) {
           const data = await livestreamsResponse.json();
           const livestreamsMapped = data.livestreams.map((ls: any) => {
-            const approvalStatus = ls.approvalStatus
-              ?? (ls.isApprove === 'TRUE' ? 'approved' : ls.isApprove === 'REJECTED' ? 'removed' : 'pending');
+            const approvalStatus = normalizeApprovalStatus(
+              ls.approvalStatus ?? ls.isApprove ?? ls.status
+            );
 
             return {
               id: ls.id,
@@ -88,6 +78,7 @@ export default function ContentModerationPage() {
               type: 'recording' as const,
               reportReason: 'Pending review',
               reportedBy: 'System',
+              reportedAt: ls.uploadedAt,
               dateReported: new Date(ls.uploadedAt).toLocaleDateString(),
               status: approvalStatus,
               isApproved: approvalStatus === 'approved',
@@ -107,9 +98,7 @@ export default function ContentModerationPage() {
         if (documentsResponse.ok) {
           const data = await documentsResponse.json();
           const documentsMapped = (data.documents || data || []).map((doc: any) => {
-            const approvalStatus = doc.status === 'approved' || doc.status === 'removed' || doc.status === 'rejected'
-              ? doc.status
-              : 'pending';
+            const approvalStatus = normalizeApprovalStatus(doc.status ?? doc.isApprove ?? doc.approvalStatus);
 
             return {
               id: doc.id,
@@ -118,6 +107,7 @@ export default function ContentModerationPage() {
               type: 'document' as const,
               reportReason: 'Pending review',
               reportedBy: 'System',
+              reportedAt: doc.uploadedAt,
               dateReported: new Date(doc.uploadedAt).toLocaleDateString(),
               status: approvalStatus,
               isApproved: approvalStatus === 'approved',
@@ -148,8 +138,15 @@ export default function ContentModerationPage() {
         content.reportReason.toLowerCase().includes(searchQuery.toLowerCase())
       
       const matchesType = typeFilter === 'all' || content.type === typeFilter
+      const matchesApproval = approvalFilter === 'all' || content.status === approvalFilter
+
+      const reportedAt = new Date(content.reportedAt)
+      const fromDate = dateFromFilter ? new Date(dateFromFilter) : null
+      const toDate = dateToFilter ? new Date(dateToFilter) : null
+      const matchesDateFrom = !fromDate || Number.isNaN(fromDate.getTime()) || reportedAt >= fromDate
+      const matchesDateTo = !toDate || Number.isNaN(toDate.getTime()) || reportedAt <= toDate
       
-      return matchesSearch && matchesType
+      return matchesSearch && matchesType && matchesApproval && matchesDateFrom && matchesDateTo
     })
 
     return filtered.sort((a, b) => {
@@ -165,7 +162,7 @@ export default function ContentModerationPage() {
       }
       return 0
     })
-  }, [reportedContent, searchQuery, typeFilter, sortConfig])
+  }, [reportedContent, searchQuery, typeFilter, approvalFilter, dateFromFilter, dateToFilter, sortConfig])
 
   const handleSort = (key: keyof ReportedContent) => {
     setSortConfig(current => ({
@@ -174,7 +171,133 @@ export default function ContentModerationPage() {
     }))
   }
 
-  const fetchModerationForSelected = async () => {
+  const autoApproveContent = async (content: ReportedContent) => {
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+    const approveUrl = content.type === 'recording'
+      ? `${API_URL}/admin/livestreams/${content.id}/approve`
+      : `${API_URL}/admin/documents/${content.id}/approve`;
+
+    const response = await fetch(approveUrl, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      console.warn('Auto-approve failed', { contentId: content.id, type: content.type, status: response.status });
+      return;
+    }
+
+    setReportedContent(prev =>
+      prev.map(item =>
+        item.id === content.id ? { ...item, status: 'approved', isApproved: true } : item,
+      )
+    );
+
+    setSelectedContent(prev => (prev && prev.id === content.id ? { ...prev, status: 'approved', isApproved: true } : prev));
+  }
+
+  const persistApproval = async (content: ReportedContent, action: 'approve' | 'reject') => {
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+    const endpoint = content.type === 'recording'
+      ? `${API_URL}/admin/livestreams/${content.id}/${action}`
+      : `${API_URL}/admin/documents/${content.id}/${action}`;
+
+    const response = await fetch(endpoint, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: action === 'reject' ? JSON.stringify({ reason: rejectReason }) : undefined,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to ${action} content`);
+    }
+  }
+
+  const parseModerationPayload = (data: unknown) => {
+    const source = data as Record<string, unknown>;
+    const rawModeration = (source.moderationResult || source.moderation || source) as Record<string, unknown>;
+    const score = typeof rawModeration.score === 'number' ? rawModeration.score : 0;
+    const status = typeof rawModeration.status === 'string' ? rawModeration.status : 'N/A';
+    const toxicWords = Array.isArray(rawModeration.toxicWords)
+      ? rawModeration.toxicWords.filter((word): word is string => typeof word === 'string')
+      : Array.isArray(rawModeration.toxic_word)
+        ? rawModeration.toxic_word.filter((word): word is string => typeof word === 'string')
+        : [];
+    const categories = Array.isArray(rawModeration.moderationCategories)
+      ? rawModeration.moderationCategories.filter((category): category is string => typeof category === 'string')
+      : Array.isArray(rawModeration.categories)
+        ? rawModeration.categories.filter((category): category is string => typeof category === 'string')
+        : [];
+
+    return {
+      raw: rawModeration,
+      status,
+      score,
+      toxicWords,
+      categories,
+    };
+  }
+
+  const markSelectedContentApproved = () => {
+    if (!selectedContent) return;
+
+    setReportedContent((prev) =>
+      prev.map((item) =>
+        item.id === selectedContent.id
+          ? { ...item, status: 'approved', isApproved: true }
+          : item,
+      ),
+    );
+
+    setSelectedContent((prev) => (
+      prev && prev.id === selectedContent.id
+        ? { ...prev, status: 'approved', isApproved: true }
+        : prev
+    ));
+  }
+
+  const fetchLiveModerationForSelected = async () => {
+    if (!selectedContent) return;
+    setModerationLoading(true);
+    setModeration(null);
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const url = selectedContent.type === 'recording'
+        ? `${API_URL}/livestream/${selectedContent.id}/moderation`
+        : `${API_URL}/documents/${selectedContent.id}/moderation`;
+
+      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (!res.ok) {
+        console.warn('Moderation rerun failed', { url, status: res.status });
+        return;
+      }
+
+      const data = await res.json();
+      console.log('Moderation rerun response', { url, data });
+
+      const parsedModeration = parseModerationPayload(data);
+      setModeration(parsedModeration);
+
+      if (parsedModeration.status === 'SAFE') {
+        markSelectedContentApproved();
+      }
+    } catch (err) {
+      console.error('Failed to rerun moderation', err);
+      setModeration(null);
+    } finally {
+      setModerationLoading(false);
+    }
+  }
+
+  const fetchCachedModerationForSelected = async () => {
     if (!selectedContent) return;
     setModerationLoading(true);
     setModeration(null);
@@ -183,9 +306,9 @@ export default function ContentModerationPage() {
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       let url = '';
       if (selectedContent.type === 'recording') {
-        url = `${API_URL}/livestream/${selectedContent.id}/moderation`;
+        url = `${API_URL}/livestream/${selectedContent.id}/ai-analysis`;
       } else {
-        url = `${API_URL}/documents/${selectedContent.id}/moderation`;
+        url = `${API_URL}/documents/${selectedContent.id}/ai-analysis?autoTranscribe=false`;
       }
 
       const readModeration = async () => {
@@ -198,13 +321,7 @@ export default function ContentModerationPage() {
         const data = await res.json();
         console.log('Moderation raw response', { url, data });
 
-        return {
-          score: data.validationRate ?? data.score ?? 0,
-          toxicWords: data.toxicWords || data.toxic_word || [],
-          label: data.moderationLabel || data.label || null,
-          categories: data.moderationCategories || data.categories || [],
-          text: parseTranscriptText(data.text ?? data.transcript),
-        }
+        return parseModerationPayload(data);
       }
 
       const moderationResult = await readModeration()
@@ -214,11 +331,11 @@ export default function ContentModerationPage() {
         moderationResult,
       })
       setModeration(moderationResult ? {
+        raw: moderationResult.raw,
+        status: moderationResult.status,
         score: moderationResult.score,
         toxicWords: moderationResult.toxicWords,
-        label: moderationResult.label,
         categories: moderationResult.categories,
-        text: moderationResult.text,
       } : null)
     } catch (err) {
       console.error('Failed to fetch moderation', err);
@@ -229,40 +346,47 @@ export default function ContentModerationPage() {
   }
 
   useEffect(() => {
-    if (showModal && selectedContent) {
-      fetchModerationForSelected();
-    } else {
+    if (!showModal) {
       setModeration(null);
     }
-  }, [showModal, selectedContent]);
+  }, [showModal]);
 
-  const handleApprove = (content: ReportedContent) => {
-    setReportedContent(prev => 
-      prev.map(item => 
-        item.id === content.id ? { ...item, status: 'approved' } : item
+  useEffect(() => {
+    if (showModal && selectedContent) {
+      void fetchCachedModerationForSelected();
+    }
+  }, [showModal, selectedContent?.id, selectedContent?.type]);
+
+  const handleApprove = async (content: ReportedContent) => {
+    try {
+      await persistApproval(content, 'approve');
+      setReportedContent(prev => 
+        prev.map(item => 
+          item.id === content.id ? { ...item, status: 'approved', isApproved: true } : item
+        )
       )
-    )
-    setShowModal(false)
+      setSelectedContent(prev => (prev && prev.id === content.id ? { ...prev, status: 'approved', isApproved: true } : prev));
+      setShowModal(false)
+    } catch (error) {
+      console.error('Failed to approve content', error)
+    }
   }
 
-  const handleReject = (content: ReportedContent) => {
+  const handleReject = async (content: ReportedContent) => {
     if (!rejectReason) return
-    setReportedContent(prev => 
-      prev.map(item => 
-        item.id === content.id ? { ...item, status: 'rejected' } : item
-      )
-    )
-    setRejectReason("")
-    setShowModal(false)
-  }
 
-  const handleRemove = (content: ReportedContent) => {
-    setReportedContent(prev => 
-      prev.map(item => 
-        item.id === content.id ? { ...item, status: 'removed' } : item
+    try {
+      await persistApproval(content, 'reject');
+      setReportedContent(prev => 
+        prev.map(item => 
+          item.id === content.id ? { ...item, status: 'rejected' } : item
+        )
       )
-    )
-    setShowModal(false)
+      setRejectReason("")
+      setShowModal(false)
+    } catch (error) {
+      console.error('Failed to reject content', error)
+    }
   }
 
   if (loading) {
@@ -278,6 +402,7 @@ export default function ContentModerationPage() {
       <div className="mb-6 bg-white rounded-lg shadow p-4">
         <div className="flex justify-between items-center mb-4">
           <div>
+
             <h1 className="text-2xl font-bold mb-2">Content Moderation</h1>
             <p className="text-gray-600">Review and moderate content from the platform</p>
           </div>
@@ -293,39 +418,79 @@ export default function ContentModerationPage() {
           </div>
         </div>
 
-        {/* Type Filter Tabs */}
-        <div className="flex gap-2">
-          <button
-            onClick={() => setTypeFilter('all')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              typeFilter === 'all'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setTypeFilter('all')}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                typeFilter === 'all'
+                  ? 'bg-slate-900 text-white shadow-lg shadow-slate-900/15'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              All ({reportedContent.length})
+            </button>
+            <button
+              onClick={() => setTypeFilter('recording')}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                typeFilter === 'recording'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                  : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+              }`}
+            >
+              Recording ({reportedContent.filter(c => c.type === 'recording').length})
+            </button>
+            <button
+              onClick={() => setTypeFilter('document')}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                typeFilter === 'document'
+                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-600/20'
+                  : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
+              }`}
+            >
+              Document ({reportedContent.filter(c => c.type === 'document').length})
+            </button>
+          </div>
+
+          <div className="h-8 w-px bg-slate-200" />
+
+          <select
+            value={approvalFilter}
+            onChange={(e) => setApprovalFilter(e.target.value as typeof approvalFilter)}
+            className="min-w-[150px] rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20"
           >
-            All ({reportedContent.length})
-          </button>
+            <option value="all">All approvals</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="pending">Pending</option>
+          </select>
+
+          <input
+            type="date"
+            value={dateFromFilter}
+            onChange={(e) => setDateFromFilter(e.target.value)}
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+          />
+
+          <input
+            type="date"
+            value={dateToFilter}
+            onChange={(e) => setDateToFilter(e.target.value)}
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+          />
+
           <button
-            onClick={() => setTypeFilter('recording')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              typeFilter === 'recording'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+            onClick={() => {
+              setApprovalFilter('all')
+              setDateFromFilter('')
+              setDateToFilter('')
+            }}
+            className="rounded-full bg-gradient-to-r from-slate-900 to-slate-700 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-slate-900/20 transition hover:scale-[1.02] hover:from-slate-800 hover:to-slate-600"
           >
-            Recording ({reportedContent.filter(c => c.type === 'recording').length})
-          </button>
-          <button
-            onClick={() => setTypeFilter('document')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              typeFilter === 'document'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Document ({reportedContent.filter(c => c.type === 'document').length})
+            Clear filters
           </button>
         </div>
+
       </div>
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -412,16 +577,16 @@ export default function ContentModerationPage() {
                     <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
                       content.status === 'approved' ? 'bg-green-100 text-green-800' : ''}
                       ${content.status === 'rejected' ? 'bg-red-100 text-red-800' : ''}
-                      ${content.status === 'removed' ? 'bg-gray-100 text-gray-800' : ''}
                       ${content.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : ''}
                     `}>
-                      {content.status === 'approved' ? 'Approved' : content.status === 'rejected' ? 'Rejected' : content.status === 'removed' ? 'Removed' : 'Pending'}
+                      {content.status === 'approved' ? 'Approved' : content.status === 'rejected' ? 'Rejected' : 'Pending'}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <button
                       onClick={() => {
                         setSelectedContent(content)
+                        setModeration(null)
                         setShowModal(true)
                       }}
                       className="text-indigo-600 hover:text-indigo-900 font-medium"
@@ -438,13 +603,13 @@ export default function ContentModerationPage() {
 
       {/* Modal for content review */}
       {showModal && selectedContent && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] shadow-2xl relative flex flex-col">
-            {/* Modal Header */}
-            <div className="flex justify-between items-center pb-4 px-6 pt-6 shrink-0 rounded-t-xl" style={{background: 'linear-gradient(90deg,#4f46e5,#7c3aed)'}}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-[0_30px_120px_rgba(15,23,42,0.35)]">
+            <div className="flex shrink-0 items-start justify-between gap-4 bg-[#292C6D] px-6 py-5 text-white">
               <div>
-                <h2 className="text-2xl font-bold text-white">Review Content</h2>
-                <p className="text-sm text-indigo-200 mt-1">ID: {selectedContent.id}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Content Moderation</p>
+                <h2 className="mt-1 text-2xl font-bold">Review Content</h2>
+                <p className="mt-1 text-sm text-white/75">{selectedContent.title} · {selectedContent.type === 'recording' ? 'Recording' : 'Document'}</p>
               </div>
               <button
                 onClick={() => {
@@ -452,225 +617,238 @@ export default function ContentModerationPage() {
                   setSelectedContent(null)
                   setRejectReason("")
                 }}
-                className="text-indigo-100 hover:text-white transition-colors p-2 hover:bg-indigo-600/20 rounded-full"
+                className="rounded-full border border-white/10 bg-white/10 p-2 text-white transition hover:bg-white/20"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <div className="overflow-y-auto flex-1 px-6 py-6 space-y-6">
-              {/* Content Details */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="text-sm font-semibold text-gray-900 mb-3">Content Details</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Title</p>
-                    <p className="text-sm font-medium">{selectedContent.title}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Author</p>
-                    <p className="text-sm font-medium">{selectedContent.author}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Type</p>
-                    <p className="text-sm font-medium">
-                      {selectedContent.type === 'recording' ? '🎥 Recording' : '📄 Document'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Report Date</p>
-                    <p className="text-sm font-medium">{selectedContent.dateReported}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Approved</p>
-                    <p className="text-sm font-medium">
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                        selectedContent.isApproved
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-yellow-100 text-yellow-800'
+            <div className="flex-1 overflow-y-auto bg-slate-50 px-6 py-6">
+              <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+                <div className="space-y-6">
+                  <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-5 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#292C6D]/50">Content Details</p>
+                        <h3 className="mt-1 text-lg font-bold text-slate-900">{selectedContent.title}</h3>
+                      </div>
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                        selectedContent.type === 'recording' ? 'bg-[#292C6D]/10 text-[#292C6D]' : 'bg-[#EC255A]/10 text-[#EC255A]'
                       }`}>
-                        {selectedContent.isApproved ? '✓ Yes' : '⏳ Not Yet'}
+                        {selectedContent.type === 'recording' ? 'Recording' : 'Document'}
                       </span>
-                    </p>
-                  </div>
-                  <div className="col-span-2">
-                    <p className="text-xs text-gray-500 mb-1">Report Reason</p>
-                    <p className="text-sm font-medium">{selectedContent.reportReason}</p>
-                  </div>
-                </div>
-              </div>
+                    </div>
 
-              {/* Content Preview */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-3">Content Preview</h3>
-                <div className="bg-gray-50 rounded-lg p-4 min-h-56">
-                  {selectedContent.type === 'recording' ? (
-                    selectedContent.videoUrl ? (
-                      <div className="space-y-4">
-                        <video
-                          controls
-                          className="w-full h-auto rounded-lg bg-black"
-                          src={selectedContent.videoUrl}
-                        >
-                          Your browser does not support the video tag.
-                        </video>
-                        <div className="break-all">
-                          <p className="text-xs text-gray-500 mb-1">Recording URL:</p>
-                          <a
-                            href={selectedContent.videoUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-indigo-600 hover:text-indigo-900 text-sm underline break-all"
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-2xl bg-slate-50 p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Author</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900">{selectedContent.author}</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Report Date</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900">{selectedContent.dateReported}</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Approval</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900">
+                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${selectedContent.isApproved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {selectedContent.isApproved ? 'Approved' : 'Pending'}
+                          </span>
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Report Reason</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900">{selectedContent.reportReason}</p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-5 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#292C6D]/50">Content Preview</p>
+                        <h3 className="mt-1 text-lg font-bold text-slate-900">Preview</h3>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl bg-slate-100 p-4">
+                      {selectedContent.type === 'recording' ? (
+                        selectedContent.videoUrl ? (
+                          <div className="space-y-4">
+                            <video
+                              controls
+                              className="w-full rounded-2xl bg-black shadow-lg"
+                              src={selectedContent.videoUrl}
+                            >
+                              Your browser does not support the video tag.
+                            </video>
+                            <div className="break-all rounded-2xl bg-white p-4">
+                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 mb-1">Recording URL</p>
+                              <a
+                                href={selectedContent.videoUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-[#292C6D] underline decoration-[#EC255A]/40 underline-offset-4 break-all"
+                              >
+                                {selectedContent.videoUrl}
+                              </a>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex min-h-56 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white text-slate-500">
+                            No recording URL available
+                          </div>
+                        )
+                      ) : selectedContent.videoUrl ? (
+                        <div className="space-y-4">
+                          <video
+                            controls
+                            className="w-full rounded-2xl bg-black shadow-lg"
+                            src={selectedContent.videoUrl}
                           >
-                            {selectedContent.videoUrl}
-                          </a>
+                            Your browser does not support the video tag.
+                          </video>
+                          <div className="break-all rounded-2xl bg-white p-4">
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 mb-1">Video URL</p>
+                            <a
+                              href={selectedContent.videoUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm font-medium text-[#292C6D] underline decoration-[#EC255A]/40 underline-offset-4 break-all"
+                            >
+                              {selectedContent.videoUrl}
+                            </a>
+                          </div>
                         </div>
+                      ) : (
+                        <div className="flex min-h-56 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white text-slate-500">
+                          No video URL available
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                </div>
+
+                <div className="space-y-6">
+                  <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-5 shadow-sm">
+                    <label className="mb-2 block text-sm font-semibold text-slate-900">
+                      Rejection Reason
+                      <span className="ml-1 text-[#EC255A]">*</span>
+                    </label>
+                    <textarea
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#292C6D] focus:bg-white focus:ring-4 focus:ring-[#292C6D]/10"
+                      rows={3}
+                      placeholder="Enter detailed reason for rejection (required for rejecting content)"
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                    />
+                  </section>
+
+                  <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-5 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#292C6D]/50">Moderation Result</p>
+                        <h3 className="mt-1 text-lg font-bold text-slate-900">AI Review</h3>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          console.log('Re-run Moderation clicked', {
+                            contentId: selectedContent.id,
+                            contentType: selectedContent.type,
+                          })
+                          await fetchLiveModerationForSelected();
+                        }}
+                        disabled={moderationLoading}
+                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                          moderationLoading ? 'cursor-not-allowed bg-slate-200 text-slate-400' : 'bg-[#292C6D] text-white hover:bg-[#1f2350]'
+                        }`}
+                      >
+                        {moderationLoading ? 'Running...' : 'Re-run Moderation'}
+                      </button>
+                    </div>
+
+                    <div className="mb-4 rounded-2xl border border-dashed border-[#292C6D]/15 bg-[#F8FAFF] px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Content ID</p>
+                      <p className="mt-1 font-mono text-sm font-semibold text-slate-900">
+                        {(selectedContent.type === 'recording' ? 'recordingId' : 'documentId')}: {selectedContent.id}
+                      </p>
+                    </div>
+
+                    {moderationLoading ? (
+                      <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">Loading moderation...</div>
+                    ) : moderation ? (
+                      <div className="space-y-4">
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="rounded-2xl bg-[#F8FAFF] p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Status</p>
+                            <p className="mt-1 text-base font-bold text-slate-900">{moderation.status || 'N/A'}</p>
+                          </div>
+                          <div className="rounded-2xl bg-[#F8FAFF] p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Score</p>
+                            <p className="mt-1 text-base font-bold text-slate-900">{(moderation.score ?? 0).toFixed(4)}</p>
+                          </div>
+                          <div className="rounded-2xl bg-[#F8FAFF] p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Toxic words</p>
+                            <p className="mt-1 text-base font-bold text-slate-900">{moderation.toxicWords.length > 0 ? moderation.toxicWords.length : 'N/A'}</p>
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-dashed border-[#292C6D]/20 bg-[#F8FAFF] p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#292C6D]/60">Toxic Words</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {moderation.toxicWords.length > 0 ? (
+                              moderation.toxicWords.map((word) => (
+                                <span key={word} className="rounded-full bg-[#EC255A]/10 px-3 py-1 text-xs font-semibold text-[#EC255A]">
+                                  {word}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">N/A</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-[#292C6D]/10 bg-slate-50 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Categories</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {moderation.categories && moderation.categories.length > 0 ? (
+                              moderation.categories.map((category) => (
+                                <span key={category} className="rounded-full bg-[#292C6D]/10 px-3 py-1 text-xs font-semibold text-[#292C6D]">
+                                  {category}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">N/A</span>
+                            )}
+                          </div>
+                        </div>
+
                       </div>
                     ) : (
-                      <div className="flex items-center justify-center h-full text-gray-500">
-                        <p>No recording URL available</p>
-                      </div>
-                    )
-                  ) : selectedContent.videoUrl ? (
-                    <div className="space-y-4">
-                      <video
-                        controls
-                        className="w-full h-auto rounded-lg bg-black"
-                        src={selectedContent.videoUrl}
+                      <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No moderation data available</div>
+                    )}
+                  </section>
+
+                  <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-5 shadow-sm">
+                    <div className="flex flex-wrap justify-end gap-3">
+                      <button
+                        onClick={() => void handleApprove(selectedContent)}
+                        className="inline-flex items-center rounded-full bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
                       >
-                        Your browser does not support the video tag.
-                      </video>
-                      <div className="break-all">
-                        <p className="text-xs text-gray-500 mb-1">Video URL:</p>
-                        <a
-                          href={selectedContent.videoUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-indigo-600 hover:text-indigo-900 text-sm underline break-all"
-                        >
-                          {selectedContent.videoUrl}
-                        </a>
-                      </div>
+                        <Check size={18} className="mr-2" /> Approve Content
+                      </button>
+                      <button
+                        onClick={() => void handleReject(selectedContent)}
+                        disabled={!rejectReason}
+                        className={`inline-flex items-center rounded-full px-4 py-2.5 text-sm font-semibold transition focus:ring-2 focus:ring-red-500 focus:ring-offset-2
+                          ${rejectReason ? 'bg-[#EC255A] text-white hover:bg-[#d31f4c]' : 'cursor-not-allowed bg-slate-100 text-slate-400'}`}
+                      >
+                        <X size={18} className="mr-2" /> Reject Content
+                      </button>
                     </div>
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-gray-500">
-                      No video URL available
-                    </div>
-                  )}
+                  </section>
                 </div>
               </div>
-
-              {/* Rejection Reason */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-900 mb-2">
-                  Rejection Reason
-                  <span className="text-red-500 ml-1">*</span>
-                </label>
-                <textarea
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  rows={3}
-                  placeholder="Enter detailed reason for rejection (required for rejecting content)"
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                />
-              </div>
-              {/* Moderation Result */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-3">Moderation</h3>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  {moderationLoading ? (
-                    <p className="text-sm text-gray-500">Loading moderation...</p>
-                  ) : moderation ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs text-gray-500">Label</p>
-                          <p className="text-sm font-medium">{moderation.label || 'N/A'}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Score</p>
-                          <p className="text-sm font-medium">{(moderation.score ?? 0).toFixed(2)}</p>
-                        </div>
-                      </div>
-
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">Toxic Words</p>
-                        {moderation.toxicWords && moderation.toxicWords.length > 0 ? (
-                          <div className="flex flex-wrap gap-2">
-                            {moderation.toxicWords.map((w) => (
-                              <span key={w} className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full">{w}</span>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-gray-500">No toxic words detected</p>
-                        )}
-                      </div>
-
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">Categories</p>
-                        {moderation.categories && moderation.categories.length > 0 ? (
-                          <div className="flex flex-wrap gap-2">
-                            {moderation.categories.map((c) => (
-                              <span key={c} className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">{c}</span>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-gray-500">No categories</p>
-                        )}
-                      </div>
-
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">Original Text / Explanation</p>
-                        <pre className="text-xs text-gray-700 bg-white border rounded p-2 max-h-40 overflow-auto">{moderation.text || 'N/A'}</pre>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">No moderation data available</p>
-                  )}
-
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      onClick={async () => {
-                        console.log('Re-run Moderation clicked', {
-                          contentId: selectedContent.id,
-                          contentType: selectedContent.type,
-                        })
-                        await fetchModerationForSelected();
-                      }}
-                      disabled={moderationLoading}
-                      className={`px-3 py-1 rounded text-sm text-white ${
-                        moderationLoading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'
-                      }`}
-                    >
-                      {moderationLoading ? 'Running...' : 'Re-run Moderation'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Footer - Fixed */}
-            <div className="px-6 py-4 border-t border-gray-200 bg-white rounded-b-xl shrink-0 flex gap-3 justify-end">
-              <button
-                onClick={() => handleApprove(selectedContent)}
-                className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-              >
-                <Check size={18} className="mr-2" /> Approve Content
-              </button>
-              <button
-                onClick={() => handleReject(selectedContent)}
-                disabled={!rejectReason}
-                className={`inline-flex items-center px-4 py-2 rounded-lg transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-red-500
-                  ${rejectReason ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
-              >
-                <X size={18} className="mr-2" /> Reject Content
-              </button>
-              <button
-                onClick={() => handleRemove(selectedContent)}
-                className="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-              >
-                <Trash2 size={18} className="mr-2" /> Remove Permanently
-              </button>
             </div>
           </div>
         </div>

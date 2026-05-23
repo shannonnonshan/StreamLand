@@ -460,8 +460,8 @@ model AiTranscriptSummary {
   documentId            String?
   transcript            Json?
   summary               String?
-  toxicWords            String[]  @default([])
-  validationRate        Float     @default(0)
+  moderationResult      Json?
+  moderationCheckedAt   DateTime?
   transcriptGeneratedAt DateTime?
   summaryGeneratedAt    DateTime?
   createdAt             DateTime       @default(now())

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { DocumentService } from './document.service';
 
@@ -10,9 +10,10 @@ export class DocumentController {
   @Get(':id/ai-analysis')
   async getDocumentAiAnalysis(
     @Param('id') documentId: string,
+    @Query('autoTranscribe') autoTranscribe: string | undefined,
     @Request() req: { user: { sub: string; role?: string } },
   ) {
-    return this.documentService.getDocumentAiAnalysis(documentId, req.user);
+    return this.documentService.getDocumentAiAnalysis(documentId, req.user, autoTranscribe !== 'false');
   }
 
   @Get(':id/moderation')

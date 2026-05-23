@@ -295,7 +295,11 @@ export class AdminService {
   // Get all livestreams with pagination
   async getAllLivestreams(status?: string, page: number = 1, limit: number = 20) {
     const skip = (page - 1) * limit;
-    const where: any = {};
+    const where: any = {
+      recordingUrl: {
+        not: null,
+      },
+    };
     
     if (status) {
       where.status = status.toUpperCase();
@@ -304,13 +308,17 @@ export class AdminService {
     const [livestreams, total] = await Promise.all([
       this.prisma.postgres.liveStream.findMany({
         where,
-        include: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          recordingUrl: true,
+          isApprove: true,
+          status: true,
+          createdAt: true,
           teacher: {
             select: {
-              id: true,
               fullName: true,
-              email: true,
-              avatar: true,
             },
           },
         },
@@ -324,7 +332,15 @@ export class AdminService {
     ]);
 
     return {
-      livestreams,
+      livestreams: livestreams.map(ls => ({
+        id: ls.id,
+        title: ls.title,
+        recordingUrl: ls.recordingUrl,
+        uploadedBy: ls.teacher?.fullName || 'Unknown',
+        uploadedAt: ls.createdAt,
+        status: ls.status,
+        approvalStatus: ls.isApprove === 'TRUE' ? 'approved' : ls.isApprove === 'REJECTED' ? 'removed' : 'pending',
+      })),
       pagination: {
         page,
         limit,
@@ -332,6 +348,111 @@ export class AdminService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  // Get all documents with pagination
+  async getAllDocuments(status?: string, page: number = 1, limit: number = 20) {
+    const skip = (page - 1) * limit;
+    const where: any = {
+      mimeType: {
+        startsWith: 'video/',
+      },
+    };
+    
+    if (status) {
+      const normalizedStatus = status.trim().toLowerCase();
+      if (normalizedStatus === 'approved' || normalizedStatus === 'true') {
+        where.isApprove = 'TRUE';
+      } else if (normalizedStatus === 'rejected' || normalizedStatus === 'removed') {
+        where.isApprove = 'REJECTED';
+      } else if (normalizedStatus === 'pending' || normalizedStatus === 'false') {
+        where.isApprove = 'FALSE';
+      }
+    }
+
+    const [documents, total] = await Promise.all([
+      this.prisma.postgres.document.findMany({
+        where,
+        select: {
+          id: true,
+          title: true,
+          fileUrl: true,
+          uploadedAt: true,
+          teacherId: true,
+          isApprove: true,
+        },
+        orderBy: {
+          uploadedAt: 'desc',
+        },
+        skip,
+        take: limit,
+      }),
+      this.prisma.postgres.document.count({ where }),
+    ]);
+
+    // Get teacher info for each document
+    const docsWithTeacher = await Promise.all(
+      documents.map(async (doc) => {
+        const teacher = await this.prisma.postgres.user.findUnique({
+          where: { id: doc.teacherId },
+          select: {
+            fullName: true,
+          },
+        });
+        return {
+          id: doc.id,
+          title: doc.title,
+          videoUrl: doc.fileUrl,
+          uploadedBy: teacher?.fullName || 'Unknown',
+          uploadedAt: doc.uploadedAt,
+          status: doc.isApprove === 'TRUE' ? 'approved' : doc.isApprove === 'REJECTED' ? 'removed' : 'pending',
+        };
+      })
+    );
+
+    return {
+      documents: docsWithTeacher,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  // Approve a document
+  async approveDocument(documentId: string, _moderatorId: string) {
+    const doc = await this.prisma.postgres.document.findUnique({ where: { id: documentId } });
+    if (!doc) {
+      throw new NotFoundException('Document not found');
+    }
+
+    await this.prisma.postgres.document.update({
+      where: { id: documentId },
+      data: {
+        isApprove: 'TRUE',
+      },
+    });
+
+    return { success: true, message: 'Document approved', documentId };
+  }
+
+  // Reject a document
+  async rejectDocument(documentId: string, reason?: string, _moderatorId?: string) {
+    const doc = await this.prisma.postgres.document.findUnique({ where: { id: documentId } });
+    if (!doc) {
+      throw new NotFoundException('Document not found');
+    }
+
+    await this.prisma.postgres.document.update({
+      where: { id: documentId },
+      data: {
+        isApprove: 'REJECTED',
+      },
+    });
+
+    return { success: true, message: 'Document rejected', documentId, reason: reason || 'No reason provided' };
   }
 
   // Create new admin

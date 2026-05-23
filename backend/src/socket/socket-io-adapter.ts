@@ -5,7 +5,7 @@ import { createClient } from 'redis';
 import { Logger, INestApplicationContext } from '@nestjs/common';
 
 export class RedisIoAdapter extends IoAdapter {
-  private adapterConstructor: ReturnType<typeof createAdapter>;
+  private adapterConstructor: ReturnType<typeof createAdapter> | undefined;
   private readonly logger = new Logger(RedisIoAdapter.name);
 
   async connectToRedis(): Promise<void> {

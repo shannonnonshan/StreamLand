@@ -160,6 +160,18 @@ export class LivestreamController {
     return livestream;
   }
 
+  @Get(':id/moderation')
+  @UseGuards(OptionalJwtAuthGuard)
+  async getRecordingModeration(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    this.assertLivestreamAccess(livestream, req);
+
+    return await this.livestreamService.getRecordingModeration(id);
+  }
+
   @Get(':id/ai-analysis')
   @UseGuards(OptionalJwtAuthGuard)
   async getRecordingAiAnalysis(

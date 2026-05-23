@@ -58,6 +58,8 @@ export default function ManageAccount() {
   const [isTeacherDetailsOpen, setIsTeacherDetailsOpen] = useState(false);
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [isCVPreviewOpen, setIsCVPreviewOpen] = useState(false);
+  const [cvPreviewUrl, setCVPreviewUrl] = useState<string | null>(null);
 
   const [adminPage, setAdminPage] = useState(1);
   const [teacherPage, setTeacherPage] = useState(1);
@@ -767,15 +769,26 @@ export default function ManageAccount() {
                 {/* CV URL */}
                 {selectedTeacher.cvUrl && (
                   <div>
-                    <h4 className="font-medium text-sm text-gray-700 mb-1">CV / Resume</h4>
-                    <a
-                      href={selectedTeacher.cvUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:text-blue-700 underline flex items-center gap-1"
-                    >
-                      View CV Document
-                    </a>
+                    <h4 className="font-medium text-sm text-gray-700 mb-2">CV / Resume</h4>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setCVPreviewUrl(selectedTeacher.cvUrl || null);
+                          setIsCVPreviewOpen(true);
+                        }}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 transition-colors"
+                      >
+                        <Eye className="w-4 h-4" /> Preview
+                      </button>
+                      <a
+                        href={selectedTeacher.cvUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300 transition-colors"
+                      >
+                        ↓ Download
+                      </a>
+                    </div>
                   </div>
                 )}
 
@@ -926,6 +939,67 @@ export default function ManageAccount() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      {/* --- CV PREVIEW PANEL --- */}
+      {isCVPreviewOpen && (
+        <div className="fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setIsCVPreviewOpen(false)}
+          />
+          <div className="absolute right-0 top-0 bottom-0 w-full max-w-3xl bg-white shadow-lg flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b p-4">
+              <h3 className="text-lg font-semibold text-[#161853]">CV Preview</h3>
+              <button
+                onClick={() => setIsCVPreviewOpen(false)}
+                className="rounded-full p-1.5 hover:bg-gray-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Preview Content */}
+            <div className="flex-1 overflow-auto">
+              {cvPreviewUrl && (
+                <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                  {/* Check if it's a PDF */}
+                  {cvPreviewUrl.toLowerCase().endsWith('.pdf') ? (
+                    <iframe
+                      src={cvPreviewUrl}
+                      className="w-full h-full"
+                      title="CV Preview"
+                    />
+                  ) : (
+                    /* For images and other formats */
+                    <div className="p-4 w-full h-full flex flex-col items-center justify-center overflow-auto">
+                      {cvPreviewUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                        <img
+                          src={cvPreviewUrl}
+                          alt="CV Preview"
+                          className="max-w-full max-h-full object-contain"
+                        />
+                      ) : (
+                        <div className="text-center text-gray-500">
+                          <p className="mb-4">Preview not available for this file type</p>
+                          <a
+                            href={cvPreviewUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-block px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                          >
+                            Open in New Tab
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

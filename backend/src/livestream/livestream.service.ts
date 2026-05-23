@@ -14,7 +14,7 @@ import * as path from 'path';
 
 interface AiTranscriptSummaryDocument {
   id?: string;
-  type: 'recording' | 'document';
+  type: 'LIVESTREAM' | 'DOCUMENT';
   recordingId?: string;
   documentId?: string;
   transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
@@ -24,6 +24,8 @@ interface AiTranscriptSummaryDocument {
   audioUrl?: string;
   toxicWords?: string[];
   validationRate?: number;
+  moderationLabel?: string | null;
+  moderationCategories?: string[];
   transcriptGeneratedAt?: Date;
   summaryGeneratedAt?: Date;
   createdAt?: Date;
@@ -34,7 +36,7 @@ interface AiTranscriptSummaryDocument {
 export class LivestreamService {
   private readonly logger = new Logger(LivestreamService.name);
   private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
-  private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
+  private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
   
   constructor(
     private prisma: PrismaService,
@@ -114,6 +116,44 @@ export class LivestreamService {
     });
 
     return livestream;
+  }
+
+  private async callModerationApi(text: string | null | undefined) {
+    const API = `${this.localAiBaseUrl}/moderation/text`;
+    try {
+      const payload = { text: text || '', rewrite: true };
+      this.logger.log(`[Moderation] POST ${API} | payloadLen=${(text || '').length}`);
+
+      const res = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const respText = await res.text();
+      this.logger.log(`[Moderation] Response status=${res.status}`);
+      if (respText && respText.length > 0) {
+        const preview = respText.length > 1000 ? `${respText.substring(0, 1000)}...` : respText;
+        this.logger.debug(`[Moderation] Response body preview: ${preview}`);
+      }
+
+      if (!res.ok) {
+        this.logger.warn(`[Moderation] Non-ok response from AI moderation: ${res.status}`);
+        return null;
+      }
+
+      let data: any = null;
+      try {
+        data = respText ? JSON.parse(respText) : null;
+      } catch (parseErr) {
+        this.logger.warn('[Moderation] Failed to parse JSON response', String(parseErr));
+      }
+
+      return data?.moderation || null;
+    } catch (err) {
+      this.logger.error('[Moderation] call failed', err as any);
+      return null;
+    }
   }
 
   async startLivestream(id: string) {
@@ -255,6 +295,7 @@ export class LivestreamService {
       where: { 
         id: { in: livestreamDocs.documentIds },
         teacherId: livestream.teacherId, // Extra safety check
+        isApprove: 'TRUE',
       },
       orderBy: { uploadedAt: 'desc' },
     });
@@ -1359,7 +1400,7 @@ export class LivestreamService {
   private async getRecordingAiAnalysisDocument(recordingId: string): Promise<AiTranscriptSummaryDocument | null> {
     const result = await this.prisma.mongo.$runCommandRaw({
       find: this.aiTranscriptSummaryCollection,
-      filter: { type: 'recording', recordingId },
+      filter: { type: 'LIVESTREAM', recordingId },
       limit: 1,
     });
 
@@ -1375,11 +1416,11 @@ export class LivestreamService {
       update: this.aiTranscriptSummaryCollection,
       updates: [
         {
-          q: { type: 'recording', recordingId },
+          q: { type: 'LIVESTREAM', recordingId },
           u: {
             $set: {
               id: recordingId,
-              type: 'recording',
+              type: 'LIVESTREAM',
               recordingId,
               documentId: null,
               ...payload,
@@ -1387,7 +1428,7 @@ export class LivestreamService {
             },
             $setOnInsert: {
               id: recordingId,
-              type: 'recording',
+              type: 'LIVESTREAM',
               recordingId,
               documentId: null,
               toxicWords: [],
@@ -1504,10 +1545,43 @@ export class LivestreamService {
       audioUrl: analysis?.audioUrl || null,
       toxicWords: analysis?.toxicWords || [],
       validationRate: analysis?.validationRate ?? 0,
+      moderationLabel: analysis?.moderationLabel || null,
+      moderationCategories: analysis?.moderationCategories || [],
       transcriptStatus: analysis?.transcriptStatus || 'idle',
       transcriptError: analysis?.transcriptError || null,
       transcriptGeneratedAt: analysis?.transcriptGeneratedAt || null,
       summaryGeneratedAt: analysis?.summaryGeneratedAt || null,
+    };
+  }
+
+  async getRecordingModeration(recordingId: string) {
+    const analysis = await this.getRecordingAiAnalysis(recordingId);
+    const transcriptText = this.getTranscriptText(analysis.transcript);
+    if (transcriptText) {
+      this.logger.log(`[Moderation] Recording ${recordingId} - invoking moderation API; textLen=${transcriptText.length}`);
+    }
+    const moderationResult = transcriptText ? await this.callModerationApi(transcriptText) : null;
+
+    if (moderationResult) {
+      const { score, toxic_word, label, categories } = moderationResult as any;
+
+      return {
+        ...analysis,
+        score: typeof score === 'number' ? score : 0,
+        toxicWords: toxic_word || analysis.toxicWords || [],
+        label: label || null,
+        categories: categories || [],
+        text: transcriptText,
+      };
+    }
+
+    return {
+      ...analysis,
+      score: analysis.validationRate ?? 0,
+      toxicWords: analysis.toxicWords || [],
+      label: analysis.moderationLabel || null,
+      categories: analysis.moderationCategories || [],
+      text: transcriptText,
     };
   }
 
@@ -1522,6 +1596,7 @@ export class LivestreamService {
   }
 
   async generateRecordingTranscript(recordingId: string, force = false) {
+    this.logger.log(`[Transcribe] generateRecordingTranscript start recordingId=${recordingId} force=${force}`);
     const livestream = await this.prisma.postgres.liveStream.findUnique({
       where: { id: recordingId },
       select: {
@@ -1539,7 +1614,34 @@ export class LivestreamService {
     }
 
     const existing = await this.getRecordingAiAnalysisDocument(recordingId);
+    this.logger.debug(`[Transcribe] existing transcript present=${!!existing?.transcript} status=${existing?.transcriptStatus}`);
     if (!force && existing?.transcript) {
+      try {
+        await this.generateRecordingSummary(recordingId, false);
+      } catch (summaryErr) {
+        this.logger.warn('Summary failed for recording', String(summaryErr));
+      }
+
+      try {
+        const text = this.getTranscriptText(existing.transcript);
+        if (text) {
+          this.logger.log(`[Moderation] Recording ${recordingId} (existing) - invoking moderation API; textLen=${text.length}`);
+        }
+        const moderation = await this.callModerationApi(text || '');
+        if (moderation) {
+          const { score, toxic_word, label, categories } = moderation as any;
+
+          await this.upsertRecordingAiAnalysis(recordingId, {
+            toxicWords: toxic_word || [],
+            validationRate: typeof score === 'number' ? score : 0,
+            moderationLabel: label || null,
+            moderationCategories: categories || [],
+          });
+        }
+      } catch (err) {
+        this.logger.warn('Moderation failed for recording', String(err));
+      }
+
       return {
         ...(await this.getRecordingAiAnalysis(recordingId)),
         cached: true,
@@ -1628,7 +1730,7 @@ export class LivestreamService {
 
       // Stream transcribe response (handles heartbeats and long processing time)
       const aiResponse = await (await import('../utils/aiFetch')).logStreamingTranscribe(
-        `${this.localAiBaseUrl}/transcribe/replicate`,
+        `${this.localAiBaseUrl}/transcribe`,
         {
           method: 'POST',
           body: formData,
@@ -1655,6 +1757,12 @@ export class LivestreamService {
         audioUrl: audioUrl || undefined,
         transcriptGeneratedAt: new Date(),
       });
+
+      try {
+        await this.generateRecordingSummary(recordingId, false);
+      } catch (summaryErr) {
+        this.logger.warn('Summary failed for recording', String(summaryErr));
+      }
 
       // Log transcription success with data
       const analysis = await this.getRecordingAiAnalysis(recordingId);
@@ -1690,17 +1798,9 @@ export class LivestreamService {
   async generateRecordingSummary(recordingId: string, force = false) {
     const existing = await this.getRecordingAiAnalysisDocument(recordingId);
 
-    if (!force && existing?.summary) {
-      return {
-        ...(await this.getRecordingAiAnalysis(recordingId)),
-        cached: true,
-      };
-    }
-
     let transcript = existing?.transcript || null;
     if (!transcript) {
-      const transcriptResult = await this.generateRecordingTranscript(recordingId, false);
-      transcript = transcriptResult.transcript;
+      return await this.generateRecordingTranscript(recordingId, false);
     }
 
     if (!transcript) {
@@ -1736,6 +1836,38 @@ export class LivestreamService {
       summary,
       summaryGeneratedAt: new Date(),
     });
+
+    try {
+      const text = this.getTranscriptText(transcript);
+      if (text) {
+        this.logger.log(`[Moderation] Recording ${recordingId} - invoking moderation API after summarization; textLen=${text.length}`);
+      }
+      const moderation = await this.callModerationApi(text || '');
+      if (moderation) {
+        const { score, toxic_word, label, categories } = moderation as any;
+
+        await this.upsertRecordingAiAnalysis(recordingId, {
+          toxicWords: toxic_word || [],
+          validationRate: typeof score === 'number' ? score : 0,
+          moderationLabel: label || null,
+          moderationCategories: categories || [],
+        });
+
+        if (!text || text.length === 0) {
+          await this.prisma.postgres.liveStream.update({
+            where: { id: recordingId },
+            data: { isApprove: 'TRUE' },
+          }).catch(() => undefined);
+        } else if (score >= 0.5) {
+          await this.prisma.postgres.liveStream.update({
+            where: { id: recordingId },
+            data: { isApprove: 'REJECTED' },
+          }).catch(() => undefined);
+        }
+      }
+    } catch (err) {
+      this.logger.warn('Moderation failed for recording', String(err));
+    }
 
     return {
       ...(await this.getRecordingAiAnalysis(recordingId)),

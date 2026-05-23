@@ -23,6 +23,8 @@ interface AiTranscriptSummaryDocument {
   transcript?: Prisma.JsonValue;
   summary?: string;
   audioUrl?: string;
+  moderationResult?: Prisma.JsonValue;
+  moderationCheckedAt?: Date;
   toxicWords?: string[];
   validationRate?: number;
   moderationLabel?: string | null;
@@ -32,6 +34,13 @@ interface AiTranscriptSummaryDocument {
   createdAt?: Date;
   updatedAt?: Date;
 }
+
+type ModerationApiResult = Prisma.JsonObject & {
+  status?: string;
+  score?: number;
+  categories?: string[];
+  toxic_word?: string[];
+};
 
 @Injectable()
 export class LivestreamService {
@@ -120,42 +129,297 @@ export class LivestreamService {
     return livestream;
   }
 
-  private async callModerationApi(text: string | null | undefined) {
-    const API = `${this.localAiBaseUrl}/moderation/text`;
-    try {
-      const payload = { text: text || '', rewrite: true };
-      this.logger.log(`[Moderation] POST ${API} | payloadLen=${(text || '').length}`);
+  private async normalizeTranscriptContent(transcript: unknown): Promise<string> {
+    if (typeof transcript === "string") {
+      return transcript.trim();
+    }
 
-      const res = await fetch(API, {
+    if (!transcript || typeof transcript !== "object") {
+      return "";
+    }
+
+    const data = transcript as Record<string, unknown>;
+
+    if (typeof data.full_text === "string") {
+      return data.full_text.trim();
+    }
+
+    return "";
+  };
+
+  private normalizeModerationStatus(status: unknown): string | undefined {
+    if (typeof status !== 'string') {
+      return undefined;
+    }
+
+    const normalized = status.trim().toUpperCase();
+    return ['SAFE', 'REVIEW', 'BLOCK'].includes(normalized) ? normalized : undefined;
+  }
+
+  private isWordLevelToxicCandidate(value: string): boolean {
+    const trimmed = value.trim();
+
+    if (!trimmed) {
+      return false;
+    }
+
+    if (/\s{2,}/.test(trimmed)) {
+      return false;
+    }
+
+    return trimmed.split(/\s+/).filter(Boolean).length <= 2;
+  }
+
+  private collectModerationStrings(value: unknown): string[] {
+    if (typeof value === 'string') {
+      return [value.trim()];
+    }
+
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.flatMap((item) => {
+      if (typeof item === 'string') {
+        return [item.trim()];
+      }
+
+      if (!item || typeof item !== 'object') {
+        return [];
+      }
+
+      const candidate = item as Record<string, unknown>;
+      const keys = ['word', 'token', 'term', 'lexeme', 'value', 'label', 'name', 'category'];
+
+      for (const key of keys) {
+        const raw = candidate[key];
+        if (typeof raw === 'string') {
+          return [raw.trim()];
+        }
+      }
+
+      return [];
+    });
+  }
+
+  private extractToxicWords(moderation: Record<string, unknown>): string[] {
+    const sources = [
+      moderation.toxic_word,
+      moderation.toxic_words,
+      moderation.toxicWords,
+      moderation.lexicon_hits,
+      moderation.lexiconHits,
+    ];
+
+    const candidates = sources.flatMap((source) => this.collectModerationStrings(source));
+
+    const filtered = candidates
+      .map((value) => value.trim())
+      .filter((value) => this.isWordLevelToxicCandidate(value));
+
+    return Array.from(new Set(filtered));
+  }
+
+  private sanitizeModerationResult(payload: unknown): ModerationApiResult | null {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const data = payload as Record<string, unknown>;
+    const moderation = data.moderation && typeof data.moderation === 'object'
+      ? (data.moderation as Record<string, unknown>)
+      : data;
+
+    const status = this.normalizeModerationStatus(moderation.status);
+    const score = typeof moderation.score === 'number' ? moderation.score : undefined;
+    const categories = Array.isArray(moderation.categories)
+      ? moderation.categories.filter((value): value is string => typeof value === 'string')
+      : undefined;
+    const toxicWord = this.extractToxicWords(moderation);
+
+    if (!status && score === undefined && !categories && toxicWord.length === 0) {
+      return null;
+    }
+
+    return {
+      status,
+      score,
+      categories,
+      toxic_word: toxicWord,
+    };
+  }
+  private async callModerationApi(
+    transcript: unknown,
+  ): Promise<ModerationApiResult | null> {
+    const api = `${this.localAiBaseUrl}/moderation/text`;
+
+    try {
+      // DEBUG RAW INPUT
+      this.logger.debug(
+        `[Moderation] Raw transcript type=${typeof transcript}`,
+      );
+
+      if (typeof transcript === 'string') {
+        const rawPreview =
+          transcript.length > 300
+            ? `${transcript.slice(0, 300)}...`
+            : transcript;
+
+        this.logger.debug(
+          `[Moderation] Raw transcript preview=${rawPreview}`,
+        );
+      }
+
+      // NORMALIZE
+      const normalizedText = await this.normalizeTranscriptContent(transcript);
+
+      this.logger.log(
+        `[Moderation] Normalized text length=${normalizedText.length}`,
+      );
+
+      const normalizedPreview =
+        normalizedText.length > 500
+          ? `${normalizedText.slice(0, 500)}...`
+          : normalizedText;
+
+      this.logger.debug(
+        `[Moderation] Normalized text preview=${normalizedPreview}`,
+      );
+
+      // EMPTY CHECK
+      if (!normalizedText.trim()) {
+        this.logger.warn(
+          '[Moderation] Empty normalized text, skipping moderation',
+        );
+
+        return null;
+      }
+
+      // PAYLOAD
+      const payload = {
+        text: normalizedText,
+      };
+
+      this.logger.debug(
+        `[Moderation] Outgoing payload=${JSON.stringify(payload)}`,
+      );
+
+      this.logger.log(
+        `[Moderation] POST ${api} | payloadLen=${payload.text.length}`,
+      );
+
+      // REQUEST
+      const res = await fetch(api, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(payload),
       });
 
       const respText = await res.text();
-      this.logger.log(`[Moderation] Response status=${res.status}`);
-      if (respText && respText.length > 0) {
-        const preview = respText.length > 1000 ? `${respText.substring(0, 1000)}...` : respText;
-        this.logger.debug(`[Moderation] Response body preview: ${preview}`);
+
+      this.logger.log(
+        `[Moderation] Response status=${res.status}`,
+      );
+
+      if (respText) {
+        const responsePreview =
+          respText.length > 1000
+            ? `${respText.slice(0, 1000)}...`
+            : respText;
+
+        this.logger.debug(
+          `[Moderation] Response body preview=${responsePreview}`,
+        );
       }
 
       if (!res.ok) {
-        this.logger.warn(`[Moderation] Non-ok response from AI moderation: ${res.status}`);
+        this.logger.warn(
+          `[Moderation] Non-ok response from AI moderation: ${res.status}`,
+        );
+
         return null;
       }
 
+      // PARSE JSON
       let data: any = null;
+
       try {
         data = respText ? JSON.parse(respText) : null;
       } catch (parseErr) {
-        this.logger.warn('[Moderation] Failed to parse JSON response', String(parseErr));
+        this.logger.error(
+          '[Moderation] Failed to parse JSON response',
+          parseErr as any,
+        );
+
+        return null;
       }
 
-      return data?.moderation || null;
+      const moderation = this.sanitizeModerationResult(data);
+
+      this.logger.debug(
+        `[Moderation] toxic_word output=${JSON.stringify(moderation?.toxic_word || [])}`,
+      );
+
+      this.logger.debug(
+        `[Moderation] Parsed moderation=${JSON.stringify(moderation)}`,
+      );
+
+      return moderation;
     } catch (err) {
-      this.logger.error('[Moderation] call failed', err as any);
+      this.logger.error(
+        '[Moderation] call failed',
+        err as any,
+      );
+
       return null;
     }
+  }
+
+
+  private async replaceRecordingAiAnalysisWithModeration(
+    recordingId: string,
+    moderationResult: ModerationApiResult,
+  ): Promise<void> {
+    const existing = await this.getRecordingAiAnalysisDocument(recordingId);
+    const toxicWords = moderationResult.toxic_word || existing?.toxicWords || [];
+    const validationRate = typeof moderationResult.score === 'number' ? moderationResult.score : (existing?.validationRate ?? 0);
+    const moderationLabel = moderationResult.status || existing?.moderationLabel || null;
+    const moderationCategories = moderationResult.categories || existing?.moderationCategories || [];
+
+    await this.prisma.mongo.$runCommandRaw({
+      delete: this.aiTranscriptSummaryCollection,
+      deletes: [
+        {
+          q: { type: 'LIVESTREAM', recordingId },
+          limit: 0,
+        },
+      ],
+    });
+
+    await this.prisma.mongo.$runCommandRaw({
+      insert: this.aiTranscriptSummaryCollection,
+      documents: [
+        {
+          id: existing?.id || recordingId,
+          type: 'LIVESTREAM',
+          recordingId,
+          documentId: null,
+          transcript: existing?.transcript ?? null,
+          summary: existing?.summary ?? null,
+          audioUrl: existing?.audioUrl ?? null,
+          moderationResult: moderationResult as Prisma.JsonValue,
+          moderationCheckedAt: new Date(),
+          transcriptStatus: existing?.transcriptStatus ?? 'idle',
+          transcriptError: existing?.transcriptError ?? null,
+          transcriptGeneratedAt: existing?.transcriptGeneratedAt ?? null,
+          summaryGeneratedAt: existing?.summaryGeneratedAt ?? null,
+          createdAt: existing?.createdAt ?? new Date(),
+          updatedAt: new Date(),
+        },
+      ],
+    });
   }
 
   async startLivestream(id: string) {
@@ -356,6 +620,7 @@ export class LivestreamService {
       where: {
         status: LiveStreamStatus.LIVE,
         isPublic: true,
+        isApprove: 'TRUE',
       },
       include: {
         teacher: {
@@ -913,6 +1178,7 @@ export class LivestreamService {
     const livestreams = await this.prisma.postgres.liveStream.findMany({
       where: {
         isPublic: true,
+        isApprove: 'TRUE',
         OR: [
           { status: LiveStreamStatus.LIVE },
           { status: LiveStreamStatus.ENDED },
@@ -959,6 +1225,7 @@ export class LivestreamService {
       where: {
         status: LiveStreamStatus.ENDED,
         isPublic: true,
+        isApprove: 'TRUE',
         recordingUrl: { not: null },
       },
       include: {
@@ -1003,6 +1270,7 @@ export class LivestreamService {
       where: {
         status: LiveStreamStatus.ENDED,
         isPublic: true,
+        isApprove: 'TRUE',
         recordingUrl: { not: null },
         ...(normalizedCategory
           ? {
@@ -1770,17 +2038,29 @@ export class LivestreamService {
 
     if (typeof transcript === 'object') {
       const data = transcript as Record<string, unknown>;
-      const candidate = data.text ?? data.transcript ?? data.result;
+      const candidate = data.full_text;
       if (typeof candidate === 'string') {
         return candidate.trim() || null;
       }
+
+      if (Array.isArray(data.segments)) {
+        const segments = data.segments
+          .map((segment) => {
+            if (!segment || typeof segment !== 'object') {
+              return '';
+            }
+
+            const segmentData = segment as Record<string, unknown>;
+            return typeof segmentData.text === 'string' ? segmentData.text.trim() : '';
+          })
+          .filter(Boolean);
+
+        const joined = segments.join('\n').trim();
+        return joined || null;
+      }
     }
 
-    try {
-      return JSON.stringify(transcript);
-    } catch {
-      return null;
-    }
+    return null;
   }
 
   private extractAiErrorFromPayload(payload: unknown): string | null {
@@ -1835,6 +2115,7 @@ export class LivestreamService {
       transcript: analysis?.transcript || null,
       summary: analysis?.summary || undefined,
       audioUrl: analysis?.audioUrl || null,
+      moderationResult: analysis?.moderationResult || null,
       toxicWords: analysis?.toxicWords || [],
       validationRate: analysis?.validationRate ?? 0,
       moderationLabel: analysis?.moderationLabel || null,
@@ -1855,15 +2136,25 @@ export class LivestreamService {
     const moderationResult = transcriptText ? await this.callModerationApi(transcriptText) : null;
 
     if (moderationResult) {
-      const { score, toxic_word, label, categories } = moderationResult as any;
+      await this.replaceRecordingAiAnalysisWithModeration(recordingId, moderationResult);
+      const toxicWords = moderationResult.toxic_word || analysis.toxicWords || [];
+      const moderationStatus = moderationResult.status || null;
+
+      if (moderationStatus === 'SAFE') {
+        await this.prisma.postgres.liveStream.update({
+          where: { id: recordingId },
+          data: { isApprove: 'TRUE' },
+        }).catch(() => undefined);
+      }
 
       return {
         ...analysis,
-        score: typeof score === 'number' ? score : 0,
-        toxicWords: toxic_word || analysis.toxicWords || [],
-        label: label || null,
-        categories: categories || [],
-        text: transcriptText,
+        moderationResult,
+        score: typeof moderationResult.score === 'number' ? moderationResult.score : 0,
+        toxicWords,
+        status: moderationStatus,
+        label: moderationStatus,
+        categories: moderationResult.categories || analysis.moderationCategories || [],
       };
     }
 
@@ -1871,9 +2162,10 @@ export class LivestreamService {
       ...analysis,
       score: analysis.validationRate ?? 0,
       toxicWords: analysis.toxicWords || [],
+      status: analysis.moderationLabel || null,
       label: analysis.moderationLabel || null,
       categories: analysis.moderationCategories || [],
-      text: transcriptText,
+      moderationResult: null,
     };
   }
 
@@ -1921,14 +2213,7 @@ export class LivestreamService {
         }
         const moderation = await this.callModerationApi(text || '');
         if (moderation) {
-          const { score, toxic_word, label, categories } = moderation as any;
-
-          await this.upsertRecordingAiAnalysis(recordingId, {
-            toxicWords: toxic_word || [],
-            validationRate: typeof score === 'number' ? score : 0,
-            moderationLabel: label || null,
-            moderationCategories: categories || [],
-          });
+          await this.replaceRecordingAiAnalysisWithModeration(recordingId, moderation);
         }
       } catch (err) {
         this.logger.warn('Moderation failed for recording', String(err));
@@ -2136,24 +2421,14 @@ export class LivestreamService {
       }
       const moderation = await this.callModerationApi(text || '');
       if (moderation) {
-        const { score, toxic_word, label, categories } = moderation as any;
+        await this.replaceRecordingAiAnalysisWithModeration(recordingId, moderation);
 
-        await this.upsertRecordingAiAnalysis(recordingId, {
-          toxicWords: toxic_word || [],
-          validationRate: typeof score === 'number' ? score : 0,
-          moderationLabel: label || null,
-          moderationCategories: categories || [],
-        });
+        const moderationStatus = typeof moderation.status === 'string' ? moderation.status : null;
 
-        if (!text || text.length === 0) {
+        if (moderationStatus === 'SAFE') {
           await this.prisma.postgres.liveStream.update({
             where: { id: recordingId },
             data: { isApprove: 'TRUE' },
-          }).catch(() => undefined);
-        } else if (score >= 0.5) {
-          await this.prisma.postgres.liveStream.update({
-            where: { id: recordingId },
-            data: { isApprove: 'REJECTED' },
           }).catch(() => undefined);
         }
       }

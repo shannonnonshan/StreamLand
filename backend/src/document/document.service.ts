@@ -25,6 +25,8 @@ interface AiTranscriptSummaryDocument {
   transcript?: Prisma.JsonValue;
   summary?: string;
   audioUrl?: string;
+  moderationResult?: Prisma.JsonValue;
+  moderationCheckedAt?: Date;
   toxicWords?: string[];
   validationRate?: number;
   moderationLabel?: string | null;
@@ -35,11 +37,19 @@ interface AiTranscriptSummaryDocument {
   updatedAt?: Date;
 }
 
+type ModerationApiResult = Prisma.JsonObject & {
+  status?: string;
+  score?: number;
+  categories?: string[];
+  toxic_word?: string[];
+};
+
 export interface DocumentAiAnalysisResponse {
   documentId: string;
   transcript: Prisma.JsonValue | null;
   summary: string | null;
   audioUrl: string | null;
+  moderationResult: Prisma.JsonValue | null;
   toxicWords: string[];
   validationRate: number;
   moderationLabel: string | null;
@@ -105,6 +115,119 @@ export class DocumentService {
     });
   }
 
+  private normalizeModerationStatus(status: unknown): string | undefined {
+    if (typeof status !== 'string') {
+      return undefined;
+    }
+
+    const normalized = status.trim().toUpperCase();
+    return ['SAFE', 'REVIEW', 'BLOCK'].includes(normalized) ? normalized : undefined;
+  }
+
+  private isWordLevelToxicCandidate(value: string): boolean {
+    const trimmed = value.trim();
+
+    if (!trimmed) {
+      return false;
+    }
+
+    if (/\s{2,}/.test(trimmed)) {
+      return false;
+    }
+
+    return trimmed.split(/\s+/).filter(Boolean).length <= 2;
+  }
+
+  private collectModerationStrings(value: unknown): string[] {
+    if (typeof value === 'string') {
+      return [value.trim()];
+    }
+
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.flatMap((item) => {
+      if (typeof item === 'string') {
+        return [item.trim()];
+      }
+
+      if (!item || typeof item !== 'object') {
+        return [];
+      }
+
+      const candidate = item as Record<string, unknown>;
+      const keys = ['word', 'token', 'term', 'lexeme', 'value', 'label', 'name', 'category'];
+
+      for (const key of keys) {
+        const raw = candidate[key];
+        if (typeof raw === 'string') {
+          return [raw.trim()];
+        }
+      }
+
+      return [];
+    });
+  }
+
+  private extractToxicWords(moderation: Record<string, unknown>): string[] {
+    const sources = [
+      moderation.toxic_word,
+      moderation.toxic_words,
+      moderation.toxicWords,
+      moderation.lexicon_hits,
+      moderation.lexiconHits,
+    ];
+
+    const candidates = sources.flatMap((source) => this.collectModerationStrings(source));
+
+    const filtered = candidates
+      .map((value) => value.trim())
+      .filter((value) => this.isWordLevelToxicCandidate(value));
+
+    return Array.from(new Set(filtered));
+  }
+
+  private async replaceDocumentAiAnalysisWithModeration(
+    documentId: string,
+    moderationResult: ModerationApiResult,
+  ): Promise<void> {
+    const existing = await this.getDocumentAiAnalysisDocument(documentId);
+
+    await this.prisma.mongo.$runCommandRaw({
+      delete: this.aiTranscriptSummaryCollection,
+      deletes: [
+        {
+          q: { type: 'DOCUMENT', documentId },
+          limit: 0,
+        },
+      ],
+    });
+
+    await this.prisma.mongo.$runCommandRaw({
+      insert: this.aiTranscriptSummaryCollection,
+      documents: [
+        {
+          id: existing?.id || documentId,
+          type: 'DOCUMENT',
+          recordingId: null,
+          documentId,
+          transcript: existing?.transcript ?? null,
+          summary: existing?.summary ?? null,
+          audioUrl: existing?.audioUrl ?? null,
+          moderationResult: moderationResult as Prisma.JsonValue,
+          moderationCheckedAt: new Date(),
+          transcriptStatus: existing?.transcriptStatus ?? 'idle',
+          transcriptError: existing?.transcriptError ?? null,
+          transcriptGeneratedAt: existing?.transcriptGeneratedAt ?? null,
+          summaryGeneratedAt: existing?.summaryGeneratedAt ?? null,
+          createdAt: existing?.createdAt ?? new Date(),
+          updatedAt: new Date(),
+        },
+      ],
+    });
+  }
+
   private async downloadToBuffer(url: string): Promise<Buffer> {
     const response = await fetch(url);
     if (!response.ok) {
@@ -146,15 +269,21 @@ export class DocumentService {
       throw new NotFoundException('Document not found');
     }
 
-    if (user.role === 'ADMIN') {
-      return document;
-    }
-
     if (user.role === 'TEACHER') {
       if (document.teacherId !== user.sub) {
         throw new ForbiddenException('You can only access your own documents');
       }
       return document;
+    }
+
+    if (user.role === 'ADMIN') {
+      return document;
+    }
+
+    const isApproved = document.isApprove === 'TRUE';
+
+    if (!isApproved) {
+      throw new ForbiddenException('You can only access approved documents');
     }
 
     const saved = await this.prisma.mongo.studentNotebook.findFirst({
@@ -188,6 +317,7 @@ export class DocumentService {
       transcript: analysis?.transcript || null,
       summary: analysis?.summary || null,
       audioUrl: analysis?.audioUrl || null,
+      moderationResult: analysis?.moderationResult || null,
       toxicWords: analysis?.toxicWords || [],
       validationRate: analysis?.validationRate ?? 0,
       moderationLabel: analysis?.moderationLabel || null,
@@ -202,21 +332,33 @@ export class DocumentService {
   async getDocumentModeration(documentId: string, user: { sub: string; role?: string }) {
     const analysis = await this.getDocumentAiAnalysis(documentId, user, false);
     const transcriptText = this.getTranscriptText(analysis.transcript);
+
     if (transcriptText) {
       this.logger.log(`[Moderation] Document ${documentId} - invoking moderation API; textLen=${transcriptText.length}`);
     }
+
     const moderationResult = transcriptText ? await this.callModerationApi(transcriptText) : null;
 
     if (moderationResult) {
-      const { score, toxic_word, label, categories } = moderationResult;
+      await this.replaceDocumentAiAnalysisWithModeration(documentId, moderationResult);
+
+      if (moderationResult.status === 'SAFE') {
+        await this.prisma.postgres.document.update({
+          where: { id: documentId },
+          data: {
+            isApprove: 'TRUE',
+          },
+        }).catch(() => undefined);
+      }
 
       return {
         ...analysis,
-        score: typeof score === 'number' ? score : 0,
-        toxicWords: toxic_word || analysis.toxicWords || [],
-        label: label || null,
-        categories: categories || [],
-        text: transcriptText,
+        moderationResult,
+        score: typeof moderationResult.score === 'number' ? moderationResult.score : 0,
+        toxicWords: moderationResult.toxic_word || analysis.toxicWords || [],
+        status: moderationResult.status || null,
+        label: moderationResult.status || null,
+        categories: moderationResult.categories || analysis.moderationCategories || [],
       };
     }
 
@@ -224,9 +366,10 @@ export class DocumentService {
       ...analysis,
       score: analysis.validationRate ?? 0,
       toxicWords: analysis.toxicWords || [],
+      status: analysis.moderationLabel || null,
       label: analysis.moderationLabel || null,
       categories: analysis.moderationCategories || [],
-      text: transcriptText,
+      moderationResult: null,
     };
   }
 
@@ -259,14 +402,7 @@ export class DocumentService {
         const moderationResult = await this.callModerationApi(transcriptText);
 
         if (moderationResult) {
-          const { score, toxic_word, label, categories } = moderationResult;
-
-          await this.upsertDocumentAiAnalysis(documentId, {
-            toxicWords: toxic_word || [],
-            validationRate: typeof score === 'number' ? score : 0,
-            moderationLabel: label || null,
-            moderationCategories: categories || [],
-          });
+          await this.replaceDocumentAiAnalysisWithModeration(documentId, moderationResult as ModerationApiResult);
         }
       } catch (modErr) {
         this.logger.warn('Moderation call failed', String(modErr));
@@ -465,27 +601,15 @@ export class DocumentService {
         const moderationResult = await this.callModerationApi(transcriptText);
 
         if (moderationResult) {
-          const { score, toxic_word, label, categories } = moderationResult;
+          await this.replaceDocumentAiAnalysisWithModeration(documentId, moderationResult as ModerationApiResult);
 
-          await this.upsertDocumentAiAnalysis(documentId, {
-            toxicWords: toxic_word || [],
-            validationRate: typeof score === 'number' ? score : 0,
-            moderationLabel: label || null,
-            moderationCategories: categories || [],
-          });
+          const moderationStatus = typeof moderationResult.status === 'string' ? moderationResult.status : null;
 
-          if (!transcriptText || transcriptText.length === 0) {
+          if (moderationStatus === 'SAFE') {
             await this.prisma.postgres.document.update({
               where: { id: documentId },
               data: {
                 isApprove: 'TRUE',
-              },
-            }).catch(() => undefined);
-          } else if (score >= 0.5) {
-            await this.prisma.postgres.document.update({
-              where: { id: documentId },
-              data: {
-                isApprove: 'REJECTED',
               },
             }).catch(() => undefined);
           }
@@ -537,82 +661,189 @@ export class DocumentService {
 
     if (typeof transcript === 'object') {
       const data = transcript as Record<string, unknown>;
-      const candidate = data.text ?? data.transcript ?? data.result;
+      const candidate = data.full_text;
       if (typeof candidate === 'string') {
         return candidate.trim() || null;
       }
     }
 
-    try {
-      return JSON.stringify(transcript);
-    } catch {
-      return null;
-    }
+    return null;
   }
-
-  private async callModerationApi(text: string | null | undefined) {
-    const api = `${this.localAiBaseUrl}/moderation/text`;
-    try {
-      const payload = { text: text || '', rewrite: true };
-      this.logger.log(`[Moderation] POST ${api} | payloadLen=${(text || '').length}`);
-
-      const res = await fetch(api, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const respText = await res.text();
-      this.logger.log(`[Moderation] Response status=${res.status}`);
-      if (respText && respText.length > 0) {
-        const preview = respText.length > 1000 ? `${respText.substring(0, 1000)}...` : respText;
-        this.logger.debug(`[Moderation] Response body preview: ${preview}`);
-      }
-
-      if (!res.ok) {
-        this.logger.warn(`[Moderation] Non-ok response from AI moderation: ${res.status}`);
-        return null;
-      }
-
-      let data: any = null;
-      try {
-        data = respText ? JSON.parse(respText) : null;
-      } catch (parseErr) {
-        this.logger.warn('[Moderation] Failed to parse JSON response', String(parseErr));
-      }
-
-      return data?.moderation || null;
-    } catch (err) {
-      this.logger.error('[Moderation] call failed', err as any);
-      return null;
+  private async normalizeTranscriptContent(transcript: unknown): Promise<string> {
+    if (typeof transcript === "string") {
+      return transcript.trim();
     }
-  }
 
-  private extractAiErrorFromPayload(payload: unknown): string | null {
+    if (!transcript || typeof transcript !== "object") {
+      return "";
+    }
+
+    const data = transcript as Record<string, unknown>;
+
+    if (typeof data.full_text === "string") {
+      return data.full_text.trim();
+    }
+
+    return "";
+  };
+
+  private sanitizeModerationResult(payload: unknown): ModerationApiResult | null {
     if (!payload || typeof payload !== 'object') {
       return null;
     }
 
     const data = payload as Record<string, unknown>;
-    if (data.status !== 'error') {
+    const moderation = data.moderation && typeof data.moderation === 'object'
+      ? (data.moderation as Record<string, unknown>)
+      : data;
+
+    const status = this.normalizeModerationStatus(moderation.status);
+    const score = typeof moderation.score === 'number' ? moderation.score : undefined;
+    const categories = Array.isArray(moderation.categories)
+      ? moderation.categories.filter((value): value is string => typeof value === 'string')
+      : undefined;
+    const toxicWord = this.extractToxicWords(moderation);
+
+    if (!status && score === undefined && !categories && toxicWord.length === 0) {
       return null;
     }
 
-    const errorValue = data.error;
-    if (typeof errorValue === 'string') {
-      return errorValue.trim() || null;
-    }
-
-    if (errorValue && typeof errorValue === 'object') {
-      const errorData = errorValue as Record<string, unknown>;
-      const message = errorData.message ?? errorData.detail ?? errorData.error;
-      if (typeof message === 'string') {
-        return message.trim() || null;
-      }
-    }
-
-    return 'Unknown error from transcribe service';
+    return {
+      status,
+      score,
+      categories,
+      toxic_word: toxicWord,
+    };
   }
+  private async callModerationApi(
+    transcript: unknown,
+  ): Promise<ModerationApiResult | null> {
+    const api = `${this.localAiBaseUrl}/moderation/text`;
+
+    try {
+      // DEBUG RAW INPUT
+      this.logger.debug(
+        `[Moderation] Raw transcript type=${typeof transcript}`,
+      );
+
+      if (typeof transcript === 'string') {
+        const rawPreview =
+          transcript.length > 300
+            ? `${transcript.slice(0, 300)}...`
+            : transcript;
+
+        this.logger.debug(
+          `[Moderation] Raw transcript preview=${rawPreview}`,
+        );
+      }
+
+      // NORMALIZE
+      const normalizedText = await this.normalizeTranscriptContent(transcript);
+
+      this.logger.log(
+        `[Moderation] Normalized text length=${normalizedText.length}`,
+      );
+
+      const normalizedPreview =
+        normalizedText.length > 500
+          ? `${normalizedText.slice(0, 500)}...`
+          : normalizedText;
+
+      this.logger.debug(
+        `[Moderation] Normalized text preview=${normalizedPreview}`,
+      );
+
+      // EMPTY CHECK
+      if (!normalizedText.trim()) {
+        this.logger.warn(
+          '[Moderation] Empty normalized text, skipping moderation',
+        );
+
+        return null;
+      }
+
+      // PAYLOAD
+      const payload = {
+        text: normalizedText,
+      };
+
+      this.logger.debug(
+        `[Moderation] Outgoing payload=${JSON.stringify(payload)}`,
+      );
+
+      this.logger.log(
+        `[Moderation] POST ${api} | payloadLen=${payload.text.length}`,
+      );
+
+      // REQUEST
+      const res = await fetch(api, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const respText = await res.text();
+
+      this.logger.log(
+        `[Moderation] Response status=${res.status}`,
+      );
+
+      if (respText) {
+        const responsePreview =
+          respText.length > 1000
+            ? `${respText.slice(0, 1000)}...`
+            : respText;
+
+        this.logger.debug(
+          `[Moderation] Response body preview=${responsePreview}`,
+        );
+      }
+
+      if (!res.ok) {
+        this.logger.warn(
+          `[Moderation] Non-ok response from AI moderation: ${res.status}`,
+        );
+
+        return null;
+      }
+
+      // PARSE JSON
+      let data: any = null;
+
+      try {
+        data = respText ? JSON.parse(respText) : null;
+      } catch (parseErr) {
+        this.logger.error(
+          '[Moderation] Failed to parse JSON response',
+          parseErr as any,
+        );
+
+        return null;
+      }
+
+      const moderation = this.sanitizeModerationResult(data);
+
+      this.logger.debug(
+        `[Moderation] toxic_word output=${JSON.stringify(moderation?.toxic_word || [])}`,
+      );
+
+      this.logger.debug(
+        `[Moderation] Parsed moderation=${JSON.stringify(moderation)}`,
+      );
+
+      return moderation;
+    } catch (err) {
+      this.logger.error(
+        '[Moderation] call failed',
+        err as any,
+      );
+
+      return null;
+    }
+  }
+
 
   private extractSummaryFromPayload(payload: unknown): string | null {
     if (typeof payload === 'string') {

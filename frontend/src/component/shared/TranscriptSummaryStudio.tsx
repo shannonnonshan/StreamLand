@@ -22,7 +22,7 @@ type TranscriptPayload =
       segments?: unknown[];
     };
 
-const normalizeTranscriptContent = (transcript: unknown): string => {
+const normalizeTranscriptContent = (transcript: TranscriptPayload | null | undefined): string => {
   if (typeof transcript === "string") {
     return transcript.trim();
   }
@@ -32,6 +32,7 @@ const normalizeTranscriptContent = (transcript: unknown): string => {
   }
 
   const data = transcript as Record<string, unknown>;
+
   const directText = [data.full_text, data.text, data.transcript, data.result].find(
     (value) => typeof value === "string",
   );
@@ -53,6 +54,7 @@ const normalizeTranscriptContent = (transcript: unknown): string => {
 
         const segmentData = segment as Record<string, unknown>;
         const segmentText = segmentData.text ?? segmentData.full_text ?? segmentData.transcript ?? segmentData.result;
+
         return typeof segmentText === "string" ? segmentText.trim() : "";
       })
       .filter(Boolean);
@@ -60,12 +62,10 @@ const normalizeTranscriptContent = (transcript: unknown): string => {
     return segments.join("\n").trim();
   }
 
-  try {
-    return JSON.stringify(transcript);
-  } catch {
-    return "";
-  }
+  return "";
 };
+
+
 
 interface TranscriptSummaryStudioProps {
   transcriptSeedMessage: string;

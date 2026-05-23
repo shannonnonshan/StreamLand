@@ -106,6 +106,31 @@ export class AdminController {
     return this.adminService.getAllLivestreams(status, pageNum, limitNum);
   }
 
+  // Approve a livestream
+  @Patch('livestreams/:id/approve')
+  async approveLivestream(
+    @Param('id') livestreamId: string,
+    @Request() req: { user: { sub: string; role: string } }
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can approve livestreams');
+    }
+    return this.adminService.approveLivestream(livestreamId, req.user.sub);
+  }
+
+  // Reject a livestream
+  @Patch('livestreams/:id/reject')
+  async rejectLivestream(
+    @Param('id') livestreamId: string,
+    @Body('reason') reason: string,
+    @Request() req: { user: { sub: string; role: string } }
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can reject livestreams');
+    }
+    return this.adminService.rejectLivestream(livestreamId, reason, req.user.sub);
+  }
+
   // Get all documents
   @Get('documents')
   async getAllDocuments(

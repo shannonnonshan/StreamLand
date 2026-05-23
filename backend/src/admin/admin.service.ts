@@ -315,6 +315,7 @@ export class AdminService {
           recordingUrl: true,
           isApprove: true,
           status: true,
+          rejectReason: true,
           createdAt: true,
           teacher: {
             select: {
@@ -339,6 +340,7 @@ export class AdminService {
         uploadedBy: ls.teacher?.fullName || 'Unknown',
         uploadedAt: ls.createdAt,
         status: ls.status,
+        rejectReason: ls.rejectReason ?? null,
         approvalStatus: ls.isApprove === 'TRUE' ? 'approved' : ls.isApprove === 'REJECTED' ? 'removed' : 'pending',
       })),
       pagination: {
@@ -348,6 +350,46 @@ export class AdminService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  // Approve a livestream recording
+  async approveLivestream(livestreamId: string, _moderatorId: string) {
+    const livestream = await this.prisma.postgres.liveStream.findUnique({ where: { id: livestreamId } });
+    if (!livestream) {
+      throw new NotFoundException('Livestream not found');
+    }
+
+    const updateData: any = {
+      isApprove: 'TRUE',
+      rejectReason: null,
+    };
+
+    await this.prisma.postgres.liveStream.update({
+      where: { id: livestreamId },
+      data: updateData,
+    });
+
+    return { success: true, message: 'Livestream approved', livestreamId };
+  }
+
+  // Reject a livestream recording
+  async rejectLivestream(livestreamId: string, reason?: string, _moderatorId?: string) {
+    const livestream = await this.prisma.postgres.liveStream.findUnique({ where: { id: livestreamId } });
+    if (!livestream) {
+      throw new NotFoundException('Livestream not found');
+    }
+
+    const updateData: any = {
+      isApprove: 'REJECTED',
+      rejectReason: reason?.trim() || null,
+    };
+
+    await this.prisma.postgres.liveStream.update({
+      where: { id: livestreamId },
+      data: updateData,
+    });
+
+    return { success: true, message: 'Livestream rejected', livestreamId, rejectReason: updateData.rejectReason };
   }
 
   // Get all documents with pagination

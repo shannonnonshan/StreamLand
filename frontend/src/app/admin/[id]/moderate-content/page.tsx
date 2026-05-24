@@ -1,6 +1,6 @@
 "use client"
 import React, { useState, useMemo, useEffect } from 'react'
-import { Check, X, Search, ChevronUp, ChevronDown, Filter } from 'lucide-react'
+import { Check, X, Search, ChevronUp, ChevronDown, Filter, XCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, LayoutList } from 'lucide-react'
 
 interface ReportedContent {
   id: string
@@ -8,6 +8,8 @@ interface ReportedContent {
   author: string
   type: 'recording' | 'document'
   reportReason: string
+  rejectReason?: string | null
+  processingStatus?: string | null
   reportedBy: string
   reportedAt: string
   dateReported: string
@@ -35,6 +37,8 @@ export default function ContentModerationPage() {
   const [approvalFilter, setApprovalFilter] = useState<'all' | 'approved' | 'rejected' | 'pending'>('all')
   const [dateFromFilter, setDateFromFilter] = useState('')
   const [dateToFilter, setDateToFilter] = useState('')
+  const [pageSize, setPageSize] = useState(10)
+  const [currentPage, setCurrentPage] = useState(1)
   const [sortConfig, setSortConfig] = useState<{
     key: keyof ReportedContent
     direction: 'asc' | 'desc'
@@ -47,6 +51,44 @@ export default function ContentModerationPage() {
     if (status === 'rejected' || status === 'removed') return 'rejected';
     return 'pending';
   }
+
+  const normalizeProcessingStatus = (value: unknown) => {
+    const status = typeof value === 'string' ? value.trim().toUpperCase() : '';
+
+    if (status === 'PROCESSING') return 'PROCESSING';
+    if (status === 'DONE') return 'DONE';
+    if (status === 'FAILED') return 'FAILED';
+    return 'PENDING';
+  }
+
+  const getProcessingStatusClasses = (value: ReportedContent['processingStatus']) => {
+    const status = normalizeProcessingStatus(value);
+
+    if (status === 'DONE') return 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200';
+    if (status === 'PROCESSING') return 'bg-amber-100 text-amber-700 ring-1 ring-amber-200';
+    if (status === 'FAILED') return 'bg-red-100 text-red-700 ring-1 ring-red-200';
+    return 'bg-slate-100 text-slate-600 ring-1 ring-slate-200';
+  }
+
+  const getApprovalStatusClasses = (value: ReportedContent['status']) => {
+    if (value === 'approved') return 'bg-emerald-100 text-emerald-700';
+    if (value === 'rejected') return 'bg-red-100 text-red-700';
+    return 'bg-amber-100 text-amber-700';
+  }
+
+  useEffect(() => {
+    if (!selectedContent) {
+      setRejectReason('')
+      return
+    }
+
+    if (selectedContent.status === 'rejected') {
+      setRejectReason(selectedContent.rejectReason ?? '')
+      return
+    }
+
+    setRejectReason('')
+  }, [selectedContent?.id, selectedContent?.status, selectedContent?.rejectReason])
 
   // Fetch livestreams and documents from backend
   useEffect(() => {
@@ -77,6 +119,8 @@ export default function ContentModerationPage() {
               author: ls.uploadedBy || 'Unknown',
               type: 'recording' as const,
               reportReason: 'Pending review',
+              rejectReason: ls.rejectReason ?? null,
+              processingStatus: ls.processingStatus ?? null,
               reportedBy: 'System',
               reportedAt: ls.uploadedAt,
               dateReported: new Date(ls.uploadedAt).toLocaleDateString(),
@@ -106,6 +150,8 @@ export default function ContentModerationPage() {
               author: doc.uploadedBy || 'Unknown',
               type: 'document' as const,
               reportReason: 'Pending review',
+              rejectReason: doc.rejectReason ?? null,
+              processingStatus: doc.processingStatus ?? null,
               reportedBy: 'System',
               reportedAt: doc.uploadedAt,
               dateReported: new Date(doc.uploadedAt).toLocaleDateString(),
@@ -152,17 +198,40 @@ export default function ContentModerationPage() {
     return filtered.sort((a, b) => {
       const aVal = a[sortConfig.key]
       const bVal = b[sortConfig.key]
-      
-      if (aVal === undefined || bVal === undefined) return 0
-      if (aVal < bVal) {
+
+      if (aVal === null || aVal === undefined || bVal === null || bVal === undefined) {
+        if (aVal == null && bVal == null) return 0
+        return aVal == null ? 1 : -1
+      }
+
+      const aComparable = typeof aVal === 'boolean' ? Number(aVal) : aVal
+      const bComparable = typeof bVal === 'boolean' ? Number(bVal) : bVal
+
+      if (aComparable < bComparable) {
         return sortConfig.direction === 'asc' ? -1 : 1
       }
-      if (aVal > bVal) {
+      if (aComparable > bComparable) {
         return sortConfig.direction === 'asc' ? 1 : -1
       }
       return 0
     })
   }, [reportedContent, searchQuery, typeFilter, approvalFilter, dateFromFilter, dateToFilter, sortConfig])
+
+  const totalPages = Math.max(1, Math.ceil(filteredAndSortedContent.length / pageSize))
+
+  const paginatedContent = useMemo(() => {
+    const safePage = Math.min(currentPage, totalPages)
+    const startIndex = (safePage - 1) * pageSize
+    return filteredAndSortedContent.slice(startIndex, startIndex + pageSize)
+  }, [filteredAndSortedContent, currentPage, pageSize, totalPages])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, typeFilter, approvalFilter, dateFromFilter, dateToFilter, pageSize])
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages))
+  }, [totalPages])
 
   const handleSort = (key: keyof ReportedContent) => {
     setSortConfig(current => ({
@@ -362,10 +431,10 @@ export default function ContentModerationPage() {
       await persistApproval(content, 'approve');
       setReportedContent(prev => 
         prev.map(item => 
-          item.id === content.id ? { ...item, status: 'approved', isApproved: true } : item
+          item.id === content.id ? { ...item, status: 'approved', isApproved: true, processingStatus: 'DONE' } : item
         )
       )
-      setSelectedContent(prev => (prev && prev.id === content.id ? { ...prev, status: 'approved', isApproved: true } : prev));
+      setSelectedContent(prev => (prev && prev.id === content.id ? { ...prev, status: 'approved', isApproved: true, processingStatus: 'DONE' } : prev));
       setShowModal(false)
     } catch (error) {
       console.error('Failed to approve content', error)
@@ -379,9 +448,10 @@ export default function ContentModerationPage() {
       await persistApproval(content, 'reject');
       setReportedContent(prev => 
         prev.map(item => 
-          item.id === content.id ? { ...item, status: 'rejected' } : item
+          item.id === content.id ? { ...item, status: 'rejected', processingStatus: 'DONE' } : item
         )
       )
+      setSelectedContent(prev => (prev && prev.id === content.id ? { ...prev, status: 'rejected', processingStatus: 'DONE' } : prev));
       setRejectReason("")
       setShowModal(false)
     } catch (error) {
@@ -457,7 +527,7 @@ export default function ContentModerationPage() {
           <select
             value={approvalFilter}
             onChange={(e) => setApprovalFilter(e.target.value as typeof approvalFilter)}
-            className="min-w-[150px] rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20"
+            className="min-w-37.5 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20"
           >
             <option value="all">All approvals</option>
             <option value="approved">Approved</option>
@@ -485,15 +555,115 @@ export default function ContentModerationPage() {
               setDateFromFilter('')
               setDateToFilter('')
             }}
-            className="rounded-full bg-gradient-to-r from-slate-900 to-slate-700 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-slate-900/20 transition hover:scale-[1.02] hover:from-slate-800 hover:to-slate-600"
+            title="Clear filters"
+            aria-label="Clear filters"
+            className="inline-flex items-center justify-center rounded-full bg-linear-to-r from-slate-900 to-slate-700 p-2.5 text-white shadow-md shadow-slate-900/20 transition hover:scale-[1.02] hover:from-slate-800 hover:to-slate-600"
           >
-            Clear filters
+            <XCircle size={18} />
           </button>
         </div>
 
       </div>
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="sticky top-0 z-10 border-b border-white/20 bg-white/50 px-4 py-2.5 backdrop-blur-md">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm text-slate-600">
+              <div
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/60 text-slate-700 ring-1 ring-white/60 shadow-sm"
+                title="Rows per page"
+              >
+                <LayoutList size={16} />
+              </div>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                aria-label="Rows per page"
+                title="Rows per page"
+                className="h-8 rounded-full border border-white/60 bg-white/70 px-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+              <span className="rounded-full bg-white/60 px-3 py-1 text-xs font-semibold tracking-wide text-slate-600 ring-1 ring-white/60 shadow-sm">
+                {filteredAndSortedContent.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}
+                <span className="px-1 text-slate-400">-</span>
+                {Math.min(currentPage * pageSize, filteredAndSortedContent.length)}
+                <span className="px-1 text-slate-400">/</span>
+                {filteredAndSortedContent.length}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                aria-label="First page"
+                title="First page"
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-full transition ${
+                  currentPage === 1
+                    ? 'cursor-not-allowed bg-slate-100 text-slate-400'
+                    : 'bg-slate-900 text-white hover:bg-slate-700'
+                }`}
+              >
+                <ChevronsLeft size={16} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage === 1}
+                aria-label="Previous page"
+                title="Previous page"
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-full transition ${
+                  currentPage === 1
+                    ? 'cursor-not-allowed bg-slate-100 text-slate-400'
+                    : 'bg-slate-900 text-white hover:bg-slate-700'
+                }`}
+              >
+                <ChevronLeft size={16} />
+              </button>
+
+              <div className="inline-flex h-8 items-center rounded-full bg-white/60 px-3 text-xs font-semibold text-slate-700 ring-1 ring-white/60 shadow-sm">
+                {currentPage} / {totalPages}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={currentPage === totalPages}
+                aria-label="Next page"
+                title="Next page"
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-full transition ${
+                  currentPage === totalPages
+                    ? 'cursor-not-allowed bg-slate-100 text-slate-400'
+                    : 'bg-slate-900 text-white hover:bg-slate-700'
+                }`}
+              >
+                <ChevronRight size={16} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                aria-label="Last page"
+                title="Last page"
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-full transition ${
+                  currentPage === totalPages
+                    ? 'cursor-not-allowed bg-slate-100 text-slate-400'
+                    : 'bg-slate-900 text-white hover:bg-slate-700'
+                }`}
+              >
+                <ChevronsRight size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -554,12 +724,15 @@ export default function ContentModerationPage() {
                   </div>
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Process Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredAndSortedContent.map((content) => (
+              {paginatedContent.map((content) => (
                 <tr key={content.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{content.title}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -580,6 +753,11 @@ export default function ContentModerationPage() {
                       ${content.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : ''}
                     `}>
                       {content.status === 'approved' ? 'Approved' : content.status === 'rejected' ? 'Rejected' : 'Pending'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getProcessingStatusClasses(content.processingStatus)}`}>
+                      {normalizeProcessingStatus(content.processingStatus)}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -617,6 +795,8 @@ export default function ContentModerationPage() {
                   setSelectedContent(null)
                   setRejectReason("")
                 }}
+                title="Close modal"
+                aria-label="Close modal"
                 className="rounded-full border border-white/10 bg-white/10 p-2 text-white transition hover:bg-white/20"
               >
                 <X size={20} />
@@ -651,15 +831,18 @@ export default function ContentModerationPage() {
                       <div className="rounded-2xl bg-slate-50 p-4">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Approval</p>
                         <p className="mt-1 text-sm font-medium text-slate-900">
-                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${selectedContent.isApproved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                            {selectedContent.isApproved ? 'Approved' : 'Pending'}
+                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getApprovalStatusClasses(selectedContent.status)}`}>
+                            {selectedContent.status === 'approved' ? 'Approved' : selectedContent.status === 'rejected' ? 'Rejected' : 'Pending'}
                           </span>
                         </p>
                       </div>
                       <div className="rounded-2xl bg-slate-50 p-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Report Reason</p>
-                        <p className="mt-1 text-sm font-medium text-slate-900">{selectedContent.reportReason}</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Process Status</p>
+                        <div className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getProcessingStatusClasses(selectedContent.processingStatus)}`}>
+                          {normalizeProcessingStatus(selectedContent.processingStatus)}
+                        </div>
                       </div>
+
                     </div>
                   </section>
 
@@ -738,7 +921,7 @@ export default function ContentModerationPage() {
                     <textarea
                       className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#292C6D] focus:bg-white focus:ring-4 focus:ring-[#292C6D]/10"
                       rows={3}
-                      placeholder="Enter detailed reason for rejection (required for rejecting content)"
+                      placeholder={selectedContent.status === 'rejected' ? 'Edit the existing rejection reason here' : 'Enter detailed reason for rejection (required for rejecting content)'}
                       value={rejectReason}
                       onChange={(e) => setRejectReason(e.target.value)}
                     />

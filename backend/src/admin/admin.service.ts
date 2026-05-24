@@ -5,6 +5,27 @@ import { PrismaService } from '../prisma/prisma.service';
 export class AdminService {
   constructor(private prisma: PrismaService) {}
 
+  private async markProcessingDoneForLivestream(livestreamId: string): Promise<void> {
+    await this.prisma.postgres.liveStream.update({
+      where: { id: livestreamId },
+      data: {
+        isApprove: 'TRUE',
+        rejectReason: null,
+        processingStatus: 'DONE',
+      },
+    });
+  }
+
+  private async markProcessingDoneForDocument(documentId: string): Promise<void> {
+    await this.prisma.postgres.document.update({
+      where: { id: documentId },
+      data: {
+        isApprove: 'TRUE',
+        processingStatus: 'DONE',
+      },
+    });
+  }
+
   // Get all conversations with admin
   async getAdminConversations() {
     const messages = await this.prisma.mongo.chatMessage.findMany({
@@ -314,6 +335,7 @@ export class AdminService {
           description: true,
           recordingUrl: true,
           isApprove: true,
+          processingStatus: true,
           status: true,
           rejectReason: true,
           createdAt: true,
@@ -342,6 +364,7 @@ export class AdminService {
         status: ls.status,
         rejectReason: ls.rejectReason ?? null,
         approvalStatus: ls.isApprove === 'TRUE' ? 'approved' : ls.isApprove === 'REJECTED' ? 'removed' : 'pending',
+        processingStatus: ls.processingStatus,
       })),
       pagination: {
         page,
@@ -359,15 +382,7 @@ export class AdminService {
       throw new NotFoundException('Livestream not found');
     }
 
-    const updateData: any = {
-      isApprove: 'TRUE',
-      rejectReason: null,
-    };
-
-    await this.prisma.postgres.liveStream.update({
-      where: { id: livestreamId },
-      data: updateData,
-    });
+    await this.markProcessingDoneForLivestream(livestreamId);
 
     return { success: true, message: 'Livestream approved', livestreamId };
   }
@@ -379,17 +394,16 @@ export class AdminService {
       throw new NotFoundException('Livestream not found');
     }
 
-    const updateData: any = {
-      isApprove: 'REJECTED',
-      rejectReason: reason?.trim() || null,
-    };
-
     await this.prisma.postgres.liveStream.update({
       where: { id: livestreamId },
-      data: updateData,
+      data: {
+        isApprove: 'REJECTED',
+        rejectReason: reason?.trim() || null,
+        processingStatus: 'DONE',
+      },
     });
 
-    return { success: true, message: 'Livestream rejected', livestreamId, rejectReason: updateData.rejectReason };
+    return { success: true, message: 'Livestream rejected', livestreamId, rejectReason: reason?.trim() || null };
   }
 
   // Get all documents with pagination
@@ -422,6 +436,7 @@ export class AdminService {
           uploadedAt: true,
           teacherId: true,
           isApprove: true,
+          processingStatus: true,
         },
         orderBy: {
           uploadedAt: 'desc',
@@ -448,6 +463,7 @@ export class AdminService {
           uploadedBy: teacher?.fullName || 'Unknown',
           uploadedAt: doc.uploadedAt,
           status: doc.isApprove === 'TRUE' ? 'approved' : doc.isApprove === 'REJECTED' ? 'removed' : 'pending',
+          processingStatus: doc.processingStatus,
         };
       })
     );
@@ -470,12 +486,7 @@ export class AdminService {
       throw new NotFoundException('Document not found');
     }
 
-    await this.prisma.postgres.document.update({
-      where: { id: documentId },
-      data: {
-        isApprove: 'TRUE',
-      },
-    });
+    await this.markProcessingDoneForDocument(documentId);
 
     return { success: true, message: 'Document approved', documentId };
   }
@@ -491,6 +502,7 @@ export class AdminService {
       where: { id: documentId },
       data: {
         isApprove: 'REJECTED',
+        processingStatus: 'DONE',
       },
     });
 

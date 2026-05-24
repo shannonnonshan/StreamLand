@@ -1,13 +1,36 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
+import { ProcessingService } from '../processing/processing.service';
 
 @Injectable()
 export class TeacherService {
   constructor(
     private prisma: PrismaService,
     private r2StorageService: R2StorageService,
+    private processingService: ProcessingService,
   ) {}
+
+  private shouldEnqueueProcessing(filename: string): boolean {
+    const extension = path.extname(filename).toLowerCase();
+
+    return [
+      '.mp4',
+      '.webm',
+      '.mov',
+      '.mkv',
+      '.avi',
+      '.m4v',
+      '.mp3',
+      '.wav',
+      '.m4a',
+      '.aac',
+      '.ogg',
+      '.flac',
+      '.opus',
+    ].includes(extension);
+  }
 
   // Get teacher videos/livestreams
   async getTeacherVideos(teacherId: string, limit: number = 20) {
@@ -353,8 +376,18 @@ export class TeacherService {
         fileType,
         fileSize: file.size,
         mimeType: file.mimetype,
+        processingStatus: 'PENDING',
       },
     });
+
+    if (this.shouldEnqueueProcessing(file.originalname)) {
+      await this.processingService.enqueue({
+        type: 'document',
+        itemId: document.id,
+        fileUrl: documentUrl,
+        title: file.originalname,
+      });
+    }
 
     // Return format expected by frontend
     return {

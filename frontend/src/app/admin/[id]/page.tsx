@@ -92,7 +92,22 @@ export default function Dashboard() {
         if (livestreamsResponse.ok) {
           const data = await livestreamsResponse.json();
           // Sort by totalViews descending and take top 3
-          const sortedLivestreams = data.livestreams
+          const normalizedLivestreams = data.livestreams.map((ls: any) => ({
+            id: ls.id,
+            title: ls.title,
+            description: ls.description ?? null,
+            createdAt: ls.uploadedAt ?? ls.createdAt ?? new Date().toISOString(),
+            totalViews: ls.totalViews ?? 0,
+            status: ls.status,
+            teacher: {
+              id: ls.teacher?.id ?? '',
+              fullName: ls.teacher?.fullName ?? ls.uploadedBy ?? 'Unknown',
+              email: ls.teacher?.email ?? '',
+              avatar: ls.teacher?.avatar ?? null,
+            },
+          }));
+
+          const sortedLivestreams = normalizedLivestreams
             .filter((ls: Livestream) => ls.status === 'ENDED')
             .sort((a: Livestream, b: Livestream) => (b.totalViews || 0) - (a.totalViews || 0));
           setTopLivestreams(sortedLivestreams.slice(0, 3));
@@ -132,29 +147,11 @@ export default function Dashboard() {
   ];
 
   // ================== Color logic ==================
-  const baseColors = ["#EC255A", "#fceb2d", "#1E93AB"];
+  const baseColors = ["#C41E3A", "#D4A200", "#0D5A6F"];
   const cards = stats.map((item, i) => {
-    const intensity = Math.min(item.count / 100, 1);
     const bgColor = "#FFFFFF";
     const base = baseColors[i % baseColors.length];
-
-    const blendWithWhite = (hex: string, factor: number) => {
-      const c = parseInt(hex.slice(1), 16);
-      const r = (c >> 16) & 0xff;
-      const g = (c >> 8) & 0xff;
-      const b = c & 0xff;
-
-      const gamma = 0.8;
-      factor = Math.pow(factor, gamma);
-
-      const rMix = Math.round(r + (255 - r) * (1 - factor));
-      const gMix = Math.round(g + (255 - g) * (1 - factor));
-      const bMix = Math.round(b + (255 - b) * (1 - factor));
-
-      return `rgb(${rMix}, ${gMix}, ${bMix})`;
-    };
-
-    const textColor = blendWithWhite(base, intensity);
+    const textColor = base;
     return { ...item, bgColor, textColor };
   });
 
@@ -176,7 +173,7 @@ export default function Dashboard() {
         {/* ===== Left Side ===== */}
           <div className="flex flex-col gap-8">
           {/* Greeting Card */}
-          <div className="flex items-center bg-white rounded-2xl p-8 shadow-sm min-h-[180px]">
+          <div className="flex items-center bg-white rounded-2xl p-8 shadow-sm min-h-45">
             <Image
               src="/admin/welcome.gif"
               alt="Dashboard Illustration"
@@ -211,7 +208,7 @@ export default function Dashboard() {
                   >
                     {item.count}+
                   </div>
-                  <div className="text-sm font-semibold transition-all duration-300 text-black">
+                  <div className="text-sm font-semibold transition-all duration-300" style={{ color: item.textColor }}>
                     {item.label}
                   </div>
                 </div>

@@ -1,5 +1,6 @@
 import { Controller, Get, Patch, Param, Body, Query, UseGuards, Request, BadRequestException, Post, UseInterceptors, UploadedFiles } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import type { Express } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminService } from './admin.service';
 import { ChatService } from '../chat/chat.service';
@@ -105,6 +106,74 @@ export class AdminController {
     return this.adminService.getAllLivestreams(status, pageNum, limitNum);
   }
 
+  // Approve a livestream
+  @Patch('livestreams/:id/approve')
+  async approveLivestream(
+    @Param('id') livestreamId: string,
+    @Request() req: { user: { sub: string; role: string } }
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can approve livestreams');
+    }
+    return this.adminService.approveLivestream(livestreamId, req.user.sub);
+  }
+
+  // Reject a livestream
+  @Patch('livestreams/:id/reject')
+  async rejectLivestream(
+    @Param('id') livestreamId: string,
+    @Body('reason') reason: string,
+    @Request() req: { user: { sub: string; role: string } }
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can reject livestreams');
+    }
+    return this.adminService.rejectLivestream(livestreamId, reason, req.user.sub);
+  }
+
+  // Get all documents
+  @Get('documents')
+  async getAllDocuments(
+    @Query('status') status: string,
+    @Query('page') page: string,
+    @Query('limit') limit: string,
+    @Request() req: { user: { sub: string; role: string } }
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can access document list');
+    }
+    
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 20;
+    
+    return this.adminService.getAllDocuments(status, pageNum, limitNum);
+  }
+
+  // Approve a document
+  @Patch('documents/:id/approve')
+  async approveDocument(
+    @Param('id') documentId: string,
+    @Request() req: { user: { sub: string; role: string } }
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can approve documents');
+    }
+    return this.adminService.approveDocument(documentId, req.user.sub);
+  }
+
+  // Reject a document
+  @Patch('documents/:id/reject')
+  async rejectDocument(
+    @Param('id') documentId: string,
+    @Body('reason') reason: string,
+    @Request() req: { user: { sub: string; role: string } }
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can reject documents');
+    }
+    return this.adminService.rejectDocument(documentId, reason, req.user.sub);
+  }
+
   // Get all conversations with admin
   @Get('messages')
   async getAdminMessages(@Request() req: { user: { sub: string; role: string } }) {
@@ -132,7 +201,7 @@ export class AdminController {
   async replyToUser(
     @Param('userId') userId: string,
     @Body('content') content: string,
-    @UploadedFiles() images: Express.Multer.File[],
+    @UploadedFiles() images: any[],
     @Request() req: { user: { sub: string; role: string } }
   ) {
     if (req.user.role !== 'ADMIN') {

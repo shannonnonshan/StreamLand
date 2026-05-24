@@ -93,8 +93,6 @@ async function seedLivestreamsWithVideos() {
             isRecorded: true,
             isPublic: true,
             allowComments: true,
-            allowQuestions: true,
-            chatMode: 'EVERYONE',
           },
         });
 
@@ -195,8 +193,6 @@ async function seedSchedules() {
             isRecorded: true,
             isPublic: template.isPublic,
             allowComments: true,
-            allowQuestions: true,
-            chatMode: 'EVERYONE',
           },
         });
 

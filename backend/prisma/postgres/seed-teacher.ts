@@ -624,8 +624,6 @@ async function seedTeacherData() {
           isRecorded: true,
           isPublic: true,
           allowComments: true,
-          allowQuestions: true,
-          chatMode: 'EVERYONE',
         },
       });
       console.log(`  ✅ Created livestream: ${livestream.title}`);
@@ -657,8 +655,6 @@ async function seedTeacherData() {
           isRecorded: true,
           isPublic: template.isPublic,
           allowComments: true,
-          allowQuestions: true,
-          chatMode: 'EVERYONE',
         },
       });
 

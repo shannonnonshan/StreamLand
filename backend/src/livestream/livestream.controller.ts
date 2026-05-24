@@ -26,14 +26,18 @@ import { UpdateScheduleDto } from './dto/update-schedule.dto';
 export class LivestreamController {
   constructor(private readonly livestreamService: LivestreamService) {}
 
-  private assertLivestreamAccess(livestream: { teacherId: string; isPublic: boolean }, req: any) {
+  private assertLivestreamAccess(
+    livestream: { teacherId: string; isPublic: boolean; isApprove?: string | boolean | null },
+    req: any,
+  ) {
     const requesterId = req.user?.sub;
     const requesterRole = req.user?.role;
     const isOwner = requesterId && livestream.teacherId === requesterId;
     const isAdmin = requesterRole === 'ADMIN';
+    const isApproved = livestream.isApprove === true || livestream.isApprove === 'TRUE' || livestream.isApprove === 'true';
 
-    if (!livestream.isPublic && !isOwner && !isAdmin) {
-      throw new UnauthorizedException('This livestream is private. Only the teacher can view it.');
+    if ((!livestream.isPublic || !isApproved) && !isOwner && !isAdmin) {
+      throw new UnauthorizedException('This livestream is not available to students until it is public and approved.');
     }
   }
 
@@ -146,7 +150,10 @@ export class LivestreamController {
 
   // Routes with :id param - MUST be after specific routes
   @Get(':id/documents')
-  async getLivestreamDocuments(@Param('id') id: string) {
+  @UseGuards(OptionalJwtAuthGuard)
+  async getLivestreamDocuments(@Param('id') id: string, @Request() req: any) {
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    this.assertLivestreamAccess(livestream, req);
     return await this.livestreamService.getLivestreamDocuments(id);
   }
 
@@ -161,6 +168,18 @@ export class LivestreamController {
     this.assertLivestreamAccess(livestream, req);
 
     return livestream;
+  }
+
+  @Get(':id/moderation')
+  @UseGuards(OptionalJwtAuthGuard)
+  async getRecordingModeration(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    this.assertLivestreamAccess(livestream, req);
+
+    return await this.livestreamService.getRecordingModeration(id);
   }
 
   @Get(':id/ai-analysis')

@@ -127,6 +127,7 @@ model LiveStream {
   updatedAt      DateTime                @updatedAt
   category       String?
   isApprove      RecordingApprovalStatus @default(FALSE)
+  processingStatus ProcessingStatus      @default(PENDING)
   rejectReason   String?
   teacher        User                    @relation(fields: [teacherId], references: [id])
   schedule       Schedule?
@@ -152,6 +153,7 @@ model Document {
   teacherId   String
   thumbnail   String?
   isApprove   RecordingApprovalStatus @default(FALSE)
+  processingStatus ProcessingStatus     @default(PENDING)
   teacher     User                    @relation(fields: [teacherId], references: [id])
 
   @@index([fileType])
@@ -227,6 +229,13 @@ enum RecordingApprovalStatus {
   TRUE
   FALSE
   REJECTED
+}
+
+enum ProcessingStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
 }
 
 enum FriendStatus {

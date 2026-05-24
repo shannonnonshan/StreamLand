@@ -6,6 +6,7 @@ import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { Prisma, LiveStreamStatus, ScheduleStatus } from '@prisma/client';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
 import { RedisService } from '../redis/redis.service';
+import { ProcessingService } from '../processing/processing.service';
 import { Readable } from 'stream';
 import { createWriteStream, promises as fs } from 'fs';
 import { spawn } from 'child_process';
@@ -52,6 +53,7 @@ export class LivestreamService {
     private prisma: PrismaService,
     private r2StorageService: R2StorageService,
     private redisService: RedisService,
+    private processingService: ProcessingService,
   ) {}
 
   async createLivestream(createLivestreamDto: CreateLivestreamDto) {
@@ -805,16 +807,24 @@ export class LivestreamService {
       
       // Update livestream with recording URL and duration
       console.log(`[Service] Updating livestream record with duration=${duration}s...`);
-      await this.prisma.postgres.liveStream.update({
+      const updatedLivestream = await this.prisma.postgres.liveStream.update({
         where: { id: livestreamId },
         data: {
           recordingUrl: videoUrl,
           isRecorded: true,
           isApprove: 'FALSE',
           duration: duration || 0,
+          processingStatus: 'PENDING',
         },
       });
       console.log(`[Service] Livestream updated successfully`);
+
+      await this.processingService.enqueue({
+        type: 'livestream',
+        itemId: livestreamId,
+        fileUrl: videoUrl,
+        title: updatedLivestream.title,
+      });
       
       this.logger.log(`Recording uploaded: ${videoUrl}`);
       return { success: true, url: videoUrl };
@@ -1947,8 +1957,8 @@ export class LivestreamService {
         where: { livestreamId },
       });
 
-      const likes = reactions.filter((r) => r.reactionType === 'like').length;
-      const dislikes = reactions.filter((r) => r.reactionType === 'dislike').length;
+      const likes = reactions.filter((reaction: { reactionType?: string }) => reaction.reactionType === 'like').length;
+      const dislikes = reactions.filter((reaction: { reactionType?: string }) => reaction.reactionType === 'dislike').length;
 
       return { likes, dislikes };
     } catch (error) {

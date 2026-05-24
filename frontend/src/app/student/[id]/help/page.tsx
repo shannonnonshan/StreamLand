@@ -27,6 +27,8 @@ const nowLabel = () =>
   });
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const SEARCH_API_URL = process.env.NEXT_PUBLIC_SEARCH_API_URL || "http://127.0.0.1:8000";
+const CHATBOT_URL = `${SEARCH_API_URL.replace(/\/$/, "")}/chat`;
 
 export default function StudentHelpPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -59,15 +61,32 @@ export default function StudentHelpPage() {
   }, []);
 
   const sendMessageToAi = async (text: string) => {
-    const body = await authenticatedFetch(`${API_URL}/student/help/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ message: text }),
-    });
+    try {
+      const response = await fetch(CHATBOT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: text }),
+      });
 
-    return body.response || "No answer returned from AI.";
+      if (!response.ok) {
+        throw new Error("Chatbot request failed");
+      }
+
+      const data = await response.json();
+      return data.response || data.message || "No answer returned from AI.";
+    } catch (error) {
+      const body = await authenticatedFetch(`${API_URL}/student/help/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: text }),
+      });
+
+      return body.response || "No answer returned from AI.";
+    }
   };
 
   const handleSend = async (value?: string) => {

@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Loader2, X, Info, Eye, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, X, Info, Eye, EyeOff, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, Filter } from "lucide-react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { raleway } from "@/utils/front";
 
 interface AdminFormData {
   name: string;
@@ -29,7 +30,9 @@ interface Teacher {
   email: string;
   avatar?: string;
   submitDate: string;
+  submitDateRaw: string;
   reviewDate: string;
+  reviewDateRaw: string;
   details: string;
   status: "waiting" | "require-update" | "approved";
   education?: string;
@@ -43,6 +46,21 @@ interface Teacher {
 }
 
 const defaultLogoUrl = "/logo.png";
+
+type AdminFormDialogProps = {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  mode: "create" | "update";
+  defaultData?: Admin | null;
+  onSubmit: (data: AdminFormData) => void;
+};
+
+function AdminFormDialog(props: AdminFormDialogProps) {
+  return <AdminFormDialogImpl {...props} />;
+}
+
+type AdminSortKey = "name" | "status";
+type TeacherSortKey = "username" | "submitDateRaw" | "reviewDateRaw" | "status";
 
 export default function ManageAccount() {
   const [admins, setAdmins] = useState<Admin[]>([]);
@@ -61,15 +79,108 @@ export default function ManageAccount() {
   const [isCVPreviewOpen, setIsCVPreviewOpen] = useState(false);
   const [cvPreviewUrl, setCVPreviewUrl] = useState<string | null>(null);
 
+  const [activeTab, setActiveTab] = useState<"admin" | "teacher">("admin");
+
   const [adminPage, setAdminPage] = useState(1);
   const [teacherPage, setTeacherPage] = useState(1);
   const [adminSort, setAdminSort] = useState<'asc' | 'desc'>('asc');
+  const [adminSortKey, setAdminSortKey] = useState<AdminSortKey>('name');
   const [teacherSort, setTeacherSort] = useState<'asc' | 'desc'>('asc');
+  const [teacherSortKey, setTeacherSortKey] = useState<TeacherSortKey>('username');
   const [adminSearch, setAdminSearch] = useState('');
   const [teacherSearch, setTeacherSearch] = useState('');
   const [adminStatusFilter, setAdminStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [teacherStatusFilter, setTeacherStatusFilter] = useState<'all' | 'waiting' | 'require-update' | 'approved'>('all');
-  const itemsPerPage = 5;
+  const [adminPageSize, setAdminPageSize] = useState(5);
+  const [teacherPageSize, setTeacherPageSize] = useState(5);
+
+  const filteredAdmins = useMemo(() => {
+    return admins.filter((admin) => {
+      const matchesSearch = admin.email.toLowerCase().includes(adminSearch.toLowerCase()) ||
+        admin.name.toLowerCase().includes(adminSearch.toLowerCase());
+      const matchesStatus = adminStatusFilter === 'all' || admin.status === adminStatusFilter;
+      return matchesSearch && matchesStatus;
+    }).sort((a, b) => {
+      const direction = adminSort === 'asc' ? 1 : -1;
+      const leftValue = a[adminSortKey].toString().toLowerCase();
+      const rightValue = b[adminSortKey].toString().toLowerCase();
+
+      return leftValue.localeCompare(rightValue) * direction;
+    });
+  }, [admins, adminSearch, adminStatusFilter, adminSort, adminSortKey]);
+
+  const filteredTeachers = useMemo(() => {
+    return teachers.filter((teacher) => {
+      const matchesSearch = teacher.username.toLowerCase().includes(teacherSearch.toLowerCase()) ||
+        teacher.name.toLowerCase().includes(teacherSearch.toLowerCase()) ||
+        teacher.email.toLowerCase().includes(teacherSearch.toLowerCase());
+      const matchesStatus = teacherStatusFilter === 'all' || teacher.status === teacherStatusFilter;
+      return matchesSearch && matchesStatus;
+    }).sort((a, b) => {
+      const direction = teacherSort === 'asc' ? 1 : -1;
+
+      if (teacherSortKey === 'submitDateRaw' || teacherSortKey === 'reviewDateRaw') {
+        const leftTime = a[teacherSortKey] ? new Date(a[teacherSortKey]).getTime() : 0;
+        const rightTime = b[teacherSortKey] ? new Date(b[teacherSortKey]).getTime() : 0;
+        return (leftTime - rightTime) * direction;
+      }
+
+      const leftValue = a[teacherSortKey].toString().toLowerCase();
+      const rightValue = b[teacherSortKey].toString().toLowerCase();
+      return leftValue.localeCompare(rightValue) * direction;
+    });
+  }, [teachers, teacherSearch, teacherStatusFilter, teacherSort, teacherSortKey]);
+
+  const totalAdminPages = Math.max(1, Math.ceil(filteredAdmins.length / adminPageSize));
+  const totalTeacherPages = Math.max(1, Math.ceil(filteredTeachers.length / teacherPageSize));
+
+  const safeAdminPage = Math.min(adminPage, totalAdminPages);
+  const safeTeacherPage = Math.min(teacherPage, totalTeacherPages);
+
+  const paginatedAdmins = useMemo(() => {
+    return filteredAdmins.slice((safeAdminPage - 1) * adminPageSize, safeAdminPage * adminPageSize);
+  }, [filteredAdmins, safeAdminPage, adminPageSize]);
+
+  const paginatedTeachers = useMemo(() => {
+    return filteredTeachers.slice((safeTeacherPage - 1) * teacherPageSize, safeTeacherPage * teacherPageSize);
+  }, [filteredTeachers, safeTeacherPage, teacherPageSize]);
+
+  const adminFirstItem = filteredAdmins.length === 0 ? 0 : (safeAdminPage - 1) * adminPageSize + 1;
+  const adminLastItem = Math.min(safeAdminPage * adminPageSize, filteredAdmins.length);
+  const teacherFirstItem = filteredTeachers.length === 0 ? 0 : (safeTeacherPage - 1) * teacherPageSize + 1;
+  const teacherLastItem = Math.min(safeTeacherPage * teacherPageSize, filteredTeachers.length);
+
+  const resetAdminFilters = () => {
+    setAdminSearch('');
+    setAdminStatusFilter('all');
+    setAdminPage(1);
+  };
+
+  const resetTeacherFilters = () => {
+    setTeacherSearch('');
+    setTeacherStatusFilter('all');
+    setTeacherPage(1);
+  };
+
+  const getAdminStatusClasses = (status: Admin['status']) => {
+    return status === 'online'
+      ? 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200'
+      : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200';
+  };
+
+  const getTeacherStatusClasses = (status: Teacher['status']) => {
+    if (status === 'waiting') return 'bg-amber-100 text-amber-700 ring-1 ring-amber-200';
+    if (status === 'require-update') return 'bg-sky-100 text-sky-700 ring-1 ring-sky-200';
+    return 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200';
+  };
+
+  useEffect(() => {
+    setAdminPage((current) => Math.min(current, totalAdminPages));
+  }, [totalAdminPages]);
+
+  useEffect(() => {
+    setTeacherPage((current) => Math.min(current, totalTeacherPages));
+  }, [totalTeacherPages]);
 
 
   // --- FETCH FROM BACKEND ---
@@ -126,7 +237,9 @@ export default function ManageAccount() {
             email: t.email,
             avatar: t.avatar,
             submitDate: new Date(t.createdAt).toLocaleDateString(),
+            submitDateRaw: t.createdAt,
             reviewDate: '-',
+            reviewDateRaw: '',
             details: `${t.education || 'N/A'}, ${t.experience || 'N/A'}`,
             status: 'waiting' as const,
             education: t.education,
@@ -150,7 +263,9 @@ export default function ManageAccount() {
             email: t.email,
             avatar: t.avatar,
             submitDate: new Date(t.createdAt).toLocaleDateString(),
+            submitDateRaw: t.createdAt,
             reviewDate: t.teacherProfile?.updatedAt ? new Date(t.teacherProfile.updatedAt).toLocaleDateString() : '-',
+            reviewDateRaw: t.teacherProfile?.updatedAt ?? '',
             details: `${t.teacherProfile?.education || 'N/A'}, ${t.teacherProfile?.experience || 'N/A'}`,
             status: (t.teacherProfile?.isApproved ? 'approved' : t.teacherProfile?.rejectedAt ? 'require-update' : 'waiting') as any,
             education: t.teacherProfile?.education,
@@ -183,45 +298,6 @@ export default function ManageAccount() {
     fetchData();
   }, []);
 
-  // Filter and sort admins
-  const filteredAdmins = admins.filter(admin => {
-    const matchesSearch = admin.email.toLowerCase().includes(adminSearch.toLowerCase()) ||
-                         admin.name.toLowerCase().includes(adminSearch.toLowerCase());
-    const matchesStatus = adminStatusFilter === 'all' || admin.status === adminStatusFilter;
-    return matchesSearch && matchesStatus;
-  }).sort((a, b) => {
-    if (adminSort === 'asc') {
-      return a.email.localeCompare(b.email);
-    } else {
-      return b.email.localeCompare(a.email);
-    }
-  });
-
-  // Filter and sort teachers
-  const filteredTeachers = teachers.filter(teacher => {
-    const matchesSearch = teacher.username.toLowerCase().includes(teacherSearch.toLowerCase()) ||
-                         teacher.name.toLowerCase().includes(teacherSearch.toLowerCase());
-    const matchesStatus = teacherStatusFilter === 'all' || teacher.status === teacherStatusFilter;
-    return matchesSearch && matchesStatus;
-  }).sort((a, b) => {
-    if (teacherSort === 'asc') {
-      return a.username.localeCompare(b.username);
-    } else {
-      return b.username.localeCompare(a.username);
-    }
-  });
-
-  const totalAdminPages = Math.ceil(filteredAdmins.length / itemsPerPage);
-  const totalTeacherPages = Math.ceil(filteredTeachers.length / itemsPerPage);
-
-  const paginatedAdmins = filteredAdmins.slice(
-    (adminPage - 1) * itemsPerPage,
-    adminPage * itemsPerPage
-  );
-  const paginatedTeachers = filteredTeachers.slice(
-    (teacherPage - 1) * itemsPerPage,
-    teacherPage * itemsPerPage
-  );
   // --- CRUD HANDLERS ---
   const handleCreateAdmin = async (data: AdminFormData) => {
     try {
@@ -352,328 +428,431 @@ export default function ManageAccount() {
     }
   };
 
-  return (
-    <div className="p-8 space-y-10">
-      <h1 className="text-2xl font-bold text-[#161853]">Manage Account</h1>
-
-      {/* --- ADMIN TABLE --- */}
-      <div className="bg-white rounded-2xl p-6 shadow-sm">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-lg font-semibold text-[#161853]">Administrators</h2>
-
-          <button
-            onClick={() => {
-              setDialogMode("create");
-              setSelectedAdmin(null);
-              setIsFormOpen(true);
-            }}
-            className="bg-[#FFD93D] text-[#161853] hover:bg-[#ffc90f] px-4 py-2 rounded-md font-medium"
-          >
-            ADD ADMIN
-          </button>
-        </div>
-
-        <div className="flex gap-4 mb-4">
-          <div className="flex-1">
-            <input
-              type="text"
-              placeholder="Search by name or username..."
-              value={adminSearch}
-              onChange={(e) => {
-                setAdminSearch(e.target.value);
-                setAdminPage(1); // Reset to first page on search
-              }}
-              className="w-full px-3 py-2 border rounded-md text-sm"
-            />
-          </div>
-          <select
-            value={adminStatusFilter}
-            onChange={(e) => {
-              setAdminStatusFilter(e.target.value as 'all' | 'online' | 'offline');
-              setAdminPage(1); // Reset to first page on filter change
-            }}
-            className="border rounded-md px-3 py-2 text-sm"
-          >
-            <option value="all">All Status</option>
-            <option value="online">Online</option>
-            <option value="offline">Offline</option>
-          </select>
-          <button
-            onClick={() => setAdminSort(current => current === 'asc' ? 'desc' : 'asc')}
-            className="px-3 py-2 border rounded-md text-sm hover:bg-gray-50"
-          >
-            Sort by ID {adminSort === 'asc' ? '↑' : '↓'}
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="text-left border-b border-gray-200">
-              <tr>
-                <th className="pb-3">Admin</th>
-                <th className="pb-3">Status</th>
-                <th className="pb-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {loadingAdmins ? (
-                <tr>
-                  <td colSpan={3} className="py-8 text-center text-gray-500">
-                    <Loader2 className="w-5 h-5 animate-spin inline-block mr-2" />
-                    Loading administrators...
-                  </td>
-                </tr>
-              ) : (
-                paginatedAdmins.map((a) => (
-                  <tr key={a.id}>
-                    <td className="py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-[#161853] rounded-full overflow-hidden flex items-center justify-center">
-                          <Image
-                            src={a.avatar || defaultLogoUrl}
-                            alt={a.name}
-                            width={40}
-                            height={40}
-                            className="object-cover"
-                          />
-                        </div>
-                        <div>
-                          <div className="font-medium">{a.name}</div>
-                          <div className="text-sm text-gray-500">{a.email}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <span
-                        className={clsx(
-                          "px-2 py-1 rounded-full text-sm capitalize",
-                          a.status === "online"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-gray-100 text-gray-700"
-                        )}
-                      >
-                        {a.status}
-                      </span>
-                    </td>
-                    <td className="text-right space-x-2">
-                      <button
-                        onClick={() => {
-                          setDialogMode("update");
-                          setSelectedAdmin(a);
-                          setIsFormOpen(true);
-                        }}
-                        className="px-3 py-1.5 border rounded-md text-sm hover:bg-gray-50"
-                      >
-                        Update
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setSelectedAdmin(a);
-                          setIsDeleteOpen(true);
-                        }}
-                        className="px-3 py-1.5 border rounded-md text-sm text-red-500 hover:bg-red-50"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        
-        {/* Admin Pagination */}
-        {!loadingAdmins && admins.length > 0 && (
-          <div className="mt-4 flex items-center justify-between border-t pt-4">
-            <div className="text-sm text-gray-500">
-              Showing {((adminPage - 1) * itemsPerPage) + 1} to {Math.min(adminPage * itemsPerPage, admins.length)} of {admins.length} administrators
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setAdminPage(p => Math.max(1, p - 1))}
-                disabled={adminPage === 1}
-                className="p-2 rounded-md border text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                aria-label="Previous page"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setAdminPage(p => Math.min(totalAdminPages, p + 1))}
-                disabled={adminPage === totalAdminPages}
-                className="p-2 rounded-md border text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                aria-label="Next page"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+  const adminToolbar = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
+        <Search className="h-4 w-4 text-slate-400" />
+        <input
+          type="text"
+          placeholder="Search name or email..."
+          value={adminSearch}
+          onChange={(e) => setAdminSearch(e.target.value)}
+          className="w-40 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400 sm:w-56"
+        />
       </div>
+      <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
+        <Filter className="h-4 w-4 text-slate-400" />
+        <select
+          value={adminStatusFilter}
+          onChange={(e) => setAdminStatusFilter(e.target.value as 'all' | 'online' | 'offline')}
+          className="bg-transparent text-sm font-medium text-slate-700 outline-none"
+        >
+          <option value="all">All status</option>
+          <option value="online">Online</option>
+          <option value="offline">Offline</option>
+        </select>
+      </div>
+      <button
+        onClick={resetAdminFilters}
+        className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+      >
+        Clear
+      </button>
+    </div>
+  );
 
-      {/* --- TEACHER TABLE --- */}
-      <div className="bg-white rounded-2xl p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-[#161853] mb-6">
-          Waiting-approved Teachers
-        </h2>
+  const teacherToolbar = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
+        <Search className="h-4 w-4 text-slate-400" />
+        <input
+          type="text"
+          placeholder="Search name, username or email..."
+          value={teacherSearch}
+          onChange={(e) => setTeacherSearch(e.target.value)}
+          className="w-40 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400 sm:w-56"
+        />
+      </div>
+      <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
+        <Filter className="h-4 w-4 text-slate-400" />
+        <select
+          value={teacherStatusFilter}
+          onChange={(e) => setTeacherStatusFilter(e.target.value as 'all' | 'waiting' | 'require-update' | 'approved')}
+          className="bg-transparent text-sm font-medium text-slate-700 outline-none"
+        >
+          <option value="all">All status</option>
+          <option value="waiting">Waiting</option>
+          <option value="require-update">Require update</option>
+          <option value="approved">Approved</option>
+        </select>
+      </div>
+      <button
+        onClick={resetTeacherFilters}
+        className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+      >
+        Clear
+      </button>
+    </div>
+  );
 
-        <div className="flex gap-4 mb-4">
-          <div className="flex-1">
-            <input
-              type="text"
-              placeholder="Search by name or username..."
-              value={teacherSearch}
-              onChange={(e) => {
-                setTeacherSearch(e.target.value);
-                setTeacherPage(1); // Reset to first page on search
-              }}
-              className="w-full px-3 py-2 border rounded-md text-sm"
-            />
+  return (
+    <div className="min-h-screen p-4 sm:p-6">
+      <div className="mx-auto max-w-7xl space-y-4">
+        <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+          <div className="px-5 py-5 sm:px-6 sm:py-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-2xl">
+                <div className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-indigo-700">
+                  Account management
+                </div>
+                <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-950 sm:text-[2.15rem]">
+                  Manage account
+                </h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                  Review administrators and teachers from a compact two-tab dashboard.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Admins</p>
+                  <p className="mt-1 text-lg font-bold text-slate-950">{admins.length}</p>
+                </div>
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Teachers</p>
+                  <p className="mt-1 text-lg font-bold text-slate-950">{teachers.length}</p>
+                </div>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Pending</p>
+                  <p className="mt-1 text-lg font-bold text-slate-950">
+                    {teachers.filter((teacher) => teacher.status === 'waiting').length}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button
+                onClick={() => setActiveTab('admin')}
+                className={clsx(
+                  'rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition',
+                  activeTab === 'admin'
+                    ? 'bg-slate-950 text-white shadow-sm'
+                    : 'border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                )}
+              >
+                Administrators
+              </button>
+              <button
+                onClick={() => setActiveTab('teacher')}
+                className={clsx(
+                  'rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition',
+                  activeTab === 'teacher'
+                    ? 'bg-slate-950 text-white shadow-sm'
+                    : 'border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                )}
+              >
+                Teachers
+              </button>
+            </div>
           </div>
-          <select
-            value={teacherStatusFilter}
-            onChange={(e) => {
-              setTeacherStatusFilter(e.target.value as 'all' | 'waiting' | 'require-update' | 'approved');
-              setTeacherPage(1); // Reset to first page on filter change
-            }}
-            className="border rounded-md px-3 py-2 text-sm"
-          >
-            <option value="all">All Status</option>
-            <option value="waiting">Waiting</option>
-            <option value="require-update">Require Update</option>
-            <option value="approved">Approved</option>
-          </select>
-          <button
-            onClick={() => setTeacherSort(current => current === 'asc' ? 'desc' : 'asc')}
-            className="px-3 py-2 border rounded-md text-sm hover:bg-gray-50"
-          >
-            Sort by ID {teacherSort === 'asc' ? '↑' : '↓'}
-          </button>
-        </div>
+        </section>
 
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="text-left border-b border-gray-200">
-              <tr>
-                <th className="pb-3">Teacher</th>
-                <th className="pb-3">Submit Date</th>
-                <th className="pb-3">Review Date</th>
-                <th className="pb-3">Details</th>
-                <th className="pb-3">Status</th>
-                <th className="pb-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {loadingTeachers ? (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-gray-500">
-                    <Loader2 className="w-5 h-5 animate-spin inline-block mr-2" />
-                    Loading teachers...
-                  </td>
-                </tr>
-              ) : (
-                paginatedTeachers.map((t) => (
-                  <tr key={t.id}>
-                    <td className="py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-[#161853] rounded-full overflow-hidden flex items-center justify-center">
-                          <Image
-                            src={t.avatar || defaultLogoUrl}
-                            alt={t.name}
-                            width={40}
-                            height={40}
-                            className="object-cover"
-                          />
-                        </div>
-                        <div>
-                          <div className="font-medium">{t.username}</div>
-                          <div className="text-sm text-gray-500">{t.name}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td>{t.submitDate}</td>
-                    <td>{t.reviewDate}</td>
-                    <td>
-                      <button 
+        {activeTab === 'admin' ? (
+          <div className="rounded-[26px] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+            <div className="border-b border-slate-200 px-4 py-3 sm:px-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Administrators</p>
+                  <p className="mt-1 text-sm text-slate-600">{filteredAdmins.length} item{filteredAdmins.length === 1 ? '' : 's'}</p>
+                </div>
+                {adminToolbar}
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-3 pt-3">
+                <button
+                  onClick={() => {
+                    setDialogMode('create');
+                    setSelectedAdmin(null);
+                    setIsFormOpen(true);
+                  }}
+                  className="rounded-full bg-linear-to-r from-cyan-500 to-blue-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:from-cyan-600 hover:to-blue-600"
+                >
+                  Add admin
+                </button>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 shadow-sm">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Per page</span>
+                    <select value={adminPageSize} onChange={(e) => setAdminPageSize(Number(e.target.value))} className="bg-transparent text-sm font-medium text-slate-700 outline-none">
+                      {[5, 10, 20].map((value) => <option key={value} value={value}>{value}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={() => setAdminPage(1)} disabled={safeAdminPage === 1} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="First page" title="First page">
+                    <ChevronsLeft className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setAdminPage((page) => Math.max(1, page - 1))} disabled={safeAdminPage === 1} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Previous page" title="Previous page">
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <div className="rounded-full bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white">{safeAdminPage} / {totalAdminPages}</div>
+                  <button onClick={() => setAdminPage((page) => Math.min(totalAdminPages, page + 1))} disabled={safeAdminPage === totalAdminPages} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Next page" title="Next page">
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setAdminPage(totalAdminPages)} disabled={safeAdminPage === totalAdminPages} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Last page" title="Last page">
+                    <ChevronsRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-180">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3 font-semibold">
+                      <button
+                        type="button"
                         onClick={() => {
-                          setSelectedTeacher(t);
-                          setIsTeacherDetailsOpen(true);
+                          setAdminSortKey('name');
+                          setAdminSort((current) => current === 'asc' && adminSortKey === 'name' ? 'desc' : 'asc');
                         }}
-                        className="text-blue-500 hover:text-blue-700 text-sm flex items-center gap-1"
+                        className="inline-flex items-center gap-1 text-left transition hover:text-slate-900"
+                        title="Sort by admin name"
                       >
-                        <Info className="w-4 h-4" /> details
+                        <span>Admin</span>
+                        <span className="text-[10px]">{adminSortKey === 'name' ? (adminSort === 'asc' ? '↑' : '↓') : '↕'}</span>
                       </button>
-                    </td>
-                    <td>
-                      <span
-                        className={clsx(
-                          "px-2 py-1 rounded-full text-sm capitalize",
-                          t.status === "waiting"
-                            ? "bg-yellow-100 text-yellow-700"
-                            : t.status === "require-update"
-                            ? "bg-blue-100 text-blue-700"
-                            : "bg-green-100 text-green-700"
-                        )}
+                    </th>
+                    <th className="px-5 py-3 font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdminSortKey('status');
+                          setAdminSort((current) => current === 'asc' && adminSortKey === 'status' ? 'desc' : 'asc');
+                        }}
+                        className="inline-flex items-center gap-1 text-left transition hover:text-slate-900"
+                        title="Sort by status"
                       >
-                        {t.status.replace("-", " ")}
-                      </span>
-                    </td>
-                    <td className="text-right">
-                      {t.status === "waiting" && (
+                        <span>Status</span>
+                        <span className="text-[10px]">{adminSortKey === 'status' ? (adminSort === 'asc' ? '↑' : '↓') : '↕'}</span>
+                      </button>
+                    </th>
+                    <th className="px-5 py-3 text-right font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {loadingAdmins ? (
+                    <tr>
+                      <td colSpan={3} className="py-10 text-center text-slate-500"><Loader2 className="mr-2 inline-block h-5 w-5 animate-spin" />Loading administrators...</td>
+                    </tr>
+                  ) : paginatedAdmins.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="py-10 text-center text-slate-500">No administrators found</td>
+                    </tr>
+                  ) : paginatedAdmins.map((admin) => (
+                    <tr key={admin.id} className="align-top transition hover:bg-slate-50/70">
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-slate-950">
+                            <Image src={admin.avatar || defaultLogoUrl} alt={admin.name} width={40} height={40} className="object-cover" />
+                          </div>
+                          <div>
+                            <div className="font-medium text-slate-950">{admin.name}</div>
+                            <div className="text-sm text-slate-500">{admin.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className={clsx('inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]', getAdminStatusClasses(admin.status))}>{admin.status}</span>
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => { setDialogMode('update'); setSelectedAdmin(admin); setIsFormOpen(true); }} className="rounded-full border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50">Update</button>
+                          <button onClick={() => { setSelectedAdmin(admin); setIsDeleteOpen(true); }} className="rounded-full border border-rose-200 px-3 py-1.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-50">Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="px-4 pb-4 pt-3 sm:px-5">
+              <div className="flex items-center justify-between rounded-2xl border border-slate-100 px-3 py-2.5">
+                <div className="text-xs text-slate-500">Showing {adminFirstItem} to {adminLastItem} of {filteredAdmins.length} administrators</div>
+                <div className="text-xs text-slate-500">Administrators</div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-[26px] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+            <div className="border-b border-slate-200 px-4 py-3 sm:px-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Teachers</p>
+                  <p className="mt-1 text-sm text-slate-600">{filteredTeachers.length} item{filteredTeachers.length === 1 ? '' : 's'}</p>
+                </div>
+                {teacherToolbar}
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-3 pt-3">
+                <div className="flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 shadow-sm">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Per page</span>
+                  <select value={teacherPageSize} onChange={(e) => setTeacherPageSize(Number(e.target.value))} className="bg-transparent text-sm font-medium text-slate-700 outline-none">
+                    {[5, 10, 20].map((value) => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </div>
+                <button onClick={() => setTeacherPage(1)} disabled={safeTeacherPage === 1} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="First page" title="First page">
+                  <ChevronsLeft className="h-4 w-4" />
+                </button>
+                <button onClick={() => setTeacherPage((page) => Math.max(1, page - 1))} disabled={safeTeacherPage === 1} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Previous page" title="Previous page">
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <div className="rounded-full bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white">{safeTeacherPage} / {totalTeacherPages}</div>
+                <button onClick={() => setTeacherPage((page) => Math.min(totalTeacherPages, page + 1))} disabled={safeTeacherPage === totalTeacherPages} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Next page" title="Next page">
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+                <button onClick={() => setTeacherPage(totalTeacherPages)} disabled={safeTeacherPage === totalTeacherPages} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Last page" title="Last page">
+                  <ChevronsRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-245">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3 font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTeacherSortKey('username');
+                          setTeacherSort((current) => current === 'asc' && teacherSortKey === 'username' ? 'desc' : 'asc');
+                        }}
+                        className="inline-flex items-center gap-1 text-left transition hover:text-slate-900"
+                        title="Sort by teacher name"
+                      >
+                        <span>Teacher</span>
+                        <span className="text-[10px]">{teacherSortKey === 'username' ? (teacherSort === 'asc' ? '↑' : '↓') : '↕'}</span>
+                      </button>
+                    </th>
+                    <th className="px-5 py-3 font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTeacherSortKey('submitDateRaw');
+                          setTeacherSort((current) => current === 'asc' && teacherSortKey === 'submitDateRaw' ? 'desc' : 'asc');
+                        }}
+                        className="inline-flex items-center gap-1 text-left transition hover:text-slate-900"
+                        title="Sort by submit date"
+                      >
+                        <span>Submit Date</span>
+                        <span className="text-[10px]">{teacherSortKey === 'submitDateRaw' ? (teacherSort === 'asc' ? '↑' : '↓') : '↕'}</span>
+                      </button>
+                    </th>
+                    <th className="px-5 py-3 font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTeacherSortKey('reviewDateRaw');
+                          setTeacherSort((current) => current === 'asc' && teacherSortKey === 'reviewDateRaw' ? 'desc' : 'asc');
+                        }}
+                        className="inline-flex items-center gap-1 text-left transition hover:text-slate-900"
+                        title="Sort by review date"
+                      >
+                        <span>Review Date</span>
+                        <span className="text-[10px]">{teacherSortKey === 'reviewDateRaw' ? (teacherSort === 'asc' ? '↑' : '↓') : '↕'}</span>
+                      </button>
+                    </th>
+                    <th className="px-5 py-3 font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTeacherSortKey('status');
+                          setTeacherSort((current) => current === 'asc' && teacherSortKey === 'status' ? 'desc' : 'asc');
+                        }}
+                        className="inline-flex items-center gap-1 text-left transition hover:text-slate-900"
+                        title="Sort by status"
+                      >
+                        <span>Status</span>
+                        <span className="text-[10px]">{teacherSortKey === 'status' ? (teacherSort === 'asc' ? '↑' : '↓') : '↕'}</span>
+                      </button>
+                    </th>
+                    <th className="px-5 py-3 text-right font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {loadingTeachers ? (
+                    <tr>
+                      <td colSpan={5} className="py-10 text-center text-slate-500"><Loader2 className="mr-2 inline-block h-5 w-5 animate-spin" />Loading teachers...</td>
+                    </tr>
+                  ) : paginatedTeachers.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-10 text-center text-slate-500">No teachers found</td>
+                    </tr>
+                  ) : paginatedTeachers.map((teacher) => (
+                    <tr key={teacher.id} className="align-top transition hover:bg-slate-50/70">
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-slate-950">
+                            <Image src={teacher.avatar || defaultLogoUrl} alt={teacher.name} width={40} height={40} className="object-cover" />
+                          </div>
+                          <div>
+                            <div className="font-medium text-slate-950">{teacher.username}</div>
+                            <div className="text-sm text-slate-500">{teacher.name}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-sm text-slate-700">{teacher.submitDate}</td>
+                      <td className="px-5 py-4 text-sm text-slate-700">{teacher.reviewDate}</td>
+                      <td className="px-5 py-4">
+                        <span className={clsx('inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]', getTeacherStatusClasses(teacher.status))}>
+                          {teacher.status.replace('-', ' ')}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-right">
                         <div className="flex justify-end gap-2">
                           <button
-                            onClick={() => handleApproveTeacher(t.id)}
-                            className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm"
-                          >
-                            Approve
-                          </button>
-                          <button
                             onClick={() => {
-                              setSelectedTeacher(t);
-                              setIsRejectDialogOpen(true);
+                              setSelectedTeacher(teacher);
+                              setIsTeacherDetailsOpen(true);
                             }}
-                            className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-md text-sm"
+                            className="rounded-full border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
                           >
-                            Reject
+                            Review
                           </button>
+                          {teacher.status === 'waiting' && (
+                            <>
+                              <button onClick={() => handleApproveTeacher(teacher.id)} className="rounded-full bg-linear-to-r from-emerald-500 to-teal-500 px-3 py-1.5 text-sm font-semibold text-white transition hover:from-emerald-600 hover:to-teal-600">
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setSelectedTeacher(teacher);
+                                  setIsRejectDialogOpen(true);
+                                }}
+                                className="rounded-full bg-linear-to-r from-rose-500 to-red-500 px-3 py-1.5 text-sm font-semibold text-white transition hover:from-rose-600 hover:to-red-600"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
                         </div>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Teacher Pagination */}
-        {!loadingTeachers && teachers.length > 0 && (
-          <div className="mt-4 flex items-center justify-between border-t pt-4">
-            <div className="text-sm text-gray-500">
-              Showing {((teacherPage - 1) * itemsPerPage) + 1} to {Math.min(teacherPage * itemsPerPage, teachers.length)} of {teachers.length} teachers
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setTeacherPage(p => Math.max(1, p - 1))}
-                disabled={teacherPage === 1}
-                className="p-2 rounded-md border text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                aria-label="Previous page"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setTeacherPage(p => Math.min(totalTeacherPages, p + 1))}
-                disabled={teacherPage === totalTeacherPages}
-                className="p-2 rounded-md border text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                aria-label="Next page"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+
+            <div className="px-4 pb-4 pt-3 sm:px-5">
+              <div className="flex items-center justify-between rounded-2xl border border-slate-100 px-3 py-2.5">
+                <div className="text-xs text-slate-500">Showing {teacherFirstItem} to {teacherLastItem} of {filteredTeachers.length} teachers</div>
+                <div className="text-xs text-slate-500">Teachers</div>
+              </div>
             </div>
           </div>
         )}
-      </div>
 
       {/* --- DIALOG FORM (ADD / UPDATE) --- */}
       <AdminFormDialog
@@ -693,172 +872,254 @@ export default function ManageAccount() {
       <Dialog.Root open={isTeacherDetailsOpen} onOpenChange={setIsTeacherDetailsOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 w-[90vw] max-w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-lg max-h-[80vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <Dialog.Title className="text-lg font-semibold text-[#161853]">
-                Teacher Profile Details
-              </Dialog.Title>
-              <Dialog.Close className="rounded-full p-1.5 hover:bg-gray-100">
+          <Dialog.Content className={`fixed left-1/2 top-1/2 max-h-[90vh] w-[90vw] max-w-5xl -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[28px] border border-white/10 bg-white p-0 shadow-[0_30px_120px_rgba(15,23,42,0.35)] ${raleway.className}`}>
+            <div className="flex shrink-0 items-start justify-between gap-4 bg-[#292C6D] px-6 py-5 text-white">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Teacher Review</p>
+                <Dialog.Title className="mt-1 text-2xl font-bold">
+                  Teacher Profile Details
+                </Dialog.Title>
+                <p className="mt-1 text-sm text-white/75">Review profile information, CV, and moderation outcome</p>
+              </div>
+              <Dialog.Close className="rounded-full border border-white/10 bg-white/10 p-2 text-white transition hover:bg-white/20">
                 <X className="h-4 w-4" />
               </Dialog.Close>
             </div>
 
+            <div className="max-h-[90vh] overflow-y-auto bg-slate-50 px-6 py-6">
+
             {selectedTeacher && (
-              <div className="space-y-4">
-                {/* Teacher Info */}
-                <div className="flex items-center gap-4 pb-4 border-b">
-                  <div className="w-16 h-16 bg-[#161853] rounded-full overflow-hidden flex items-center justify-center">
-                    <Image
-                      src={selectedTeacher.avatar || defaultLogoUrl}
-                      alt={selectedTeacher.name}
-                      width={64}
-                      height={64}
-                      className="object-cover"
-                    />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-lg">{selectedTeacher.name}</h3>
-                    <p className="text-sm text-gray-500">{selectedTeacher.email}</p>
-                    {selectedTeacher.location && (
-                      <p className="text-sm text-gray-500">📍 {selectedTeacher.location}</p>
-                    )}
-                  </div>
-                </div>
+              (() => {
+                const isApprovedTeacher = selectedTeacher.status === "approved";
 
-                {/* Bio */}
-                {selectedTeacher.bio && (
-                  <div>
-                    <h4 className="font-medium text-sm text-gray-700 mb-1">Bio</h4>
-                    <p className="text-sm text-gray-600">{selectedTeacher.bio}</p>
-                  </div>
-                )}
+                return (
+              <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+                <div className="grid gap-4">
+                  <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#292C6D]/50">Teacher Details</p>
+                        <h3 className="mt-1 text-base font-bold text-slate-900">Profile</h3>
+                      </div>
+                      <span className={clsx(
+                        "rounded-full px-3 py-1 text-xs font-semibold",
+                        selectedTeacher.status === "waiting"
+                          ? "bg-amber-100 text-amber-700"
+                          : selectedTeacher.status === "require-update"
+                          ? "bg-sky-100 text-sky-700"
+                          : "bg-emerald-100 text-emerald-700"
+                      )}>
+                        {selectedTeacher.status.replace("-", " ")}
+                      </span>
+                    </div>
 
-                {/* Education */}
-                {selectedTeacher.education && (
-                  <div>
-                    <h4 className="font-medium text-sm text-gray-700 mb-1">Education</h4>
-                    <p className="text-sm text-gray-600">{selectedTeacher.education}</p>
-                  </div>
-                )}
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-slate-950">
+                        <Image
+                          src={selectedTeacher.avatar || defaultLogoUrl}
+                          alt={selectedTeacher.name}
+                          width={64}
+                          height={64}
+                          className="object-cover"
+                        />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-950">{selectedTeacher.name}</h4>
+                        <p className="text-xs text-slate-500">{selectedTeacher.email}</p>
+                        {selectedTeacher.location && (
+                          <p className="text-xs text-slate-500">📍 {selectedTeacher.location}</p>
+                        )}
+                      </div>
+                    </div>
+                  </section>
 
-                {/* Experience */}
-                {selectedTeacher.experience && (
-                  <div>
-                    <h4 className="font-medium text-sm text-gray-700 mb-1">Experience</h4>
-                    <p className="text-sm text-gray-600">{selectedTeacher.experience} years</p>
-                  </div>
-                )}
+                  <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-2xl bg-slate-50 p-3 sm:col-span-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Bio</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.bio || "N/A"}</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Education</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.education || "N/A"}</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Experience</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.experience ? `${selectedTeacher.experience} years` : "N/A"}</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Subjects</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {selectedTeacher.subjects && selectedTeacher.subjects.length > 0 ? (
+                            selectedTeacher.subjects.map((subject, idx) => (
+                              <span
+                                key={idx}
+                                className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-semibold text-sky-700"
+                              >
+                                {subject}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">N/A</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </section>
 
-                {/* Subjects */}
-                {selectedTeacher.subjects && selectedTeacher.subjects.length > 0 && (
-                  <div>
-                    <h4 className="font-medium text-sm text-gray-700 mb-2">Subjects</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedTeacher.subjects.map((subject, idx) => (
-                        <span
-                          key={idx}
-                          className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm"
+                  <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Submit Date</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.submitDate}</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Website</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-700 break-all">{selectedTeacher.website || "N/A"}</p>
+                      </div>
+                    </div>
+
+                    {selectedTeacher.linkedin && (
+                      <div className="mt-3 rounded-2xl bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">LinkedIn</p>
+                        <a
+                          href={selectedTeacher.linkedin}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 block break-all text-xs font-medium text-[#292C6D] underline decoration-[#EC255A]/40 underline-offset-4"
                         >
-                          {subject}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                          {selectedTeacher.linkedin}
+                        </a>
+                      </div>
+                    )}
+                  </section>
 
-                {/* CV URL */}
-                {selectedTeacher.cvUrl && (
-                  <div>
-                    <h4 className="font-medium text-sm text-gray-700 mb-2">CV / Resume</h4>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          setCVPreviewUrl(selectedTeacher.cvUrl || null);
-                          setIsCVPreviewOpen(true);
-                        }}
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 transition-colors"
-                      >
-                        <Eye className="w-4 h-4" /> Preview
-                      </button>
-                      <a
-                        href={selectedTeacher.cvUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300 transition-colors"
-                      >
-                        ↓ Download
-                      </a>
-                    </div>
-                  </div>
-                )}
-
-                {/* Website */}
-                {selectedTeacher.website && (
-                  <div>
-                    <h4 className="font-medium text-sm text-gray-700 mb-1">Website</h4>
-                    <a
-                      href={selectedTeacher.website}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:text-blue-700 underline"
-                    >
-                      {selectedTeacher.website}
-                    </a>
-                  </div>
-                )}
-
-                {/* LinkedIn */}
-                {selectedTeacher.linkedin && (
-                  <div>
-                    <h4 className="font-medium text-sm text-gray-700 mb-1">LinkedIn</h4>
-                    <a
-                      href={selectedTeacher.linkedin}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:text-blue-700 underline"
-                    >
-                      {selectedTeacher.linkedin}
-                    </a>
-                  </div>
-                )}
-
-                {/* Dates */}
-                <div className="pt-4 border-t">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <h4 className="font-medium text-gray-700 mb-1">Submit Date</h4>
-                      <p className="text-gray-600">{selectedTeacher.submitDate}</p>
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-gray-700 mb-1">Review Date</h4>
-                      <p className="text-gray-600">{selectedTeacher.reviewDate}</p>
-                    </div>
-                  </div>
                 </div>
 
-                {/* Status */}
-                <div>
-                  <h4 className="font-medium text-sm text-gray-700 mb-1">Status</h4>
-                  <span
-                    className={clsx(
-                      "px-3 py-1 rounded-full text-sm capitalize inline-block",
-                      selectedTeacher.status === "waiting"
-                        ? "bg-yellow-100 text-yellow-700"
-                        : selectedTeacher.status === "require-update"
-                        ? "bg-blue-100 text-blue-700"
-                        : "bg-green-100 text-green-700"
-                    )}
-                  >
-                    {selectedTeacher.status.replace("-", " ")}
-                  </span>
+                <div className="space-y-4">
+                  {isApprovedTeacher ? (
+                    <>
+                      <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-2xl bg-slate-50 p-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Review Date</p>
+                            <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.reviewDate}</p>
+                          </div>
+                          <div className="rounded-2xl bg-slate-50 p-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Moderation</p>
+                            <p className="mt-1 text-xs font-semibold text-emerald-700">Approved</p>
+                          </div>
+                        </div>
+                      </section>
+
+                      <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                        <p className="text-sm font-semibold text-slate-900">This teacher is already approved.</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-600">No moderation actions are available.</p>
+                      </section>
+
+                      {selectedTeacher.cvUrl && (
+                        <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                          <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">CV / Resume</p>
+                              <p className="mt-1 text-xs text-slate-700">Available for preview and download</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => {
+                                  setCVPreviewUrl(selectedTeacher.cvUrl || null);
+                                  setIsCVPreviewOpen(true);
+                                }}
+                                className="inline-flex items-center gap-2 rounded-full bg-[#292C6D] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#1f2350]"
+                              >
+                                <Eye className="w-4 h-4" /> Preview
+                              </button>
+                              <a
+                                href={selectedTeacher.cvUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                              >
+                                Download
+                              </a>
+                            </div>
+                          </div>
+                        </section>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                        <label className="mb-2 block text-sm font-semibold text-slate-900">Rejection Reason</label>
+                        <textarea
+                          value={rejectReason}
+                          onChange={(e) => setRejectReason(e.target.value)}
+                          placeholder={selectedTeacher.status === 'require-update' ? 'Edit the existing rejection reason here' : 'Enter reason for rejection (saved to teacher profile)'}
+                          className="min-h-20 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none"
+                        />
+                      </section>
+
+                      <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                        <div className="flex flex-wrap justify-end gap-3">
+                          <button
+                            onClick={() => selectedTeacher && handleApproveTeacher(selectedTeacher.id)}
+                            className="inline-flex items-center rounded-full bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleRejectTeacher()}
+                            disabled={!rejectReason.trim()}
+                            className={`inline-flex items-center rounded-full px-3.5 py-2 text-sm font-semibold transition focus:ring-2 focus:ring-red-500 focus:ring-offset-2
+                              ${rejectReason.trim() ? 'bg-[#EC255A] text-white hover:bg-[#d31f4c]' : 'cursor-not-allowed bg-slate-100 text-slate-400'}`}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </section>
+
+                      {selectedTeacher.cvUrl && (
+                        <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                          <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">CV / Resume</p>
+                              <p className="mt-1 text-xs text-slate-700">Available for preview and download</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => {
+                                  setCVPreviewUrl(selectedTeacher.cvUrl || null);
+                                  setIsCVPreviewOpen(true);
+                                }}
+                                className="inline-flex items-center gap-2 rounded-full bg-[#292C6D] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#1f2350]"
+                              >
+                                <Eye className="w-4 h-4" /> Preview
+                              </button>
+                              <a
+                                href={selectedTeacher.cvUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                              >
+                                Download
+                              </a>
+                            </div>
+                          </div>
+                        </section>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
+                );
+              })()
             )}
 
-            <div className="flex justify-end mt-6 pt-4 border-t">
-              <Dialog.Close className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-800 border rounded-md hover:bg-gray-50">
-                Close
-              </Dialog.Close>
+              <div className="flex justify-end mt-6 pt-4 border-t">
+                <Dialog.Close className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+                  Close
+                </Dialog.Close>
+              </div>
             </div>
           </Dialog.Content>
         </Dialog.Portal>
@@ -868,7 +1129,7 @@ export default function ManageAccount() {
       <Dialog.Root open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 w-[90vw] max-w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-lg">
+          <Dialog.Content className={`fixed top-1/2 left-1/2 w-[90vw] max-w-125 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-lg ${raleway.className}`}>
             <div className="flex items-center justify-between mb-4">
               <Dialog.Title className="text-lg font-semibold text-[#161853]">
                 Reject Teacher Application
@@ -888,7 +1149,7 @@ export default function ManageAccount() {
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               placeholder="Enter rejection reason (required)..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 min-h-[120px] resize-none"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 min-h-30 resize-none"
             />
 
             <div className="flex justify-end space-x-2 mt-6">
@@ -911,7 +1172,7 @@ export default function ManageAccount() {
       <Dialog.Root open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 w-[90vw] max-w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-lg">
+          <Dialog.Content className="fixed top-1/2 left-1/2 w-[90vw] max-w-100 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-lg">
             <Dialog.Title className="text-lg font-semibold text-[#161853] mb-4">
               Confirm Deletion
             </Dialog.Title>
@@ -942,7 +1203,7 @@ export default function ManageAccount() {
 
       {/* --- CV PREVIEW PANEL --- */}
       {isCVPreviewOpen && (
-        <div className="fixed inset-0 z-50">
+        <div className={`fixed inset-0 z-50 ${raleway.className}`}>
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setIsCVPreviewOpen(false)}
@@ -1001,11 +1262,12 @@ export default function ManageAccount() {
         </div>
       )}
     </div>
+  </div>
   );
 }
 
 /* ------------------- REUSABLE DIALOG FORM ------------------- */
-export function AdminFormDialog({
+function AdminFormDialogImpl({
   open,
   onOpenChange,
   mode,
@@ -1097,7 +1359,7 @@ export function AdminFormDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50" />
         <Dialog.Content
-          className="fixed top-1/2 left-1/2 w-[90vw] max-w-[450px]
+          className="fixed top-1/2 left-1/2 w-[90vw] max-w-112.5
           -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 
           shadow-lg overflow-y-auto max-h-[80vh]"
         >

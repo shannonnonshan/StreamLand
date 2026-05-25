@@ -1,9 +1,10 @@
+import { clearAuthStorage, getStoredToken } from '@/lib/authStorage';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 // Helper to get auth token
 export function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('token') || localStorage.getItem('accessToken');
+  return getStoredToken();
 }
 
 // Helper to refresh access token
@@ -29,7 +30,7 @@ async function refreshToken(): Promise<boolean> {
       localStorage.setItem('refreshToken', result.refreshToken);
       return true;
     }
-    
+    clearAuthStorage();
     return false;
   } catch (error) {
     console.error('Error refreshing token:', error);
@@ -80,9 +81,7 @@ export async function authenticatedFetch(url: string, options: RequestInit = {},
     } else {
       console.error('Token refresh failed');
       // Clear auth data and redirect to login
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('user');
+      clearAuthStorage();
       window.location.href = '/';
       throw new Error('Session expired. Please login again.');
     }

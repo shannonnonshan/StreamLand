@@ -476,9 +476,28 @@ export default function StudentDashboard() {
     status: 'ENDED',
   });
 
+  const resetPersonalizedState = () => {
+    setStudentInterests([]);
+    setRecommendedByInterest([]);
+    setRecommendedNextParts([]);
+  };
+
+  const handleInvalidAuth = () => {
+    setHasAuthToken(false);
+    resetPersonalizedState();
+    try {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    } catch {
+      // ignore storage errors
+    }
+  };
+
   const fetchRecommendations = async () => {
     const token = localStorage.getItem('accessToken');
     if (!token) {
+      handleInvalidAuth();
       setIsLoadingRecommendations(false);
       return;
     }
@@ -491,6 +510,9 @@ export default function StudentDashboard() {
       });
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          handleInvalidAuth();
+        }
         return;
       }
 
@@ -512,6 +534,7 @@ export default function StudentDashboard() {
   const fetchStudentProfile = async () => {
     const token = localStorage.getItem('accessToken');
     if (!token) {
+      handleInvalidAuth();
       return;
     }
 
@@ -523,6 +546,9 @@ export default function StudentDashboard() {
       });
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          handleInvalidAuth();
+        }
         return;
       }
 
@@ -652,7 +678,11 @@ export default function StudentDashboard() {
   // Run animation and fetch data after component mounts
   useEffect(() => {
     setIsLoaded(true);
-    setHasAuthToken(!!localStorage.getItem('accessToken'));
+    const token = localStorage.getItem('accessToken');
+    setHasAuthToken(!!token);
+    if (!token) {
+      resetPersonalizedState();
+    }
 
     // Fetch data in parallel
     Promise.all([
@@ -661,6 +691,33 @@ export default function StudentDashboard() {
       fetchStudentProfile(),
       fetchRecommendations(),
     ]);
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== 'accessToken' && event.key !== 'token' && event.key !== 'user') return;
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        handleInvalidAuth();
+      } else {
+        setHasAuthToken(true);
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        handleInvalidAuth();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   useEffect(() => {
@@ -732,7 +789,7 @@ export default function StudentDashboard() {
             Welcome, Student!
         </motion.h1>
 
-        {studentInterests.length > 0 && (
+        {hasAuthToken && studentInterests.length > 0 && (
           <motion.div variants={fadeInUp} className="mb-8">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm text-gray-600">Topics you are interested in</p>

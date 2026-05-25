@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthContext } from '@/contexts/AuthContext';
+import { clearAuthStorage } from '@/lib/authStorage';
 
 interface User {
   id: string;
@@ -61,10 +62,9 @@ export function useAuth() {
     }
   };
 
-  // Refresh access token using refresh token
   const refreshAccessToken = useCallback(async () => {
     const refreshToken = localStorage.getItem('refreshToken');
-    
+
     if (!refreshToken) {
       return false;
     }
@@ -85,9 +85,7 @@ export function useAuth() {
         return true;
       } else {
         // If refresh fails, logout
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('user');
+        clearAuthStorage();
         setUser(null);
         setIsAuthenticated(false);
         return false;
@@ -404,9 +402,7 @@ export function useAuth() {
       }
 
       // Clear local storage
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('user');
+      clearAuthStorage();
 
       setUser(null);
       setIsAuthenticated(false);
@@ -415,9 +411,7 @@ export function useAuth() {
       router.push('/');
     } catch {
       // Still clear local data even if API call fails
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('user');
+      clearAuthStorage();
       
       setUser(null);
       setIsAuthenticated(false);

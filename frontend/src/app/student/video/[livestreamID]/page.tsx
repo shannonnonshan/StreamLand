@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Sparkles } from "lucide-react";
 import Image from "next/image";
 import {
   Play,
@@ -16,11 +15,11 @@ import {
   Share2,
   Loader2,
   ArrowLeft,
+  Captions,
 } from "lucide-react";
-import { Captions } from "lucide-react";
 import LoginModal from "@/component/(modal)/login";
 import RegisterModal from "@/component/(modal)/register";
-import TranscriptSummaryStudio from "@/component/shared/TranscriptSummaryStudio";
+import { getRecordingAiAnalysis } from "@/lib/api/teacher";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -63,6 +62,22 @@ interface SubtitleCue {
   start: number;
   end: number;
   text: string;
+}
+
+type TranscriptPayload =
+  | string
+  | {
+      full_text?: unknown;
+      text?: unknown;
+      transcript?: unknown;
+      result?: unknown;
+      segments?: unknown[];
+    }
+  | unknown[];
+
+interface RecordingAiAnalysisPayload {
+  transcript?: TranscriptPayload | null;
+  summary?: string | null;
 }
 
 interface VideoComment {
@@ -116,17 +131,20 @@ export default function VideoPlayerPage() {
   const [videoReaction, setVideoReaction] = useState<'like' | 'dislike' | null>(null);
   const [videoLikeCount, setVideoLikeCount] = useState(0);
   const [videoDislikeCount, setVideoDislikeCount] = useState(0);
-  const [isSubscribed, setIsSubscribed] = useState(false);
   const [showSubs, setShowSubs] = useState(true);
-  const [activeCueId, setActiveCueId] = useState<string | null>(null);
-
-  // Subtitles and transcript panel
   const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([]);
+  const [baseSubtitleCues, setBaseSubtitleCues] = useState<SubtitleCue[]>([]);
+  const [activeCueId, setActiveCueId] = useState<string | null>(null);
+  const [summaryText, setSummaryText] = useState('');
   const [selectedCueId, setSelectedCueId] = useState<string | null>(null);
   const [showTranscriptPanel, setShowTranscriptPanel] = useState(false);
-  const [transcriptionComplete, setTranscriptionComplete] = useState(false);
-  const [summary, setSummary] = useState('');
-  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [showSummaryPanel, setShowSummaryPanel] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const [transcriptPayload, setTranscriptPayload] = useState<TranscriptPayload | null>(null);
+  const [subtitleOffset, setSubtitleOffset] = useState(11.62);
+  const [subtitleRate, setSubtitleRate] = useState(1);
+  const transcriptPanelRef = useRef<HTMLDivElement | null>(null);
 
   // Comments and auth
   const [comments, setComments] = useState<VideoComment[]>([]);
@@ -149,99 +167,167 @@ export default function VideoPlayerPage() {
   const restoreCompletedRef = useRef(false);
   const reportWatchInFlightRef = useRef(false);
 
-  const getViewerIdForStorage = () => {
-    if (currentStudent?.id) return currentStudent.id;
-
-    try {
-      const storedUser = localStorage.getItem('user');
-      if (!storedUser) return 'anon';
-      const parsed = JSON.parse(storedUser) as { id?: string; userId?: string; email?: string };
-      return parsed.id || parsed.userId || parsed.email || 'anon';
-    } catch {
-      return 'anon';
+  const coerceNumber = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = Number.parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : null;
     }
+    return null;
   };
 
-  const writeLocalProgressSnapshot = (position: number, totalDuration: number, force = false) => {
-    if (!videoInfo?.id || totalDuration <= 0) return;
+  const extractTranscriptText = (payload: TranscriptPayload | null | undefined): string => {
+    if (!payload) return '';
+    if (typeof payload === 'string') return payload.trim();
 
-    const viewerId = getViewerIdForStorage();
-    const key = `streamland:video-progress:${viewerId}:${videoInfo.id}`;
-
-    // Do not overwrite a later saved position with an earlier one during initial autoplay startup.
-    try {
-      const existingRaw = localStorage.getItem(key);
-      if (existingRaw) {
-        const existing = JSON.parse(existingRaw) as LocalVideoProgressSnapshot;
-        if (!force && existing && typeof existing.currentTime === 'number' && existing.currentTime > position + 5) {
-          return;
-        }
-      }
-    } catch {
-      // ignore malformed existing snapshots
+    if (Array.isArray(payload)) {
+      return payload.map((item) => extractTranscriptText(item as TranscriptPayload)).filter(Boolean).join('\n');
     }
 
-    const payload: LocalVideoProgressSnapshot = {
-      videoId: videoInfo.id,
-      userId: viewerId,
-      currentTime: Math.max(0, Math.floor(position)),
-      duration: Math.max(1, Math.floor(totalDuration)),
-      updatedAt: Date.now(),
+    if (typeof payload === 'object') {
+      const data = payload as Record<string, unknown>;
+      const directText = [data.full_text, data.text, data.transcript, data.result].find(
+        (value) => typeof value === 'string',
+      );
+      if (typeof directText === 'string') return directText.trim();
+
+      if (Array.isArray(data.segments)) {
+        return data.segments
+          .map((segment) => {
+            if (!segment || typeof segment !== 'object') return '';
+            const seg = segment as Record<string, unknown>;
+            const textValue = seg.text ?? seg.full_text ?? seg.transcript ?? seg.result;
+            return typeof textValue === 'string' ? textValue.trim() : '';
+          })
+          .filter(Boolean)
+          .join('\n');
+      }
+    }
+
+    return '';
+  };
+
+  const splitTextToCues = (text: string, totalDuration: number): SubtitleCue[] => {
+    const source = (text || '').replace(/\s+/g, ' ').trim();
+    if (!source) return [];
+    const parts = source.split(/(?<=[.!?])\s+/).filter(Boolean);
+    const safeDuration = totalDuration > 0 ? totalDuration : parts.length * 4;
+    const cueDuration = Math.max(2.5, Math.floor(safeDuration / Math.max(1, parts.length)));
+    return parts.map((part, index) => ({
+      id: `cue-${index + 1}`,
+      start: index * cueDuration,
+      end: (index + 1) * cueDuration,
+      text: part,
+    }));
+  };
+
+  const buildCuesFromTranscript = (payload: TranscriptPayload | null | undefined, totalDuration: number): SubtitleCue[] => {
+    if (!payload) return [];
+    if (typeof payload === 'string') return splitTextToCues(payload, totalDuration);
+
+    const safeDuration = totalDuration > 0 ? totalDuration : 0;
+    const rawSegments: Array<{ id: string; start: number | null; end: number | null; text: string }> = [];
+    const tryAddSegment = (segment: Record<string, unknown>, index: number) => {
+      const startRaw = coerceNumber(segment.start ?? segment.start_time ?? segment.startTime);
+      const endRaw = coerceNumber(segment.end ?? segment.end_time ?? segment.endTime);
+      const textValue = segment.text ?? segment.full_text ?? segment.transcript ?? segment.result;
+      const text = typeof textValue === 'string' ? textValue.trim() : '';
+      if (!text) return;
+
+      rawSegments.push({
+        id: `cue-${index + 1}`,
+        start: startRaw,
+        end: endRaw,
+        text,
+      });
     };
 
-    try {
-      localStorage.setItem(key, JSON.stringify(payload));
-    } catch (err) {
-      console.error('Failed to write local progress snapshot:', err);
-    }
-  };
-
-  const readLocalProgressSnapshot = () => {
-    if (!videoInfo?.id) return null;
-
-    const candidateViewerIds: string[] = [];
-    if (currentStudent?.id) candidateViewerIds.push(currentStudent.id);
-
-    try {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        const parsed = JSON.parse(storedUser) as { id?: string; userId?: string; email?: string };
-        if (parsed.id) candidateViewerIds.push(parsed.id);
-        if (parsed.userId) candidateViewerIds.push(parsed.userId);
-        if (parsed.email) candidateViewerIds.push(parsed.email);
-      }
-    } catch {
-      // ignore invalid storage payloads
-    }
-
-    candidateViewerIds.push('anon');
-
-    let best: LocalVideoProgressSnapshot | null = null;
-
-    for (const viewerId of Array.from(new Set(candidateViewerIds))) {
-      const key = `streamland:video-progress:${viewerId}:${videoInfo.id}`;
-      try {
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-        const parsed = JSON.parse(raw) as LocalVideoProgressSnapshot;
-        if (!parsed || typeof parsed.currentTime !== 'number' || typeof parsed.duration !== 'number') continue;
-
-        if (!best || (parsed.updatedAt || 0) > (best.updatedAt || 0)) {
-          best = parsed;
+    if (Array.isArray(payload)) {
+      payload.forEach((item, index) => {
+        if (item && typeof item === 'object') {
+          tryAddSegment(item as Record<string, unknown>, index);
         }
-      } catch {
-        // ignore malformed snapshots
-      }
+      });
+    } else if (typeof payload === 'object') {
+      const data = payload as Record<string, unknown>;
+      const nestedTranscript = data.transcript && typeof data.transcript === 'object'
+        ? (data.transcript as Record<string, unknown>)
+        : null;
+      const nestedResult = data.result && typeof data.result === 'object'
+        ? (data.result as Record<string, unknown>)
+        : null;
+      const nestedData = data.data && typeof data.data === 'object'
+        ? (data.data as Record<string, unknown>)
+        : null;
+
+      const candidates = [
+        data.segments,
+        nestedTranscript?.segments,
+        nestedResult?.segments,
+        nestedData?.segments,
+      ].filter(Array.isArray) as unknown[][];
+
+      const segmentsSource = candidates[0] || [];
+      segmentsSource.forEach((segment, index) => {
+        if (segment && typeof segment === 'object') {
+          tryAddSegment(segment as Record<string, unknown>, index);
+        }
+      });
     }
 
-    return best;
+    if (rawSegments.length > 0) {
+      const maxEnd = rawSegments.reduce((max, segment) => {
+        const value = typeof segment.end === 'number' ? segment.end : 0;
+        return Math.max(max, value);
+      }, 0);
+      const scaleFactor = safeDuration > 0 && maxEnd > safeDuration * 2 ? 0.001 : 1;
+
+      const normalized = rawSegments
+        .map((segment, index) => {
+          const fallbackStart = index * 4;
+          const start = (segment.start ?? fallbackStart) * scaleFactor;
+          const end = typeof segment.end === 'number' ? segment.end * scaleFactor : null;
+          return {
+            id: segment.id,
+            start: Math.max(0, start),
+            end,
+            text: segment.text,
+          };
+        })
+        .sort((a, b) => a.start - b.start);
+
+      const cues: SubtitleCue[] = normalized.map((segment, index) => {
+        const next = normalized[index + 1];
+        const nextStart = next ? next.start : null;
+        let end = segment.end ?? (nextStart !== null ? Math.max(segment.start + 0.5, nextStart) : segment.start + 3);
+        if (end <= segment.start) {
+          end = segment.start + 2.5;
+        }
+        return {
+          id: `cue-${index + 1}`,
+          start: segment.start,
+          end,
+          text: segment.text,
+        };
+      });
+
+      return cues;
+    }
+
+    const fallbackText = extractTranscriptText(payload);
+    return splitTextToCues(fallbackText, totalDuration);
   };
+
+  const getViewerIdForStorage = () => currentStudent?.id || 'anon';
+
+  const writeLocalProgressSnapshot = () => {
+    return;
+  };
+
+  const readLocalProgressSnapshot = () => null;
 
   const syncProgressToServer = async (position: number, totalDuration: number, force = false) => {
     if (!videoInfo?.id || totalDuration <= 0) return;
-
-    // Always write local immediately so dashboard card reflects progress instantly
-    writeLocalProgressSnapshot(position, totalDuration, force);
 
     // Wait until at least one restore pass completes to avoid posting near-zero progress too early.
     if (!restoreCompletedRef.current && !force) {
@@ -356,31 +442,6 @@ export default function VideoPlayerPage() {
     fetchVideoData();
   }, [livestreamID]);
 
-  // Generate simple subtitle cues from description
-  const createSubtitleCues = (text: string, totalDuration = 120): SubtitleCue[] => {
-    const source = (text || '').replace(/\s+/g, ' ').trim();
-    if (!source) return [];
-    const parts = source.split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 24);
-    const cueDuration = Math.max(3, Math.floor((totalDuration || 120) / Math.max(1, parts.length)));
-    return parts.map((p, i) => ({ id: `cue-${i+1}`, start: i * cueDuration, end: (i+1) * cueDuration, text: p }));
-  };
-
-  useEffect(() => {
-    if (!videoInfo) return;
-    const cues = createSubtitleCues(videoInfo.description || '', videoInfo.duration || 120);
-    setSubtitleCues(cues);
-    setSelectedCueId(cues[cues.length - 1]?.id || null);
-  }, [videoInfo]);
-
-  useEffect(() => {
-    if (!subtitleCues || subtitleCues.length === 0) { setActiveCueId(null); return; }
-    const cue = subtitleCues.find(c => currentTime >= c.start && currentTime < c.end) || null;
-    setActiveCueId(cue?.id || null);
-    if (subtitleCues.length > 0 && currentTime >= (subtitleCues[subtitleCues.length-1].end || 0)) {
-      setTranscriptionComplete(true);
-    }
-  }, [currentTime, subtitleCues]);
-
   // Load current student profile and comments
   useEffect(() => {
     const loadProfileAndComments = async () => {
@@ -479,6 +540,75 @@ export default function VideoPlayerPage() {
 
     fetchVideoReactionData();
   }, [videoInfo?.id, isAuthenticated]);
+
+  useEffect(() => {
+    const fetchTranscriptAndSummary = async () => {
+      if (!videoInfo?.id) return;
+
+      try {
+        setSummaryLoading(true);
+        setTranscriptError(null);
+        const analysis = (await getRecordingAiAnalysis(videoInfo.id)) as RecordingAiAnalysisPayload;
+        setTranscriptPayload(analysis?.transcript ?? null);
+        setSummaryText(typeof analysis?.summary === 'string' ? analysis.summary : '');
+      } catch (err) {
+        console.error('Failed to load transcript analysis:', err);
+        setTranscriptError('Transcript is not available yet.');
+        setTranscriptPayload(null);
+        setSummaryText('');
+      } finally {
+        setSummaryLoading(false);
+      }
+    };
+
+    fetchTranscriptAndSummary();
+  }, [videoInfo?.id]);
+
+  useEffect(() => {
+    if (!videoInfo?.id) return;
+    if (!transcriptPayload) {
+      setSubtitleCues([]);
+      return;
+    }
+
+    const effectiveDuration = duration > 0 ? duration : (videoInfo.duration || 0);
+    const cues = buildCuesFromTranscript(transcriptPayload, effectiveDuration);
+    setBaseSubtitleCues(cues);
+  }, [transcriptPayload, duration, videoInfo?.duration, videoInfo?.id]);
+
+  useEffect(() => {
+    if (!baseSubtitleCues.length) {
+      setSubtitleCues([]);
+      return;
+    }
+
+    const adjusted = baseSubtitleCues.map((cue) => ({
+      ...cue,
+      start: Math.max(0, cue.start * subtitleRate + subtitleOffset),
+      end: Math.max(0, cue.end * subtitleRate + subtitleOffset),
+    }));
+    setSubtitleCues(adjusted);
+  }, [baseSubtitleCues, subtitleOffset, subtitleRate]);
+
+  useEffect(() => {
+    if (!subtitleCues.length) {
+      setActiveCueId(null);
+      return;
+    }
+
+    const cue = subtitleCues.find((item) => currentTime >= item.start && currentTime < item.end) || null;
+    setActiveCueId(cue?.id || null);
+  }, [currentTime, subtitleCues]);
+
+  useEffect(() => {
+    if (!showTranscriptPanel || showSummaryPanel) return;
+    if (!transcriptPanelRef.current || !activeCueId) return;
+
+    const activeEl = transcriptPanelRef.current.querySelector(`[data-cue-id="${activeCueId}"]`);
+    if (!activeEl || !(activeEl instanceof HTMLElement)) return;
+
+    activeEl.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [activeCueId, showTranscriptPanel, showSummaryPanel]);
 
   useEffect(() => {
     if (!videoInfo?.recordingUrl) {
@@ -692,7 +822,9 @@ export default function VideoPlayerPage() {
 
         if (!resp.ok) return;
 
-        const progress = (await resp.json()) as WatchProgressResponse | null;
+        const raw = await resp.text();
+        if (!raw) return;
+        const progress = JSON.parse(raw) as WatchProgressResponse | null;
         if (!progress || typeof progress.lastPosition !== 'number' || progress.lastPosition <= 0) return;
 
         const video = videoRef.current;
@@ -976,11 +1108,6 @@ export default function VideoPlayerPage() {
     } catch (e) { console.error(e); }
   };
 
-  const handleSubscribe = async () => {
-    // Toggle locally; backend integration optional
-    setIsSubscribed(prev => !prev);
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-linear-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
@@ -1069,7 +1196,6 @@ export default function VideoPlayerPage() {
                   </button>
                 )}
 
-                {/* Subtitle Overlay (inside video) */}
                 {showSubs && activeCueId && (
                   <div className="absolute left-0 right-0 bottom-14 md:bottom-16 flex items-center justify-center px-4">
                     <button
@@ -1077,11 +1203,12 @@ export default function VideoPlayerPage() {
                       onClick={() => {
                         setSelectedCueId(activeCueId);
                         setShowTranscriptPanel(true);
+                        setShowSummaryPanel(false);
                       }}
                       className="bg-black/70 hover:bg-black/80 text-white text-sm px-4 py-2 rounded-md max-w-[90%] text-center transition"
                       title="Open transcript review"
                     >
-                      {subtitleCues.find(c => c.id === activeCueId)?.text}
+                      {subtitleCues.find((cue) => cue.id === activeCueId)?.text}
                     </button>
                   </div>
                 )}
@@ -1146,7 +1273,11 @@ export default function VideoPlayerPage() {
                     </div>
 
                     <div className="flex items-center gap-1 md:gap-2">
-                      <button onClick={() => setShowSubs(prev => !prev)} className="hover:scale-110 transition-transform duration-200 w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-full hover:bg-white/10">
+                      <button
+                        onClick={() => setShowSubs((prev) => !prev)}
+                        className="hover:scale-110 transition-transform duration-200 w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-full hover:bg-white/10"
+                        title={showSubs ? 'Hide captions' : 'Show captions'}
+                      >
                         <Captions size={16} />
                       </button>
                       <button className="hover:scale-110 transition-transform duration-200 w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-full hover:bg-white/10">
@@ -1255,8 +1386,6 @@ export default function VideoPlayerPage() {
                   </div>
                 )}
 
-                {/* Subtitles are displayed as an in-video overlay via the captions button in the player controls. */}
-
                 {/* Comments Section */}
                 <div className="mt-6 bg-white rounded-2xl p-4 border border-gray-100">
                   <h4 className="text-sm font-bold text-gray-900 mb-3 uppercase tracking-wide">Comments ({comments.length})</h4>
@@ -1332,32 +1461,120 @@ export default function VideoPlayerPage() {
           {/* Sidebar - Related Videos */}
           <div className="xl:col-span-1">
             <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-100/50 sticky top-8 overflow-hidden">
-              {/* Transcript Panel */}
               <div className="p-4 border-b border-gray-100">
                 <h4 className="text-sm font-bold text-gray-900 mb-2">Transcript Preview</h4>
                 {showTranscriptPanel && selectedCueId ? (
                   (() => {
-                    const cue = subtitleCues.find(c => c.id === selectedCueId);
+                    const cue = subtitleCues.find((item) => item.id === selectedCueId);
                     return (
                       <div className="space-y-3">
-                        <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-800">{cue?.text}</div>
+                        {!showSummaryPanel && (
+                          <div className="space-y-3">
+                            <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-800">{cue?.text}</div>
+                            <div className="rounded-lg border border-slate-200 bg-white/90 px-3 py-2">
+                              <div className="flex items-center justify-between text-xs text-slate-500">
+                                <span>Subtitle sync</span>
+                                <span>{subtitleOffset >= 0 ? `+${subtitleOffset.toFixed(1)}` : subtitleOffset.toFixed(1)}s</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="-10"
+                                max="10"
+                                step="0.1"
+                                value={subtitleOffset}
+                                onChange={(event) => setSubtitleOffset(parseFloat(event.target.value))}
+                                className="mt-2 w-full h-1.5 rounded-full appearance-none cursor-pointer bg-slate-200 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-indigo-600 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-indigo-600 [&::-moz-range-thumb]:border-0"
+                              />
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white/90 px-3 py-2">
+                              <div className="flex items-center justify-between text-xs text-slate-500">
+                                <span>Subtitle speed</span>
+                                <span>x{subtitleRate.toFixed(2)}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="0.5"
+                                max="1.5"
+                                step="0.01"
+                                value={subtitleRate}
+                                onChange={(event) => setSubtitleRate(parseFloat(event.target.value))}
+                                className="mt-2 w-full h-1.5 rounded-full appearance-none cursor-pointer bg-slate-200 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-indigo-600 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-indigo-600 [&::-moz-range-thumb]:border-0"
+                              />
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max={duration > 0 ? duration : (videoInfo?.duration || 100)}
+                              value={currentTime}
+                              onChange={handleSeek}
+                              className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-slate-200 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-indigo-600 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-indigo-600 [&::-moz-range-thumb]:border-0"
+                            />
+                            <div
+                              ref={transcriptPanelRef}
+                              className="max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white/80 p-3 text-sm text-slate-700"
+                            >
+                              {subtitleCues.length === 0 && (
+                                <p className="text-slate-400">Transcript is not available yet.</p>
+                              )}
+                              {subtitleCues.map((item) => (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  data-cue-id={item.id}
+                                  onClick={() => {
+                                    const video = videoRef.current;
+                                    if (!video) return;
+                                    video.currentTime = item.start;
+                                    setCurrentTime(item.start);
+                                  }}
+                                  className={`mb-2 w-full text-left leading-relaxed transition ${
+                                    item.id === activeCueId
+                                      ? "text-indigo-700 font-semibold"
+                                      : "text-slate-600 hover:text-slate-900"
+                                  }`}
+                                >
+                                  {item.text}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={async () => {
-                              setIsSummarizing(true);
-                              // simple summary: first 20 words of selected cue + note
-                              await new Promise(r => setTimeout(r, 700));
-                              setSummary((cue?.text || '').split(' ').slice(0,20).join(' ') + (cue && cue.text.split(' ').length>20 ? '...' : ''));
-                              setIsSummarizing(false);
-                            }}
+                            onClick={() => setShowSummaryPanel(true)}
                             className="px-3 py-2 bg-indigo-600 text-white rounded-lg flex items-center gap-2 text-sm"
                           >
-                            <Sparkles className="w-4 h-4" />
-                            {isSummarizing ? 'Summarizing...' : 'Summarize'}
+                            Summarize
                           </button>
-                          <button onClick={() => { setShowTranscriptPanel(false); setSelectedCueId(null); }} className="px-3 py-2 bg-gray-100 rounded-lg text-sm">Close</button>
+                          {showSummaryPanel && (
+                            <button
+                              onClick={() => setShowSummaryPanel(false)}
+                              className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm"
+                            >
+                              View Transcript
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              setShowTranscriptPanel(false);
+                              setSelectedCueId(null);
+                              setShowSummaryPanel(false);
+                            }}
+                            className="px-3 py-2 bg-gray-100 rounded-lg text-sm"
+                          >
+                            Close
+                          </button>
                         </div>
-                        {summary && <div className="mt-3 p-3 bg-white rounded-lg border text-sm text-gray-700">{summary}</div>}
+                        {showSummaryPanel && (
+                          <div className="mt-3 p-3 bg-white rounded-lg border text-sm text-gray-700">
+                            {summaryLoading && 'Loading summary...'}
+                            {!summaryLoading && summaryText && summaryText}
+                            {!summaryLoading && !summaryText && 'Summary is not available yet.'}
+                          </div>
+                        )}
+                        {!summaryLoading && transcriptError && (
+                          <p className="text-xs font-medium text-amber-600">{transcriptError}</p>
+                        )}
                       </div>
                     );
                   })()

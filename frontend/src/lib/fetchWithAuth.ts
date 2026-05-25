@@ -3,6 +3,8 @@
  * Use this instead of raw fetch() for all authenticated API calls
  */
 
+import { clearAuthStorage, getStoredToken } from '@/lib/authStorage';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 let isRefreshing = false;
@@ -21,6 +23,7 @@ async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = localStorage.getItem('refreshToken');
   
   if (!refreshToken) {
+    clearAuthStorage();
     return null;
   }
 
@@ -41,9 +44,7 @@ async function refreshAccessToken(): Promise<string | null> {
     }
     
     // Refresh failed - clear auth and redirect
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
+    clearAuthStorage();
     window.location.href = '/';
     return null;
   } catch (error) {
@@ -57,7 +58,7 @@ async function refreshAccessToken(): Promise<string | null> {
  * Drop-in replacement for native fetch()
  */
 export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+  const token = getStoredToken();
   
   // Add Authorization header if not present
   const headers = new Headers(options.headers);

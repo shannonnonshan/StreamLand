@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { PlayCircleIcon } from '@heroicons/react/24/outline';
 
 const PrimaryColor = '161853';
-const API_URL = process.env.NEXT_PUBLIC_SEARCH_API_URL || 'http://127.0.0.1:8000';
+const API_URL = `${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(/\/$/, '')}/ai`;
 const BACKEND_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const MAX_HISTORY_ITEMS = 10;
 

@@ -27,8 +27,7 @@ const nowLabel = () =>
   });
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-const SEARCH_API_URL = process.env.NEXT_PUBLIC_SEARCH_API_URL || "http://127.0.0.1:8000";
-const CHATBOT_URL = `${SEARCH_API_URL.replace(/\/$/, "")}/chat`;
+const CHATBOT_URL = `${API_URL.replace(/\/$/, "")}/ai/chat`;
 
 export default function StudentHelpPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([

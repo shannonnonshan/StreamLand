@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -23,7 +24,6 @@ import {
   UploadTeacherCVDto,
   Role,
 } from './dto';
-
 @Injectable()
 export class AuthService {
   // Rate limiting map: email -> last OTP sent timestamp
@@ -36,6 +36,26 @@ export class AuthService {
     private mailService: MailService,
     private r2StorageService: R2StorageService,
   ) {}
+
+  private async assertUserNotBanned(userId: string, banUntil?: Date | null) {
+    if (!banUntil) {
+      return;
+    }
+
+    const now = new Date();
+    if (banUntil > now) {
+      throw new ForbiddenException({
+        message: 'Your account is temporarily banned',
+        bannedUntil: banUntil,
+      });
+    }
+
+    // Ban has expired: clear stale timestamp so account state stays clean.
+    await this.prisma.postgres.user.update({
+      where: { id: userId },
+      data: { banUntil: null },
+    });
+  }
 
   async register(registerDto: RegisterDto) {
     const { email, password, fullName, role } = registerDto;
@@ -147,6 +167,8 @@ export class AuthService {
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password. Please check your credentials and try again.');
     }
+
+    await this.assertUserNotBanned(user.id, user.banUntil);
 
     // Check if 2FA is enabled
     if (user.twoFactorEnabled) {
@@ -645,6 +667,8 @@ export class AuthService {
       }
     }
 
+    await this.assertUserNotBanned(user.id, user.banUntil);
+
     // Existing user - generate tokens and login
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
@@ -714,6 +738,8 @@ export class AuthService {
         };
       }
     }
+
+    await this.assertUserNotBanned(user.id, user.banUntil);
 
     // Existing user - generate tokens and login
     const tokens = await this.generateTokens(user.id, user.email, user.role);

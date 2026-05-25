@@ -41,6 +41,18 @@ export default function LoginModal({
     message: '',
   });
 
+  const formatBanUntil = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+
+    return new Intl.DateTimeFormat('vi-VN', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date);
+  };
+
   // Reset errors when modal is opened
   useEffect(() => {
     if (isOpen) {
@@ -137,6 +149,14 @@ export default function LoginModal({
           closeModal();
         }, 1500);
       } else {
+        if (!result.success && result.bannedUntil) {
+          setNotification({
+            type: 'error',
+            message: `Your account is banned until ${formatBanUntil(result.bannedUntil)}`,
+          });
+          return;
+        }
+
         setNotification({
           type: 'error',
           message: result.error || 'Login failed. Please check your email and password.'

@@ -16,6 +16,7 @@ model User {
   role             Role            @default(STUDENT)
   isVerified       Boolean         @default(false)
   twoFactorEnabled Boolean         @default(false)
+  banUntil         DateTime?
   googleId         String?         @unique
   githubId         String?         @unique
   otp              String?
@@ -27,6 +28,9 @@ model User {
   updatedAt        DateTime        @updatedAt
   documents        Document[]
   livestreams      LiveStream[]
+  reportsFiled     Report[]        @relation("ReportReporter")
+  reportsReceived  Report[]        @relation("ReportReported")
+  reportsReviewed  Report[]        @relation("ReportReviewer")
   studentProfile   StudentProfile?
   teacherProfile   TeacherProfile?
 
@@ -227,6 +231,31 @@ model Session {
   createdAt DateTime @default(now())
 
   @@map("sessions")
+}
+
+model Report {
+  id          String       @id @default(uuid())
+  reporterId  String
+  reportedId  String
+  type        ReportType
+  category    String
+  reason      String
+  description String?
+  status      ReportStatus @default(PENDING)
+  screenshots String[]
+  metadata    Json?
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  resolution  String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  reporter    User         @relation("ReportReporter", fields: [reporterId], references: [id])
+  reported    User         @relation("ReportReported", fields: [reportedId], references: [id])
+  reviewer    User?        @relation("ReportReviewer", fields: [reviewedBy], references: [id])
+
+  @@index([reportedId, status])
+  @@index([status])
+  @@map("reports")
 }
 
 enum RecordingApprovalStatus {

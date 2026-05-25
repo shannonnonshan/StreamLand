@@ -1,5 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import type { BanDuration } from '../common/types/ban-duration';
+import { calculateBanUntil } from '../common/utils/ban-until';
 
 @Injectable()
 export class AdminService {
@@ -310,6 +312,127 @@ export class AdminService {
         total,
         totalPages: Math.ceil(total / limit),
       },
+    };
+  }
+
+  async getReports() {
+    const reports = await this.prisma.postgres.report.findMany({
+      include: {
+        reporter: {
+          select: {
+            fullName: true,
+            role: true,
+            avatar: true,
+          },
+        },
+        reported: {
+          select: {
+            fullName: true,
+            role: true,
+            avatar: true,
+            banUntil: true,
+          },
+        },
+        reviewer: {
+          select: {
+            fullName: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return reports.map((report) => ({
+      id: report.id,
+      reporterId: report.reporterId,
+      reporterName: report.reporter?.fullName ?? 'Unknown user',
+      reporterType: report.reporter?.role === 'TEACHER' ? 'teacher' : 'student',
+      reporterAvatar: report.reporter?.avatar ?? undefined,
+      targetId: report.reportedId,
+      targetName: report.reported?.fullName ?? 'Unknown user',
+      targetType: report.reported?.role === 'TEACHER' ? 'teacher' : 'student',
+      targetAvatar: report.reported?.avatar ?? undefined,
+      reason: report.reason,
+      details: report.description ?? report.reason,
+      evidence: report.screenshots.length > 0 ? report.screenshots : undefined,
+      status: report.reported?.banUntil && report.reported.banUntil > new Date()
+        ? 'banned'
+        : report.status === 'RESOLVED'
+          ? 'resolved'
+          : report.status === 'DISMISSED'
+            ? 'rejected'
+            : 'waiting',
+      banDuration: undefined,
+      bannedUntil: report.reported?.banUntil ? report.reported.banUntil.toISOString() : undefined,
+      createdAt: report.createdAt.toISOString(),
+      resolvedAt: report.reviewedAt ? report.reviewedAt.toISOString() : undefined,
+    }));
+  }
+
+  async updateReportStatus(
+    reportId: string,
+    status: 'RESOLVED' | 'DISMISSED',
+    reviewerId: string,
+    resolution?: string,
+  ) {
+    const existing = await this.prisma.postgres.report.findUnique({
+      where: { id: reportId },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Report not found');
+    }
+
+    await this.prisma.postgres.report.update({
+      where: { id: reportId },
+      data: {
+        status,
+        resolution: resolution ?? null,
+        reviewedBy: reviewerId,
+        reviewedAt: new Date(),
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Report status updated',
+      reportId,
+      status,
+    };
+  }
+
+  async banUser(userId: string, duration: BanDuration) {
+    const banUntil = calculateBanUntil(duration);
+
+    const user = await this.prisma.postgres.user.findUnique({
+      where: { id: userId },
+      select: { id: true, fullName: true, email: true, role: true, banUntil: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.banUntil && user.banUntil > new Date()) {
+      throw new ConflictException({
+        message: 'User is already banned',
+        bannedUntil: user.banUntil,
+      });
+    }
+
+    await this.prisma.postgres.user.update({
+      where: { id: userId },
+      data: { banUntil },
+    });
+
+    return {
+      success: true,
+      message: 'User banned successfully',
+      userId,
+      bannedUntil: banUntil,
     };
   }
 

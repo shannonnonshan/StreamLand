@@ -5,6 +5,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminService } from './admin.service';
 import { ChatService } from '../chat/chat.service';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
+import { BanUserDto } from './dto/ban-user.dto';
+import { UpdateReportStatusDto } from './dto/update-report-status.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard)
@@ -86,6 +88,48 @@ export class AdminController {
     const limitNum = parseInt(limit) || 20;
     
     return this.adminService.getAllUsers(role, pageNum, limitNum);
+  }
+
+  @Get('reports')
+  async getReports(
+    @Request() req: { user: { sub: string; role: string } }
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can access reports');
+    }
+
+    return this.adminService.getReports();
+  }
+
+  @Patch('reports/:id/status')
+  async updateReportStatus(
+    @Param('id') reportId: string,
+    @Body() updateReportStatusDto: UpdateReportStatusDto,
+    @Request() req: { user: { sub: string; role: string } },
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can update reports');
+    }
+
+    return this.adminService.updateReportStatus(
+      reportId,
+      updateReportStatusDto.status,
+      req.user.sub,
+      updateReportStatusDto.resolution,
+    );
+  }
+
+  @Patch('users/:id/ban')
+  async banUser(
+    @Param('id') userId: string,
+    @Body() banUserDto: BanUserDto,
+    @Request() req: { user: { sub: string; role: string } },
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Only admins can ban users');
+    }
+
+    return this.adminService.banUser(userId, banUserDto.duration);
   }
 
   // Get all livestreams

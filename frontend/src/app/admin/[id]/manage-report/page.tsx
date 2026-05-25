@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Loader2, X, ChevronLeft, ChevronRight, ExternalLink, Search, Filter, ChevronsLeft } from "lucide-react";
@@ -22,53 +22,26 @@ interface Report {
   evidence?: string[];
   status: "waiting" | "banned" | "resolved" | "rejected";
   banDuration?: "1m" | "1w" | "1d" | "forever";
+  bannedUntil?: string;
   createdAt: string;
   resolvedAt?: string;
 }
 
+type ReportUpdateStatus = 'RESOLVED' | 'DISMISSED';
+
 const defaultAvatar = "/logo.png";
 
-const mockReports: Report[] = [
-  {
-    id: "1",
-    reporterId: "t1",
-    reporterType: "teacher",
-    reporterName: "John Smith",
-    targetId: "s1",
-    targetName: "Alice Johnson",
-    targetType: "student",
-    reason: "Inappropriate behavior during livestream",
-    details: "Student was using offensive language and disrupting the class repeatedly.",
-    evidence: ["/logo.png"],
-    status: "waiting",
-    createdAt: "2025-10-25T10:00:00Z",
-  },
-  {
-    id: "2",
-    reporterId: "s2",
-    reporterType: "student",
-    reporterName: "Bob Wilson",
-    targetId: "t2",
-    targetName: "Mary Davis",
-    targetType: "teacher",
-    reason: "Unprofessional conduct",
-    details: "Teacher was consistently late to scheduled sessions.",
-    status: "banned",
-    banDuration: "1m",
-    createdAt: "2025-10-24T15:30:00Z",
-    resolvedAt: "2025-10-25T09:00:00Z",
-    
-  },
-  // Add more mock data as needed
-];
-
 export default function ManageReport() {
-  const [reports, setReports] = useState<Report[]>(mockReports);
+  const [reports, setReports] = useState<Report[]>([]);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<Report | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [reviewNote, setReviewNote] = useState("");
   const [activeTab, setActiveTab] = useState<"student" | "teacher">("student");
+  const [isBanMenuOpen, setIsBanMenuOpen] = useState(false);
+  const [isRejectConfirmOpen, setIsRejectConfirmOpen] = useState(false);
+  const banMenuRef = useRef<HTMLDivElement | null>(null);
 
  
 
@@ -77,6 +50,8 @@ export default function ManageReport() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | Report["status"]>("all");
   const [pageSize, setPageSize] = useState(5);
+  const [loadingReports, setLoadingReports] = useState(true);
+  const [reportsLoadError, setReportsLoadError] = useState<string | null>(null);
 
   const filteredReports = useMemo(() => {
     return reports.filter(report => {
@@ -121,17 +96,156 @@ export default function ManageReport() {
     return "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
   };
 
+  const formatBanUntil = (value?: string) => {
+    if (!value) return '';
+
+    return new Date(value).toLocaleString();
+  };
+
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+
+    return {
+      Authorization: token ? `Bearer ${token}` : '',
+      'Content-Type': 'application/json',
+    };
+  };
+
+  const getApiUrl = () => process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+  const syncLocalReport = (reportId: string, patch: Partial<Report>) => {
+    setReports((prev) => prev.map((report) => (report.id === reportId ? { ...report, ...patch } : report)));
+  };
+
+  const closeModerationPopup = () => {
+    setIsBanMenuOpen(false);
+    setIsDetailOpen(false);
+    setIsRejectConfirmOpen(false);
+    setSelectedReport(null);
+    setSelectedSnapshot(null);
+  };
+
+  const fetchReports = useCallback(async (showLoader: boolean = true) => {
+    if (showLoader) {
+      setLoadingReports(true);
+    }
+    setReportsLoadError(null);
+    try {
+      const response = await fetch(`${getApiUrl()}/admin/reports`, {
+        headers: getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load reports');
+      }
+
+      const data = await response.json();
+      const nextReports = Array.isArray(data) ? (data as Report[]) : [];
+      setReports(nextReports);
+
+      setSelectedReport((prevSelected) => {
+        if (!prevSelected) {
+          return prevSelected;
+        }
+
+        return nextReports.find((report) => report.id === prevSelected.id) || null;
+      });
+    } catch (error) {
+      console.error('Error loading reports:', error);
+      setReports([]);
+      setReportsLoadError('Khong the tai du lieu report tu server. Vui long thu lai.');
+    } finally {
+      if (showLoader) {
+        setLoadingReports(false);
+      }
+    }
+  }, []);
+
+  const updateReportStatus = async (reportId: string, status: ReportUpdateStatus, resolution?: string) => {
+    const response = await fetch(`${getApiUrl()}/admin/reports/${reportId}/status`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ status, resolution }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = typeof payload?.message === 'string'
+        ? payload.message
+        : payload?.error || 'Failed to update report status';
+      throw new Error(message);
+    }
+  };
+
   const handleBanUser = async (report: Report, duration: Report["banDuration"]) => {
     setLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    setReports(prev => prev.map(r => 
-      r.id === report.id 
-        ? { ...r, status: "banned", banDuration: duration, resolvedAt: new Date().toISOString() }
-        : r
-    ));
-    setLoading(false);
+    // Optimistic local update so UI updates immediately while server request runs
+    const now = new Date().toISOString();
+    syncLocalReport(report.id, {
+      status: 'banned',
+      banDuration: duration,
+      bannedUntil: now,
+      resolvedAt: now,
+    });
+    setSelectedSnapshot((prev) => (prev && prev.id === report.id ? { ...prev, status: 'banned', banDuration: duration, bannedUntil: now, resolvedAt: now } : prev));
+
+    // Close UI immediately for snappy feedback
+    setIsBanMenuOpen(false);
+    setIsDetailOpen(false);
+    setSelectedReport(null);
+
+    try {
+      // Send ban request
+      const response = await fetch(`${getApiUrl()}/admin/users/${report.targetId}/ban`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ duration }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const errorMessage = typeof payload?.message === 'string'
+          ? payload.message
+          : payload?.message?.message || payload?.error || 'Failed to ban user';
+
+        const bannedUntil = payload?.message?.bannedUntil || payload?.bannedUntil || payload?.data?.bannedUntil;
+        if (bannedUntil) {
+          syncLocalReport(report.id, {
+            status: 'banned',
+            banDuration: duration,
+            bannedUntil,
+            resolvedAt: new Date().toISOString(),
+          });
+          void fetchReports(false);
+          alert(`User is already banned until ${formatBanUntil(bannedUntil)}`);
+          return;
+        }
+
+        // Roll back by reloading fresh data
+        await fetchReports(true);
+        throw new Error(errorMessage);
+      }
+
+      // Mark report resolved on server and update local state with final bannedUntil
+      await updateReportStatus(report.id, 'RESOLVED', `User banned with duration ${duration}`);
+
+      const finalBannedUntil = payload?.bannedUntil || payload?.data?.bannedUntil || now;
+      syncLocalReport(report.id, {
+        status: 'banned',
+        banDuration: duration,
+        bannedUntil: finalBannedUntil,
+        resolvedAt: new Date().toISOString(),
+      });
+
+      // Background revalidation (non-blocking)
+      void fetchReports(false);
+    } catch (error) {
+      console.error('Error banning user:', error);
+      alert(error instanceof Error ? error.message : 'Failed to ban user');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRejectReport = async (report: Report, reason?: string) => {
@@ -158,11 +272,13 @@ export default function ManageReport() {
       }
 
       // Update local report state regardless
-      setReports(prev => prev.map(r => 
-        r.id === report.id 
-          ? { ...r, status: "rejected", resolvedAt: new Date().toISOString() }
-          : r
-      ));
+      await updateReportStatus(report.id, 'DISMISSED', reason || reviewNote || 'Report rejected by admin');
+      syncLocalReport(report.id, {
+        status: 'rejected',
+        resolvedAt: new Date().toISOString(),
+      });
+
+      await fetchReports(false);
 
       setReviewNote("");
     } catch (err) {
@@ -172,6 +288,40 @@ export default function ManageReport() {
       setLoading(false);
     }
   };
+
+  const handleSelectedRejectReport = () => {
+    if (!selectedSnapshot) return;
+    setIsRejectConfirmOpen(true);
+  };
+
+  const confirmRejectReport = () => {
+    if (!selectedSnapshot) return;
+
+    setIsRejectConfirmOpen(false);
+    void handleRejectReport(selectedSnapshot, reviewNote);
+  };
+
+  const handleSelectedBanUser = (duration: Report["banDuration"]) => {
+    if (!selectedSnapshot) return;
+    setIsBanMenuOpen(false);
+    void handleBanUser(selectedSnapshot, duration);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (banMenuRef.current && !banMenuRef.current.contains(event.target as Node)) {
+        setIsBanMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    void fetchReports();
+  }, [fetchReports]);
 
   
 
@@ -247,6 +397,12 @@ export default function ManageReport() {
                 Reports against teachers
               </button>
             </div>
+
+            {reportsLoadError && (
+              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {reportsLoadError}
+              </div>
+            )}
           </div>
         </section>
 
@@ -365,7 +521,7 @@ export default function ManageReport() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {loading ? (
+                {loading || loadingReports ? (
                   <tr>
                     <td colSpan={5} className="py-10 text-center text-slate-500">
                       <Loader2 className="mr-2 inline-block h-5 w-5 animate-spin" />
@@ -434,6 +590,7 @@ export default function ManageReport() {
                         <button
                           onClick={() => {
                             setSelectedReport(report);
+                            setSelectedSnapshot(report);
                             setIsDetailOpen(true);
                           }}
                           className="rounded-full border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
@@ -468,16 +625,17 @@ export default function ManageReport() {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-slate-950/45 backdrop-blur-[2px]" />
           <Dialog.Content className={`fixed left-1/2 top-1/2 max-h-[85vh] w-[92vw] max-w-5xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl border border-slate-200 bg-white p-0 shadow-[0_30px_90px_rgba(2,6,23,0.25)] ${raleway.className}`}>
+            <Dialog.Title className="sr-only">Review Report</Dialog.Title>
             <div className="flex max-h-[85vh] w-full flex-col">
               <div className="flex shrink-0 items-start justify-between gap-4 bg-[#292C6D] px-6 py-5 text-white rounded-t-3xl">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.25em] text-white/70">Report Moderation</p>
                   <h2 className="mt-1 text-2xl font-bold">Review Report</h2>
-                  <p className="mt-1 text-sm text-white/75">{selectedReport ? `${selectedReport.targetName} · ${selectedReport.targetType === 'student' ? 'Student' : 'Teacher'}` : ''}</p>
+                  <p className="mt-1 text-sm text-white/75">{selectedSnapshot ? `${selectedSnapshot.targetName} · ${selectedSnapshot.targetType === 'student' ? 'Student' : 'Teacher'}` : ''}</p>
                 </div>
                 <div className="flex items-start gap-2">
                   <button
-                    onClick={() => { setIsDetailOpen(false); setSelectedReport(null); }}
+                    onClick={() => { closeModerationPopup(); }}
                     title="Close"
                     className="rounded-full border border-white/10 bg-white/10 p-2 text-white transition hover:bg-white/20"
                   >
@@ -494,46 +652,46 @@ export default function ManageReport() {
                       <div className="mb-4 flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#292C6D]/50">Report</p>
-                          <h3 className="mt-1 text-lg font-bold text-slate-900">{selectedReport?.reason}</h3>
-                          <p className="mt-1 text-sm text-slate-600">Reported by {selectedReport?.reporterName}</p>
+                          <h3 className="mt-1 text-lg font-bold text-slate-900">{selectedSnapshot?.reason}</h3>
+                          <p className="mt-1 text-sm text-slate-600">Reported by {selectedSnapshot?.reporterName}</p>
                         </div>
-                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusClasses(selectedReport?.status as Report['status'])}`}>
-                          {selectedReport?.status}
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusClasses(selectedSnapshot?.status as Report['status'])}`}>
+                          {selectedSnapshot?.status}
                         </span>
                       </div>
 
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="rounded-2xl bg-slate-50 p-4">
                           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Reporter</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">{selectedReport?.reporterName}</p>
-                          <p className="text-sm text-slate-500">{selectedReport?.reporterType}</p>
+                          <p className="mt-1 text-sm font-medium text-slate-900">{selectedSnapshot?.reporterName}</p>
+                          <p className="text-sm text-slate-500">{selectedSnapshot?.reporterType}</p>
                         </div>
                         <div className="rounded-2xl bg-slate-50 p-4">
                           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Target</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">{selectedReport?.targetName}</p>
-                          <p className="text-sm text-slate-500">{selectedReport?.targetType}</p>
+                          <p className="mt-1 text-sm font-medium text-slate-900">{selectedSnapshot?.targetName}</p>
+                          <p className="text-sm text-slate-500">{selectedSnapshot?.targetType}</p>
                         </div>
                         <div className="rounded-2xl bg-slate-50 p-4">
                           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Reported On</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">{selectedReport ? new Date(selectedReport.createdAt).toLocaleString() : ''}</p>
+                          <p className="mt-1 text-sm font-medium text-slate-900">{selectedSnapshot ? new Date(selectedSnapshot.createdAt).toLocaleString() : ''}</p>
                         </div>
                         <div className="rounded-2xl bg-slate-50 p-4">
                           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Resolved At</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">{selectedReport?.resolvedAt ? new Date(selectedReport.resolvedAt).toLocaleString() : '-'}</p>
+                          <p className="mt-1 text-sm font-medium text-slate-900">{selectedSnapshot?.resolvedAt ? new Date(selectedSnapshot.resolvedAt).toLocaleString() : '-'}</p>
                         </div>
                       </div>
                     </section>
 
                     <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-5 shadow-sm">
                       <h4 className="text-sm font-medium text-slate-700 mb-2">Details</h4>
-                      <p className="text-sm text-slate-600 whitespace-pre-wrap">{selectedReport?.details}</p>
+                      <p className="text-sm text-slate-600 whitespace-pre-wrap">{selectedSnapshot?.details}</p>
                     </section>
 
-                    {selectedReport?.evidence && selectedReport.evidence.length > 0 && (
+                    {selectedSnapshot?.evidence && selectedSnapshot.evidence.length > 0 && (
                       <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-5 shadow-sm">
                         <h4 className="text-sm font-medium text-slate-700 mb-2">Evidence</h4>
                         <div className="grid grid-cols-2 gap-2">
-                          {selectedReport.evidence.map((e, i) => (
+                          {selectedSnapshot!.evidence!.map((e, i) => (
                             <div key={i} className="relative aspect-video overflow-hidden rounded-md bg-slate-100">
                               <Image src={e} alt={`evidence-${i}`} fill className="object-cover" />
                               <button className="absolute right-2 top-2 rounded-full bg-white p-1 shadow-sm hover:bg-slate-50">
@@ -561,34 +719,79 @@ export default function ManageReport() {
                     <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-5 shadow-sm">
                       <div className="flex flex-wrap justify-end gap-3">
                         <button
-                          onClick={() => handleRejectReport(selectedReport, reviewNote)}
-                          disabled={!selectedReport || loading}
-                          className={`inline-flex items-center rounded-full px-4 py-2.5 text-sm font-semibold transition focus:ring-2 focus:ring-red-500 focus:ring-offset-2
-                            ${!selectedReport || loading ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-[#EC255A] text-white hover:bg-[#d31f4c]'}`}
+                          onClick={handleSelectedRejectReport}
+                          disabled={!selectedSnapshot || loading}
+                          className={`inline-flex items-center rounded-full px-4 py-2.5 text-sm font-semibold transition focus:ring-2 focus:ring-amber-500 focus:ring-offset-2
+                            ${!selectedSnapshot || loading ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-amber-500 text-white hover:bg-amber-600'}`}
                         >
                           <X className="w-4 h-4 mr-2" /> Reject Report
                         </button>
 
-                        <div className="relative group">
+                        <div ref={banMenuRef} className="relative">
                           <button
-                            disabled={!selectedReport || loading}
+                            onClick={() => setIsBanMenuOpen((current) => !current)}
+                            disabled={!selectedSnapshot || loading}
                             className={`inline-flex items-center rounded-full px-4 py-2.5 text-sm font-semibold transition focus:ring-2 focus:ring-rose-500 focus:ring-offset-2
-                              ${!selectedReport || loading ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-rose-600 text-white hover:bg-rose-700'}`}
+                              ${!selectedSnapshot || loading ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-rose-600 text-white hover:bg-rose-700'}`}
+                            aria-expanded={isBanMenuOpen}
+                            aria-haspopup="menu"
                           >
                             Ban User
+                            <span className={`ml-2 inline-block transition-transform duration-200 ${isBanMenuOpen ? 'rotate-180' : 'rotate-0'}`}>▾</span>
                           </button>
 
-                          <div className="absolute right-0 top-full mt-2 hidden w-44 flex-col rounded-2xl border border-slate-200 bg-white shadow-lg group-hover:flex z-20">
-                            <button onClick={() => handleBanUser(selectedReport, '1d')} className="block w-full rounded-t-2xl px-4 py-2 text-left text-sm hover:bg-slate-50">Ban 1 Day</button>
-                            <button onClick={() => handleBanUser(selectedReport, '1w')} className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50">Ban 1 Week</button>
-                            <button onClick={() => handleBanUser(selectedReport, '1m')} className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50">Ban 1 Month</button>
-                            <button onClick={() => handleBanUser(selectedReport, 'forever')} className="block w-full rounded-b-2xl px-4 py-2 text-left text-sm text-rose-600 hover:bg-rose-50">Ban Forever</button>
+                          <div
+                            className={clsx(
+                              'absolute right-0 top-full z-20 mt-2 w-44 origin-top-right rounded-2xl border border-slate-200 bg-white shadow-lg transition-all duration-200 ease-out',
+                              isBanMenuOpen ? 'pointer-events-auto translate-y-0 scale-100 opacity-100' : 'pointer-events-none -translate-y-2 scale-95 opacity-0'
+                            )}
+                            role="menu"
+                          >
+                            <button onClick={() => handleSelectedBanUser('1d')} className="block w-full rounded-t-2xl px-4 py-2 text-left text-sm hover:bg-slate-50" role="menuitem">Ban 1 Day</button>
+                            <button onClick={() => handleSelectedBanUser('1w')} className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50" role="menuitem">Ban 1 Week</button>
+                            <button onClick={() => handleSelectedBanUser('1m')} className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50" role="menuitem">Ban 1 Month</button>
+                            <button onClick={() => handleSelectedBanUser('forever')} className="block w-full rounded-b-2xl px-4 py-2 text-left text-sm text-rose-600 hover:bg-rose-50" role="menuitem">Ban Forever</button>
                           </div>
                         </div>
                       </div>
                     </section>
                   </div>
                 </div>
+              </div>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root open={isRejectConfirmOpen} onOpenChange={setIsRejectConfirmOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-slate-950/45 backdrop-blur-[2px]" />
+          <Dialog.Content className={`fixed left-1/2 top-1/2 w-[92vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-slate-200 bg-white p-0 shadow-[0_30px_90px_rgba(2,6,23,0.25)] ${raleway.className}`}>
+            <Dialog.Title className="sr-only">Confirm Reject</Dialog.Title>
+            <div className="p-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-600">Confirmation</p>
+              <h3 className="mt-2 text-xl font-bold text-slate-950">Bạn có chắc reject không?</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Hành động này sẽ chuyển report sang trạng thái rejected và lưu thay đổi ngay lập tức.
+              </p>
+
+              <div className="mt-6 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsRejectConfirmOpen(false)}
+                  className="rounded-full border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmRejectReport}
+                  disabled={!selectedSnapshot || loading}
+                  className={`rounded-full px-4 py-2.5 text-sm font-semibold text-white transition
+                    ${!selectedSnapshot || loading ? 'cursor-not-allowed bg-slate-300' : 'bg-amber-500 hover:bg-amber-600'}`}
+                >
+                  Xác nhận reject
+                </button>
               </div>
             </div>
           </Dialog.Content>

@@ -20,6 +20,31 @@ interface AuthResponse {
   refreshToken: string;
 }
 
+interface LoginErrorResponse {
+  message?: unknown;
+  error?: string;
+  bannedUntil?: string;
+}
+
+interface LoginSuccessResponse {
+  message: string;
+  user: User;
+  accessToken?: string;
+  refreshToken?: string;
+  requires2FA?: boolean;
+  email?: string;
+}
+
+interface LoginResult {
+  success: boolean;
+  user?: User;
+  requires2FA?: boolean;
+  email?: string;
+  message?: string;
+  error?: string;
+  bannedUntil?: string;
+}
+
 interface RegisterData {
   fullName: string;
   email: string;
@@ -274,7 +299,7 @@ export function useAuth() {
   }, [setUser, setIsAuthenticated]);
 
   // Login
-  const login = useCallback(async (data: LoginData) => {
+  const login = useCallback(async (data: LoginData): Promise<LoginResult> => {
     setLoading(true);
     setError(null);
 
@@ -287,21 +312,35 @@ export function useAuth() {
         body: JSON.stringify(data),
       });
 
-      const result = await response.json() as AuthResponse & { requires2FA?: boolean; email?: string };
+      const result = await response.json() as LoginSuccessResponse & LoginErrorResponse;
 
       if (!response.ok) {
-        throw new Error(result.message || 'Login failed');
+        const errorMessageObject = typeof result.message === 'object' && result.message !== null
+          ? (result.message as { message?: string; bannedUntil?: string })
+          : undefined;
+        const messageFromObject = errorMessageObject?.message;
+        const bannedUntil = result.bannedUntil || errorMessageObject?.bannedUntil;
+
+        setLoading(false);
+        return {
+          success: false,
+          error: messageFromObject || result.error || 'Login failed',
+          bannedUntil,
+        };
       }
 
-      // Check if 2FA is required
       if (result.requires2FA) {
         setLoading(false);
-        return { 
-          success: true, 
-          requires2FA: true, 
-          email: result.email!,
-          message: result.message 
+        return {
+          success: true,
+          requires2FA: true,
+          email: result.email,
+          message: result.message,
         };
+      }
+
+      if (!result.accessToken || !result.refreshToken || !result.user) {
+        throw new Error('Login failed: missing authentication tokens');
       }
 
       // Normal login (no 2FA)

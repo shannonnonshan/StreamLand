@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import { useAuth } from "@/hooks/useAuth";
 import toast, { Toaster } from 'react-hot-toast';
 import { useConfirm } from "@/hooks/useConfirm";
@@ -943,10 +944,12 @@ export default function SettingsPage() {
                 <div className="relative">
                   <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 border-gray-100 shadow-md">
                     {avatarPreview || settings.avatar ? (
-                      <img
+                      <Image
                         src={avatarPreview || settings.avatar}
                         alt="Avatar"
-                        className="w-full h-full object-cover"
+                        width={128}
+                        height={128}
+                        className="h-full w-full object-cover"
                       />
                     ) : (
                       <User size={64} className="text-gray-400" />
@@ -1274,10 +1277,12 @@ export default function SettingsPage() {
             <div className="flex justify-center mb-6">
               <div className="w-48 h-48 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 border-gray-100 shadow-lg">
                 {previewUrl ? (
-                  <img
+                  <Image
                     src={previewUrl}
                     alt="Avatar Preview"
-                    className="w-full h-full object-cover"
+                    width={192}
+                    height={192}
+                    className="h-full w-full object-cover"
                   />
                 ) : (
                   <User size={96} className="text-gray-400" />

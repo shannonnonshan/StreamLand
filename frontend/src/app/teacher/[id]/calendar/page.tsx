@@ -18,7 +18,7 @@ export default function CalendarRootPage() {
   return (
     <div className="flex justify-center items-center h-screen">
       <div className="text-center">
-        <Loader size={48} className="animate-spin text-blue-600 mx-auto mb-4" />
+        <Loader size={48} className="animate-spin text-blue-600 mx-0 mb-4" />
         <p className="text-gray-600">Loading calendar...</p>
       </div>
     </div>

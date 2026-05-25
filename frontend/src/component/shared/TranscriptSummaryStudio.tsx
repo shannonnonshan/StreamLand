@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CircleHelp, FileText, GraduationCap, Loader2, Sparkles } from "lucide-react";
+import { CircleHelp, FileText, GraduationCap, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import {
   generateRecordingSummary,
   generateRecordingTranscript,
@@ -21,6 +21,8 @@ type TranscriptPayload =
       result?: unknown;
       segments?: unknown[];
     };
+
+type ProcessingStage = 'queued' | 'preparing' | 'transcribing' | 'summarizing' | 'moderating' | 'done' | 'error';
 
 const normalizeTranscriptContent = (transcript: TranscriptPayload | null | undefined): string => {
   if (typeof transcript === "string") {
@@ -93,7 +95,11 @@ export default function TranscriptSummaryStudio({
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isLoadingExisting, setIsLoadingExisting] = useState(false);
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const [processingError, setProcessingError] = useState<string | null>(null);
   const [transcriptStatus, setTranscriptStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const [processingStage, setProcessingStage] = useState<ProcessingStage | null>(null);
+  const [processingProgress, setProcessingProgress] = useState(0);
+  const [isRetrying, setIsRetrying] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -102,6 +108,64 @@ export default function TranscriptSummaryStudio({
   const canSummarize = !isDocumentMode && transcriptContent.trim().length > 0;
   const hasTranscript = transcriptContent.trim().length > 0 || transcriptStatus === 'success';
   const hasSummary = summaryContent.trim().length > 0;
+  const canRetry = transcriptStatus === 'error' || !!processingError || processingStage === 'error';
+
+  const normalizeProgress = (value: unknown): number => {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      return 0;
+    }
+
+    return Math.max(0, Math.min(100, Math.round(value)));
+  };
+
+  const normalizeStage = (value: unknown): ProcessingStage | null => {
+    const stage = typeof value === 'string' ? value.trim().toLowerCase() : '';
+
+    if (stage === 'queued') return 'queued';
+    if (stage === 'preparing') return 'preparing';
+    if (stage === 'transcribing') return 'transcribing';
+    if (stage === 'summarizing') return 'summarizing';
+    if (stage === 'moderating') return 'moderating';
+    if (stage === 'done') return 'done';
+    if (stage === 'error') return 'error';
+    return null;
+  };
+
+  const inferProgress = (analysis: {
+    transcript?: TranscriptPayload | null;
+    summary?: string | null;
+    transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
+    processingStage?: string | null;
+    processingProgress?: number | null;
+    processingError?: string | null;
+  }) => {
+    if (typeof analysis.processingProgress === 'number') {
+      return normalizeProgress(analysis.processingProgress);
+    }
+
+    if (analysis.processingStage === 'done') return 100;
+    if (analysis.processingStage === 'moderating') return 85;
+    if (analysis.processingStage === 'summarizing') return 60;
+    if (analysis.processingStage === 'transcribing') return 35;
+    if (analysis.processingStage === 'preparing') return 10;
+    if (analysis.transcriptStatus === 'success' && analysis.summary) return 85;
+    if (analysis.transcriptStatus === 'success' && analysis.transcript) return 60;
+    if (analysis.transcriptStatus === 'processing') return 35;
+    if (analysis.transcriptStatus === 'error' || analysis.processingError) return 0;
+
+    return 0;
+  };
+
+  const getStageLabel = (value: ProcessingStage | null) => {
+    if (value === 'queued') return 'Queued';
+    if (value === 'preparing') return 'Preparing file';
+    if (value === 'transcribing') return 'Transcribing';
+    if (value === 'summarizing') return 'Summarizing';
+    if (value === 'moderating') return 'Moderating';
+    if (value === 'done') return 'Complete';
+    if (value === 'error') return 'Failed';
+    return 'Waiting';
+  };
 
   const stopPolling = () => {
     if (pollTimerRef.current) {
@@ -127,11 +191,17 @@ export default function TranscriptSummaryStudio({
     summary?: string | null;
     transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
     transcriptError?: string | null;
+    processingStage?: string | null;
+    processingProgress?: number | null;
+    processingError?: string | null;
   }) => {
     const transcriptText = normalizeTranscriptContent(analysis.transcript);
 
     setTranscriptContent(transcriptText);
     setSummaryContent(analysis.summary || "");
+    setProcessingStage(normalizeStage(analysis.processingStage));
+    setProcessingProgress(inferProgress(analysis));
+    setProcessingError(analysis.processingError || null);
 
     const nextStatus = analysis.transcriptStatus || (transcriptText ? 'success' : 'idle');
     setTranscriptStatus(nextStatus);
@@ -237,19 +307,23 @@ export default function TranscriptSummaryStudio({
 
     if (isTranscribing || isCheckingStatus) return;
 
+    const shouldRetry = canRetry;
+
     try {
       setTranscriptError(null);
+      setProcessingError(null);
+      setIsRetrying(shouldRetry);
       setIsTranscribing(true);
       startElapsedTimer();
 
       if (recordingId) {
-        const result = await generateRecordingTranscript(recordingId, transcriptContent.trim().length > 0);
+        const result = await generateRecordingTranscript(recordingId, shouldRetry);
         const isProcessing = applyAnalysis(result);
         if (isProcessing) {
           startPolling();
         }
       } else if (documentId) {
-        const result = await generateDocumentTranscript(documentId, transcriptContent.trim().length > 0);
+        const result = await generateDocumentTranscript(documentId, shouldRetry);
         const isProcessing = applyAnalysis(result);
         if (isProcessing) {
           startPolling();
@@ -267,6 +341,7 @@ export default function TranscriptSummaryStudio({
       setTranscriptError(message);
     } finally {
       setIsTranscribing(false);
+      setIsRetrying(false);
     }
   };
 
@@ -323,11 +398,10 @@ export default function TranscriptSummaryStudio({
           disabled={
             isCheckingStatus ||
             (isTranscribing && transcriptStatus !== 'processing') ||
-            hasTranscript ||
-            hasSummary
+            (!canRetry && (hasTranscript || hasSummary))
           }
           className={`inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold transition ${
-            isCheckingStatus || (isTranscribing && transcriptStatus !== 'processing') || hasTranscript || hasSummary
+            isCheckingStatus || (isTranscribing && transcriptStatus !== 'processing') || (!canRetry && (hasTranscript || hasSummary))
               ? "cursor-not-allowed bg-gray-200 text-gray-500"
               : "bg-[#292C6D] text-white hover:bg-[#1f2350]"
           }`}
@@ -337,10 +411,20 @@ export default function TranscriptSummaryStudio({
               <Loader2 size={16} className="animate-spin" />
               Checking status...
             </>
+          ) : isRetrying ? (
+            <>
+              <RefreshCw size={16} className="animate-spin" />
+              Retrying process...
+            </>
           ) : isTranscribing && transcriptStatus === 'processing' ? (
             <>
               <Loader2 size={16} className="animate-spin" />
               Click to refresh ({elapsedSeconds}s)
+            </>
+          ) : canRetry ? (
+            <>
+              <RefreshCw size={16} />
+              Retry process
             </>
           ) : transcriptContent ? (
             <>
@@ -359,11 +443,30 @@ export default function TranscriptSummaryStudio({
           <p className="mt-2 text-xs font-medium text-red-600">{transcriptError}</p>
         )}
 
-        {hasTranscript && (
+        {processingError && !transcriptError && (
+          <p className="mt-2 text-xs font-medium text-red-600">
+            Processing error: {processingError}
+          </p>
+        )}
+
+        <div className="mt-3 rounded-lg border border-gray-200 bg-slate-50 p-3">
+          <div className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-600">
+            <span>{getStageLabel(processingStage)}</span>
+            <span>{processingProgress}%</span>
+          </div>
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+            <div
+              className={`h-2 rounded-full transition-all ${processingProgress === 100 ? 'bg-emerald-500' : processingError ? 'bg-red-500' : 'bg-[#292C6D]'}`}
+              style={{ width: `${normalizeProgress(processingProgress)}%` }}
+            />
+          </div>
+        </div>
+
+        {hasTranscript && !canRetry && (
           <p className="mt-2 text-xs font-medium text-emerald-700">Transcript already exists.</p>
         )}
 
-        {transcriptStatus === 'processing' && (
+        {transcriptStatus === 'processing' && !canRetry && (
           <p className="mt-2 text-xs font-medium text-sky-700">
             ⏳ Transcript is being processed... (Running for {elapsedSeconds}s) You can leave this page and come back later. We'll continue processing in the background.
           </p>

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { raleway } from '@/utils/front';
 import { useParams } from 'next/navigation';
+import Image from 'next/image';
 import { useLivestreamViewer } from '@/hooks/useLivestreamViewer';
 import { trackWatchActivity } from '@/utils/trackActivity';
 import { useAuth } from '@/hooks/useAuth';
@@ -602,12 +603,15 @@ export default function LivestreamViewerPage() {
                       {/* Document Content */}
                       <div className="flex-1 overflow-auto p-4 bg-gray-50">
                         {sharedDocument.type === 'image' ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={sharedDocument.url}
-                            alt={sharedDocument.name}
-                            className="max-w-full h-auto mx-auto"
-                          />
+                          <div className="relative mx-auto h-64 w-full max-w-3xl overflow-hidden rounded">
+                            <Image
+                              src={sharedDocument.url}
+                              alt={sharedDocument.name}
+                              fill
+                              sizes="(max-width: 768px) 100vw, 768px"
+                              className="object-contain"
+                            />
+                          </div>
                         ) : sharedDocument.type === 'video' ? (
                           <video
                             src={sharedDocument.url}

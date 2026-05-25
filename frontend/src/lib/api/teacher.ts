@@ -67,6 +67,9 @@ export interface RecordingAiAnalysis {
   transcriptError?: string | null;
   transcriptGeneratedAt?: string | null;
   summaryGeneratedAt?: string | null;
+  processingStage?: string | null;
+  processingProgress?: number | null;
+  processingError?: string | null;
   cached?: boolean;
 }
 

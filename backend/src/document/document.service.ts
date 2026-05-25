@@ -14,6 +14,7 @@ import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 import * as os from 'os';
 import * as path from 'path';
+import { PROCESSING_STAGE_PROGRESS, ProcessingStage } from '../processing/processing.types';
 
 interface AiTranscriptSummaryDocument {
   id?: string;
@@ -33,6 +34,9 @@ interface AiTranscriptSummaryDocument {
   moderationCategories?: string[];
   transcriptGeneratedAt?: Date;
   summaryGeneratedAt?: Date;
+  processingStage?: ProcessingStage;
+  processingProgress?: number;
+  processingError?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -58,6 +62,9 @@ export interface DocumentAiAnalysisResponse {
   transcriptError: string | null;
   transcriptGeneratedAt: Date | null;
   summaryGeneratedAt: Date | null;
+  processingStage: ProcessingStage | null;
+  processingProgress: number;
+  processingError: string | null;
   cached?: boolean;
 }
 
@@ -112,6 +119,20 @@ export class DocumentService {
           upsert: true,
         },
       ],
+    });
+  }
+
+  private async updateDocumentProcessingState(
+    documentId: string,
+    payload: Partial<AiTranscriptSummaryDocument>,
+  ): Promise<void> {
+    await this.upsertDocumentAiAnalysis(documentId, payload);
+  }
+
+  private async updateDocumentProcessingStatus(documentId: string, status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED'): Promise<void> {
+    await this.prisma.postgres.document.update({
+      where: { id: documentId },
+      data: { processingStatus: status },
     });
   }
 
@@ -326,6 +347,9 @@ export class DocumentService {
       transcriptError: analysis?.transcriptError || null,
       transcriptGeneratedAt: analysis?.transcriptGeneratedAt || null,
       summaryGeneratedAt: analysis?.summaryGeneratedAt || null,
+      processingStage: analysis?.processingStage || null,
+      processingProgress: analysis?.processingProgress ?? 0,
+      processingError: analysis?.processingError || null,
     };
   }
 
@@ -370,6 +394,9 @@ export class DocumentService {
       label: analysis.moderationLabel || null,
       categories: analysis.moderationCategories || [],
       moderationResult: null,
+      processingStage: analysis.processingStage || null,
+      processingProgress: analysis.processingProgress ?? 0,
+      processingError: analysis.processingError || null,
     };
   }
 
@@ -422,9 +449,13 @@ export class DocumentService {
     }
 
     try {
+      await this.updateDocumentProcessingStatus(documentId, 'PROCESSING');
       await this.upsertDocumentAiAnalysis(documentId, {
         transcriptStatus: 'processing',
         transcriptError: null,
+        processingStage: 'preparing',
+        processingProgress: PROCESSING_STAGE_PROGRESS.preparing,
+        processingError: null,
       });
 
       const audioExists = await this.r2StorageService.documentAudioExistsById(documentId);
@@ -512,6 +543,9 @@ export class DocumentService {
         await this.upsertDocumentAiAnalysis(documentId, {
           transcriptStatus: 'error',
           transcriptError: 'Transcribe service returned empty transcript',
+          processingStage: 'error',
+          processingProgress: PROCESSING_STAGE_PROGRESS.transcribing,
+          processingError: 'Transcribe service returned empty transcript',
         });
         throw new BadRequestException('Transcribe service returned empty transcript');
       }
@@ -522,6 +556,9 @@ export class DocumentService {
         transcript,
         audioUrl: audioUrl || undefined,
         transcriptGeneratedAt: new Date(),
+        processingStage: 'summarizing',
+        processingProgress: PROCESSING_STAGE_PROGRESS.summarizing,
+        processingError: null,
       });
 
       await this.generateDocumentSummary(documentId, false, user);
@@ -534,7 +571,11 @@ export class DocumentService {
       await this.upsertDocumentAiAnalysis(documentId, {
         transcriptStatus: 'error',
         transcriptError: err instanceof Error ? err.message : String(err),
+        processingStage: 'error',
+        processingProgress: PROCESSING_STAGE_PROGRESS.error,
+        processingError: err instanceof Error ? err.message : String(err),
       }).catch(() => undefined);
+      await this.updateDocumentProcessingStatus(documentId, 'FAILED').catch(() => undefined);
       throw err;
     }
   }
@@ -563,6 +604,12 @@ export class DocumentService {
       throw new BadRequestException('Transcript is required before summarizing');
     }
 
+    await this.updateDocumentProcessingState(documentId, {
+      processingStage: 'summarizing',
+      processingProgress: PROCESSING_STAGE_PROGRESS.summarizing,
+      processingError: null,
+    });
+
     if (transcriptText) {
       this.logger.log(`[Moderation] Document ${documentId} - invoking moderation API during summarization (will call after summarize); textLen=${transcriptText.length}`);
     }
@@ -590,6 +637,9 @@ export class DocumentService {
     await this.upsertDocumentAiAnalysis(documentId, {
       summary,
       summaryGeneratedAt: new Date(),
+      processingStage: 'moderating',
+      processingProgress: PROCESSING_STAGE_PROGRESS.moderating,
+      processingError: null,
     });
 
     if (shouldModerate) {
@@ -613,9 +663,23 @@ export class DocumentService {
               },
             }).catch(() => undefined);
           }
+
+          await this.updateDocumentProcessingState(documentId, {
+            processingStage: 'done',
+            processingProgress: PROCESSING_STAGE_PROGRESS.done,
+            processingError: null,
+          });
+          await this.updateDocumentProcessingStatus(documentId, 'DONE').catch(() => undefined);
         }
       } catch (modErr) {
-        this.logger.warn('Moderation call failed', String(modErr));
+        const message = modErr instanceof Error ? modErr.message : String(modErr);
+        this.logger.warn('Moderation call failed', message);
+        await this.updateDocumentProcessingState(documentId, {
+          processingStage: 'error',
+          processingProgress: PROCESSING_STAGE_PROGRESS.moderating,
+          processingError: message,
+        }).catch(() => undefined);
+        await this.updateDocumentProcessingStatus(documentId, 'FAILED').catch(() => undefined);
       }
     }
 

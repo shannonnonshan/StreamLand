@@ -13,6 +13,7 @@ import { spawn } from 'child_process';
 import { pipeline } from 'stream/promises';
 import * as os from 'os';
 import * as path from 'path';
+import { PROCESSING_STAGE_PROGRESS, ProcessingStage } from '../processing/processing.types';
 
 interface AiTranscriptSummaryDocument {
   id?: string;
@@ -32,6 +33,9 @@ interface AiTranscriptSummaryDocument {
   moderationCategories?: string[];
   transcriptGeneratedAt?: Date;
   summaryGeneratedAt?: Date;
+  processingStage?: ProcessingStage;
+  processingProgress?: number;
+  processingError?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -2012,6 +2016,20 @@ export class LivestreamService {
     });
   }
 
+  private async updateRecordingProcessingState(
+    recordingId: string,
+    payload: Partial<AiTranscriptSummaryDocument>,
+  ): Promise<void> {
+    await this.upsertRecordingAiAnalysis(recordingId, payload);
+  }
+
+  private async updateRecordingProcessingStatus(recordingId: string, status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED'): Promise<void> {
+    await this.prisma.postgres.liveStream.update({
+      where: { id: recordingId },
+      data: { processingStatus: status },
+    });
+  }
+
   private extractTranscriptFromPayload(payload: unknown): Prisma.JsonValue | null {
     if (typeof payload === 'string') {
       return payload.trim() || null;
@@ -2134,6 +2152,9 @@ export class LivestreamService {
       transcriptError: analysis?.transcriptError || null,
       transcriptGeneratedAt: analysis?.transcriptGeneratedAt || null,
       summaryGeneratedAt: analysis?.summaryGeneratedAt || null,
+      processingStage: analysis?.processingStage || null,
+      processingProgress: analysis?.processingProgress ?? 0,
+      processingError: analysis?.processingError || null,
     };
   }
 
@@ -2165,6 +2186,9 @@ export class LivestreamService {
         status: moderationStatus,
         label: moderationStatus,
         categories: moderationResult.categories || analysis.moderationCategories || [],
+        processingStage: analysis.processingStage || null,
+        processingProgress: analysis.processingProgress ?? 0,
+        processingError: analysis.processingError || null,
       };
     }
 
@@ -2176,6 +2200,9 @@ export class LivestreamService {
       label: analysis.moderationLabel || null,
       categories: analysis.moderationCategories || [],
       moderationResult: null,
+      processingStage: analysis.processingStage || null,
+      processingProgress: analysis.processingProgress ?? 0,
+      processingError: analysis.processingError || null,
     };
   }
 
@@ -2243,9 +2270,13 @@ export class LivestreamService {
     }
 
     try {
+      await this.updateRecordingProcessingStatus(recordingId, 'PROCESSING');
       await this.upsertRecordingAiAnalysis(recordingId, {
         transcriptStatus: 'processing',
         transcriptError: null,
+        processingStage: 'preparing',
+        processingProgress: PROCESSING_STAGE_PROGRESS.preparing,
+        processingError: null,
       });
 
       const audioExists = await this.r2StorageService.recordingAudioExistsById(recordingId);
@@ -2333,6 +2364,9 @@ export class LivestreamService {
         await this.upsertRecordingAiAnalysis(recordingId, {
           transcriptStatus: 'error',
           transcriptError: 'Transcribe service returned empty transcript',
+          processingStage: 'error',
+          processingProgress: PROCESSING_STAGE_PROGRESS.transcribing,
+          processingError: 'Transcribe service returned empty transcript',
         });
         throw new BadRequestException('Transcribe service returned empty transcript');
       }
@@ -2343,6 +2377,9 @@ export class LivestreamService {
         transcript,
         audioUrl: audioUrl || undefined,
         transcriptGeneratedAt: new Date(),
+        processingStage: 'summarizing',
+        processingProgress: PROCESSING_STAGE_PROGRESS.summarizing,
+        processingError: null,
       });
 
       try {
@@ -2375,7 +2412,11 @@ export class LivestreamService {
       await this.upsertRecordingAiAnalysis(recordingId, {
         transcriptStatus: 'error',
         transcriptError: err instanceof Error ? err.message : String(err),
+        processingStage: 'error',
+        processingProgress: PROCESSING_STAGE_PROGRESS.error,
+        processingError: err instanceof Error ? err.message : String(err),
       }).catch(() => undefined);
+      await this.updateRecordingProcessingStatus(recordingId, 'FAILED').catch(() => undefined);
       
       this.logger.error(`[TRANSCRIPT ERROR] RecordingID: ${recordingId}, Error: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
@@ -2398,6 +2439,12 @@ export class LivestreamService {
     if (!transcriptText) {
       throw new BadRequestException('Transcript is required before summarizing');
     }
+
+    await this.updateRecordingProcessingState(recordingId, {
+      processingStage: 'summarizing',
+      processingProgress: PROCESSING_STAGE_PROGRESS.summarizing,
+      processingError: null,
+    });
 
     const aiResponse = await fetch(`${this.localAiBaseUrl}/summarize`, {
       method: 'POST',
@@ -2422,6 +2469,9 @@ export class LivestreamService {
     await this.upsertRecordingAiAnalysis(recordingId, {
       summary,
       summaryGeneratedAt: new Date(),
+      processingStage: 'moderating',
+      processingProgress: PROCESSING_STAGE_PROGRESS.moderating,
+      processingError: null,
     });
 
     try {
@@ -2441,9 +2491,23 @@ export class LivestreamService {
             data: { isApprove: 'TRUE' },
           }).catch(() => undefined);
         }
+
+        await this.updateRecordingProcessingState(recordingId, {
+          processingStage: 'done',
+          processingProgress: PROCESSING_STAGE_PROGRESS.done,
+          processingError: null,
+        });
+        await this.updateRecordingProcessingStatus(recordingId, 'DONE').catch(() => undefined);
       }
     } catch (err) {
-      this.logger.warn('Moderation failed for recording', String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn('Moderation failed for recording', message);
+      await this.updateRecordingProcessingState(recordingId, {
+        processingStage: 'error',
+        processingProgress: PROCESSING_STAGE_PROGRESS.moderating,
+        processingError: message,
+      }).catch(() => undefined);
+      await this.updateRecordingProcessingStatus(recordingId, 'FAILED').catch(() => undefined);
     }
 
     return {

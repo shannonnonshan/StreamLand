@@ -1235,11 +1235,15 @@ export default function ManageAccount() {
                     /* For images and other formats */
                     <div className="p-4 w-full h-full flex flex-col items-center justify-center overflow-auto">
                       {cvPreviewUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                        <img
-                          src={cvPreviewUrl}
-                          alt="CV Preview"
-                          className="max-w-full max-h-full object-contain"
-                        />
+                        <div className="relative h-[60vh] w-full">
+                          <Image
+                            src={cvPreviewUrl}
+                            alt="CV Preview"
+                            fill
+                            sizes="(max-width: 768px) 100vw, 768px"
+                            className="object-contain"
+                          />
+                        </div>
                       ) : (
                         <div className="text-center text-gray-500">
                           <p className="mb-4">Preview not available for this file type</p>

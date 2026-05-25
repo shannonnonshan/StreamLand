@@ -20,6 +20,7 @@ import {
 import LoginModal from "@/component/(modal)/login";
 import RegisterModal from "@/component/(modal)/register";
 import { getRecordingAiAnalysis } from "@/lib/api/teacher";
+import { AUTH_STATE_CHANGED_EVENT, getStoredToken, getStoredUser } from "@/lib/authStorage";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -115,6 +116,29 @@ interface LocalVideoProgressSnapshot {
   updatedAt: number;
 }
 
+const VIDEO_PROGRESS_STORAGE_PREFIX = 'streamland:video-progress:';
+
+const parseStoredUserProfile = (): CurrentStudentProfile | null => {
+  if (typeof window === 'undefined') return null;
+
+  const raw = getStoredUser();
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as { id?: string; userId?: string; sub?: string; fullName?: string; avatar?: string };
+    const id = parsed.id || parsed.userId || parsed.sub || '';
+    if (!id) return null;
+
+    return {
+      id,
+      fullName: parsed.fullName || 'Student',
+      avatar: parsed.avatar,
+    };
+  } catch {
+    return null;
+  }
+};
+
 export default function VideoPlayerPage() {
   const params = useParams<{ livestreamID?: string }>();
   const router = useRouter();
@@ -133,7 +157,6 @@ export default function VideoPlayerPage() {
   const [videoDislikeCount, setVideoDislikeCount] = useState(0);
   const [showSubs, setShowSubs] = useState(true);
   const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([]);
-  const [baseSubtitleCues, setBaseSubtitleCues] = useState<SubtitleCue[]>([]);
   const [activeCueId, setActiveCueId] = useState<string | null>(null);
   const [summaryText, setSummaryText] = useState('');
   const [selectedCueId, setSelectedCueId] = useState<string | null>(null);
@@ -142,8 +165,6 @@ export default function VideoPlayerPage() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const [transcriptPayload, setTranscriptPayload] = useState<TranscriptPayload | null>(null);
-  const [subtitleOffset, setSubtitleOffset] = useState(11.62);
-  const [subtitleRate, setSubtitleRate] = useState(1);
   const transcriptPanelRef = useRef<HTMLDivElement | null>(null);
 
   // Comments and auth
@@ -166,6 +187,7 @@ export default function VideoPlayerPage() {
   const lastProgressPostRef = useRef(0);
   const restoreCompletedRef = useRef(false);
   const reportWatchInFlightRef = useRef(false);
+  const prevViewerRef = useRef<string | null>(null);
 
   const coerceNumber = (value: unknown): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -318,16 +340,80 @@ export default function VideoPlayerPage() {
     return splitTextToCues(fallbackText, totalDuration);
   };
 
-  const getViewerIdForStorage = () => currentStudent?.id || 'anon';
-
-  const writeLocalProgressSnapshot = () => {
-    return;
+  const getViewerIdForStorage = () => {
+    if (!isAuthenticated) return null;
+    return currentStudent?.id || parseStoredUserProfile()?.id || null;
   };
 
-  const readLocalProgressSnapshot = () => null;
+  const getProgressStorageKey = (videoId: string, viewerId: string) =>
+    `${VIDEO_PROGRESS_STORAGE_PREFIX}${viewerId}:${videoId}`;
+
+  const writeLocalProgressSnapshot = (position: number, totalDuration: number) => {
+    if (typeof window === 'undefined' || !videoInfo?.id) return;
+
+    const viewerId = getViewerIdForStorage();
+    if (!viewerId) return;
+
+    const safePosition = Math.max(0, Math.floor(position));
+    const safeDuration = Math.max(1, Math.floor(totalDuration));
+    const key = getProgressStorageKey(videoInfo.id, viewerId);
+
+    let nextPosition = safePosition;
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const existing = JSON.parse(raw) as LocalVideoProgressSnapshot;
+        if (existing && typeof existing.currentTime === 'number') {
+          nextPosition = Math.max(existing.currentTime, safePosition);
+        }
+      }
+    } catch {
+      // Ignore malformed cache and overwrite with a fresh snapshot.
+    }
+
+    const snapshot: LocalVideoProgressSnapshot = {
+      videoId: videoInfo.id,
+      userId: viewerId,
+      currentTime: nextPosition,
+      duration: safeDuration,
+      updatedAt: Date.now(),
+    };
+
+    localStorage.setItem(key, JSON.stringify(snapshot));
+  };
+
+  const readLocalProgressSnapshot = (): LocalVideoProgressSnapshot | null => {
+    if (typeof window === 'undefined' || !videoInfo?.id) return null;
+
+    const viewerId = getViewerIdForStorage();
+    if (!viewerId) return null;
+
+    const key = getProgressStorageKey(videoInfo.id, viewerId);
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw) as LocalVideoProgressSnapshot;
+      if (
+        !parsed ||
+        parsed.videoId !== videoInfo.id ||
+        parsed.userId !== viewerId ||
+        typeof parsed.currentTime !== 'number' ||
+        typeof parsed.duration !== 'number'
+      ) {
+        return null;
+      }
+
+      return parsed;
+    } catch {
+      return null;
+    }
+  };
 
   const syncProgressToServer = async (position: number, totalDuration: number, force = false) => {
     if (!videoInfo?.id || totalDuration <= 0) return;
+
+    writeLocalProgressSnapshot(position, totalDuration);
 
     // Wait until at least one restore pass completes to avoid posting near-zero progress too early.
     if (!restoreCompletedRef.current && !force) {
@@ -346,7 +432,7 @@ export default function VideoPlayerPage() {
     lastProgressPostRef.current = now;
 
     try {
-      const completed = position / totalDuration >= 0.95;
+      const completed = position / totalDuration >= 0.9;
       await fetch(`${API_URL}/student/track-activity`, {
         method: 'POST',
         headers: {
@@ -453,10 +539,18 @@ export default function VideoPlayerPage() {
             const jd = await p.json();
             setCurrentStudent({ id: jd.id || jd.userId || jd.sub || '', fullName: jd.fullName || 'Student', avatar: jd.avatar });
             setIsAuthenticated(true);
+          } else {
+            setCurrentStudent(null);
+            setIsAuthenticated(false);
           }
         } catch (e) {
           console.error('Profile load failed', e);
+          setCurrentStudent(null);
+          setIsAuthenticated(false);
         }
+      } else {
+        setCurrentStudent(null);
+        setIsAuthenticated(false);
       }
 
       if (!videoInfo?.id) return;
@@ -506,6 +600,71 @@ export default function VideoPlayerPage() {
 
     refreshProfile();
   }, [showLoginModal, showRegisterModal]);
+
+  useEffect(() => {
+    const resetPlayerStateForLoggedOut = () => {
+      const video = videoRef.current;
+      if (video) {
+        video.pause();
+        if (video.currentTime > 0) {
+          video.currentTime = 0;
+        }
+      }
+
+      setIsPlaying(false);
+      setCurrentTime(0);
+      pendingSeekRef.current = null;
+      progressSyncRef.current = false;
+      lastProgressPostRef.current = 0;
+      restoreCompletedRef.current = true;
+      setReportedView(false);
+    };
+
+    const syncAuthState = () => {
+      const token = getStoredToken();
+      const storedProfile = parseStoredUserProfile();
+      const nextViewer = token && storedProfile?.id ? storedProfile.id : null;
+      const viewerChanged = prevViewerRef.current !== nextViewer;
+
+      if (!token || !storedProfile?.id) {
+        setCurrentStudent(null);
+        setIsAuthenticated(false);
+        if (prevViewerRef.current !== null) {
+          resetPlayerStateForLoggedOut();
+        }
+        prevViewerRef.current = null;
+        return;
+      }
+
+      setCurrentStudent(storedProfile);
+      setIsAuthenticated(true);
+
+      if (viewerChanged) {
+        restoreCompletedRef.current = false;
+        pendingSeekRef.current = null;
+        progressSyncRef.current = false;
+        lastProgressPostRef.current = 0;
+      }
+
+      prevViewerRef.current = nextViewer;
+    };
+
+    syncAuthState();
+
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || ['accessToken', 'refreshToken', 'user', 'token'].includes(event.key)) {
+        syncAuthState();
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(AUTH_STATE_CHANGED_EVENT, syncAuthState as EventListener);
+
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(AUTH_STATE_CHANGED_EVENT, syncAuthState as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     const fetchVideoReactionData = async () => {
@@ -573,22 +732,8 @@ export default function VideoPlayerPage() {
 
     const effectiveDuration = duration > 0 ? duration : (videoInfo.duration || 0);
     const cues = buildCuesFromTranscript(transcriptPayload, effectiveDuration);
-    setBaseSubtitleCues(cues);
+    setSubtitleCues(cues);
   }, [transcriptPayload, duration, videoInfo?.duration, videoInfo?.id]);
-
-  useEffect(() => {
-    if (!baseSubtitleCues.length) {
-      setSubtitleCues([]);
-      return;
-    }
-
-    const adjusted = baseSubtitleCues.map((cue) => ({
-      ...cue,
-      start: Math.max(0, cue.start * subtitleRate + subtitleOffset),
-      end: Math.max(0, cue.end * subtitleRate + subtitleOffset),
-    }));
-    setSubtitleCues(adjusted);
-  }, [baseSubtitleCues, subtitleOffset, subtitleRate]);
 
   useEffect(() => {
     if (!subtitleCues.length) {
@@ -810,10 +955,24 @@ export default function VideoPlayerPage() {
 
   useEffect(() => {
     const syncWatchProgress = async () => {
-      if (!videoInfo?.id || !isAuthenticated) return;
+      if (!videoInfo?.id) return;
+
+      if (!isAuthenticated) {
+        restoreCompletedRef.current = true;
+        pendingSeekRef.current = null;
+        const video = videoRef.current;
+        if (video) {
+          video.currentTime = 0;
+        }
+        setCurrentTime(0);
+        return;
+      }
 
       const token = localStorage.getItem('accessToken');
-      if (!token) return;
+      if (!token) {
+        restoreCompletedRef.current = true;
+        return;
+      }
 
       try {
         const resp = await fetch(`${API_URL}/student/watch-progress/${videoInfo.id}`, {
@@ -851,7 +1010,7 @@ export default function VideoPlayerPage() {
     };
 
     syncWatchProgress();
-  }, [videoInfo?.id, isAuthenticated]);
+  }, [videoInfo?.id, isAuthenticated, currentStudent?.id]);
 
   // Restore local progress immediately so resume works even before auth/profile round-trip finishes
   useEffect(() => {
@@ -1197,7 +1356,11 @@ export default function VideoPlayerPage() {
                 )}
 
                 {showSubs && activeCueId && (
-                  <div className="absolute left-0 right-0 bottom-14 md:bottom-16 flex items-center justify-center px-4">
+                  <div
+                    className={`absolute left-0 right-0 flex items-center justify-center px-4 transition-all duration-300 ${
+                      showControls ? 'bottom-14 md:bottom-16' : 'bottom-3 md:bottom-4'
+                    }`}
+                  >
                     <button
                       type="button"
                       onClick={() => {
@@ -1471,36 +1634,6 @@ export default function VideoPlayerPage() {
                         {!showSummaryPanel && (
                           <div className="space-y-3">
                             <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-800">{cue?.text}</div>
-                            <div className="rounded-lg border border-slate-200 bg-white/90 px-3 py-2">
-                              <div className="flex items-center justify-between text-xs text-slate-500">
-                                <span>Subtitle sync</span>
-                                <span>{subtitleOffset >= 0 ? `+${subtitleOffset.toFixed(1)}` : subtitleOffset.toFixed(1)}s</span>
-                              </div>
-                              <input
-                                type="range"
-                                min="-10"
-                                max="10"
-                                step="0.1"
-                                value={subtitleOffset}
-                                onChange={(event) => setSubtitleOffset(parseFloat(event.target.value))}
-                                className="mt-2 w-full h-1.5 rounded-full appearance-none cursor-pointer bg-slate-200 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-indigo-600 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-indigo-600 [&::-moz-range-thumb]:border-0"
-                              />
-                            </div>
-                            <div className="rounded-lg border border-slate-200 bg-white/90 px-3 py-2">
-                              <div className="flex items-center justify-between text-xs text-slate-500">
-                                <span>Subtitle speed</span>
-                                <span>x{subtitleRate.toFixed(2)}</span>
-                              </div>
-                              <input
-                                type="range"
-                                min="0.5"
-                                max="1.5"
-                                step="0.01"
-                                value={subtitleRate}
-                                onChange={(event) => setSubtitleRate(parseFloat(event.target.value))}
-                                className="mt-2 w-full h-1.5 rounded-full appearance-none cursor-pointer bg-slate-200 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-indigo-600 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-indigo-600 [&::-moz-range-thumb]:border-0"
-                              />
-                            </div>
                             <input
                               type="range"
                               min="0"

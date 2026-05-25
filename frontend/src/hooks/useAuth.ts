@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthContext } from '@/contexts/AuthContext';
-import { clearAuthStorage } from '@/lib/authStorage';
+import { clearAuthStorage, clearWatchProgressForUser, dispatchAuthStateChanged } from '@/lib/authStorage';
 
 interface User {
   id: string;
@@ -43,6 +43,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 export function useAuth() {
   const router = useRouter();
   const { user, isAuthenticated, setUser, setIsAuthenticated } = useAuthContext();
+  const currentUserId = user?.id;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,16 +86,18 @@ export function useAuth() {
         return true;
       } else {
         // If refresh fails, logout
+        clearWatchProgressForUser(currentUserId);
         clearAuthStorage();
         setUser(null);
         setIsAuthenticated(false);
+        dispatchAuthStateChanged();
         return false;
       }
     } catch (error) {
       console.error('Error refreshing token:', error);
       return false;
     }
-  }, [setUser, setIsAuthenticated]);
+  }, [currentUserId, setUser, setIsAuthenticated]);
 
   // Check token on mount and refresh if needed
   useEffect(() => {
@@ -208,6 +211,7 @@ export function useAuth() {
       }
 
       setIsAuthenticated(true);
+        dispatchAuthStateChanged();
       setLoading(false);
       return { success: true, user: finalUser };
     } catch (err: unknown) {
@@ -261,6 +265,7 @@ export function useAuth() {
       }
 
       setIsAuthenticated(true);
+        dispatchAuthStateChanged();
       setLoading(false);
       return { success: true, user: finalUser };
     } catch (err: unknown) {
@@ -326,6 +331,7 @@ export function useAuth() {
       }
 
       setIsAuthenticated(true);
+      dispatchAuthStateChanged();
       setLoading(false);
 
       return { success: true, user: finalUser };
@@ -401,25 +407,31 @@ export function useAuth() {
         });
       }
 
+      clearWatchProgressForUser(currentUserId);
+
       // Clear local storage
       clearAuthStorage();
 
       setUser(null);
       setIsAuthenticated(false);
+      dispatchAuthStateChanged();
       setLoading(false);
 
       router.push('/');
     } catch {
+      clearWatchProgressForUser(currentUserId);
+
       // Still clear local data even if API call fails
       clearAuthStorage();
       
       setUser(null);
       setIsAuthenticated(false);
+      dispatchAuthStateChanged();
       setLoading(false);
       
       router.push('/');
     }
-  }, [router, setUser, setIsAuthenticated]);
+  }, [currentUserId, router, setUser, setIsAuthenticated]);
 
   // Get user profile
   const getProfile = useCallback(async () => {
@@ -515,6 +527,7 @@ export function useAuth() {
       
       setUser(result.user);
       setIsAuthenticated(true);
+      dispatchAuthStateChanged();
       setLoading(false);
 
       return { success: true, user: result.user };

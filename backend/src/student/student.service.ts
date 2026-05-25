@@ -1261,14 +1261,33 @@ export class StudentService {
       });
     }
 
-    const lastPosition = Math.max(0, Math.floor(progressData?.lastPosition || 0));
-    const duration = Math.max(0, Math.floor(progressData?.duration || 0));
-    const progress = typeof progressData?.progress === 'number'
+    const incomingLastPosition = Math.max(0, Math.floor(progressData?.lastPosition || 0));
+    const incomingDuration = Math.max(0, Math.floor(progressData?.duration || 0));
+    const incomingProgress = typeof progressData?.progress === 'number'
       ? Math.max(0, Math.min(100, progressData.progress))
-      : duration > 0
-        ? Math.max(0, Math.min(100, (lastPosition / duration) * 100))
+      : incomingDuration > 0
+        ? Math.max(0, Math.min(100, (incomingLastPosition / incomingDuration) * 100))
         : 0;
-    const completed = progressData?.completed ?? progress >= 66.67;
+
+    const existingProgress = await this.prisma.mongo.watchHistory.findUnique({
+      where: {
+        userId_livestreamId: {
+          userId,
+          livestreamId: contentId,
+        },
+      },
+    });
+
+    const lastPosition = Math.max(existingProgress?.lastPosition || 0, incomingLastPosition);
+    const duration = Math.max(existingProgress?.duration || 0, incomingDuration);
+    const computedProgress = duration > 0
+      ? Math.max(0, Math.min(100, (lastPosition / duration) * 100))
+      : 0;
+    const progress = Math.max(existingProgress?.progress || 0, incomingProgress, computedProgress);
+    const completed =
+      !!existingProgress?.completed ||
+      !!progressData?.completed ||
+      progress >= 90;
 
     // Record watch history in MongoDB using a stable per-user/per-video record
     await this.prisma.mongo.watchHistory.upsert({
@@ -1289,7 +1308,7 @@ export class StudentService {
       },
       update: {
         watchedAt: now,
-        duration: duration || undefined,
+        duration,
         completed,
         progress,
         lastPosition,
@@ -1313,6 +1332,47 @@ export class StudentService {
     });
 
     return progress || null;
+  }
+
+  async getWatchProgressBatch(userId: string, contentIds: string[]) {
+    const uniqueContentIds = Array.from(
+      new Set((contentIds || []).map((id) => (id || '').trim()).filter(Boolean)),
+    ).slice(0, 500);
+
+    if (uniqueContentIds.length === 0) {
+      return { items: [] };
+    }
+
+    const items = await this.prisma.mongo.watchHistory.findMany({
+      where: {
+        userId,
+        livestreamId: {
+          in: uniqueContentIds,
+        },
+      },
+      select: {
+        livestreamId: true,
+        watchedAt: true,
+        duration: true,
+        completed: true,
+        progress: true,
+        lastPosition: true,
+      },
+      orderBy: {
+        watchedAt: 'desc',
+      },
+    });
+
+    return {
+      items: items.map((item) => ({
+        contentId: item.livestreamId,
+        watchedAt: item.watchedAt,
+        duration: item.duration,
+        completed: item.completed,
+        progress: item.progress,
+        lastPosition: item.lastPosition,
+      })),
+    };
   }
 
   // Get student stats

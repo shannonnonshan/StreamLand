@@ -6,6 +6,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { getStudentRoute } from '@/utils/student';
+import { AUTH_STATE_CHANGED_EVENT, getStoredToken, getStoredUser } from '@/lib/authStorage';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
@@ -25,23 +26,27 @@ const getProgressStorageKey = (videoId: string, userId: string) =>
 const getDashboardViewerId = () => {
   if (typeof window === 'undefined') return 'anon';
 
+  const token = getStoredToken();
+  if (!token) return null;
+
   try {
-    const storedUser = localStorage.getItem('user');
+    const storedUser = getStoredUser();
     if (storedUser) {
       const parsed = JSON.parse(storedUser) as { id?: string; userId?: string; email?: string };
-      return parsed.id || parsed.userId || parsed.email || 'anon';
+      return parsed.id || parsed.userId || parsed.email || null;
     }
   } catch {
     // ignore invalid storage payloads
   }
 
-  return 'anon';
+  return null;
 };
 
 const readVideoProgress = (videoId: string): VideoProgressSnapshot | null => {
   if (typeof window === 'undefined') return null;
 
   const viewerId = getDashboardViewerId();
+  if (!viewerId) return null;
   const key = getProgressStorageKey(videoId, viewerId);
 
   try {
@@ -134,6 +139,27 @@ interface RecommendationResponse {
   byInterests: RecommendationVideo[];
   continueWatching: RecommendationVideo[];
   recommendations: RecommendationVideo[];
+}
+
+interface WatchProgressItem {
+  contentId: string;
+  watchedAt: string;
+  duration: number;
+  completed: boolean;
+  progress: number;
+  lastPosition: number;
+}
+
+interface WatchProgressBatchResponse {
+  items: WatchProgressItem[];
+}
+
+interface SingleWatchProgressResponse {
+  duration?: number;
+  progress?: number;
+  lastPosition?: number;
+  completed?: boolean;
+  watchedAt?: string;
 }
 
 // --- Sub-Component: Livestream Card ---
@@ -274,11 +300,10 @@ function LivestreamCard({ stream, index }: { stream: LivestreamData; index: numb
   );
 }
 
-function TrendingCard({ item, index }: { item: VideoData; index: number }) {
+function TrendingCard({ item, index, progressRatio }: { item: VideoData; index: number; progressRatio: number }) {
     const [isHovered, setIsHovered] = useState(false);
     const [imageError, setImageError] = useState(false);
     const router = useRouter();
-  const progressRatio = getProgressRatio(item.id, item.duration);
 
     const handleClick = () => {
         // Navigate to video player page for recorded stream
@@ -350,11 +375,10 @@ function TrendingCard({ item, index }: { item: VideoData; index: number }) {
     );
 }
 
-function EnglishVideoCard({ item, index }: { item: VideoData; index: number }) {
+function EnglishVideoCard({ item, index, progressRatio }: { item: VideoData; index: number; progressRatio: number }) {
   const [isHovered, setIsHovered] = useState(false);
   const [imageError, setImageError] = useState(false);
   const router = useRouter();
-  const progressRatio = getProgressRatio(item.id, item.duration);
 
   const handleClick = () => {
     router.push(getStudentRoute(`video/${item.id}`));
@@ -454,6 +478,8 @@ export default function StudentDashboard() {
   const [isLoadingLivestreams, setIsLoadingLivestreams] = useState(true);
   const [isLoadingVideos, setIsLoadingVideos] = useState(true);
   const [isLoadingInterestVideos, setIsLoadingInterestVideos] = useState(false);
+  const [, setProgressRenderTick] = useState(0);
+  const [watchProgressByVideo, setWatchProgressByVideo] = useState<Record<string, WatchProgressItem>>({});
   
   // Store reference to livestream horizontal scroller
   const livestreamContainerRef = useRef<HTMLDivElement>(null);
@@ -480,6 +506,134 @@ export default function StudentDashboard() {
     setStudentInterests([]);
     setRecommendedByInterest([]);
     setRecommendedNextParts([]);
+    setWatchProgressByVideo({});
+  };
+
+  const getProgressRatioForVideo = (videoId: string, duration?: number) => {
+    const serverProgress = watchProgressByVideo[videoId];
+    if (serverProgress) {
+      const effectiveDuration = serverProgress.duration || duration || 0;
+      if (effectiveDuration > 0 && serverProgress.lastPosition > 0) {
+        return Math.max(0, Math.min(1, serverProgress.lastPosition / effectiveDuration));
+      }
+
+      if (typeof serverProgress.progress === 'number') {
+        return Math.max(0, Math.min(1, serverProgress.progress / 100));
+      }
+    }
+
+    return getProgressRatio(videoId, duration);
+  };
+
+  const fetchWatchProgressForVideos = async (contentIds: string[]) => {
+    const token = getStoredToken();
+    const viewerId = getDashboardViewerId();
+    if (!token) {
+      setWatchProgressByVideo({});
+      return;
+    }
+
+    const uniqueContentIds = Array.from(new Set((contentIds || []).filter(Boolean))).slice(0, 200);
+    if (uniqueContentIds.length === 0) {
+      setWatchProgressByVideo({});
+      return;
+    }
+
+    const writeSnapshotForItem = (item: WatchProgressItem) => {
+      if (!viewerId || !item?.contentId) return;
+      const key = getProgressStorageKey(item.contentId, viewerId);
+      const duration = Math.max(1, Math.floor(item.duration || 0));
+      const currentTime = Math.max(0, Math.floor(item.lastPosition || 0));
+      const snapshot: VideoProgressSnapshot = {
+        videoId: item.contentId,
+        userId: viewerId,
+        currentTime,
+        duration,
+        updatedAt: Date.now(),
+      };
+      localStorage.setItem(key, JSON.stringify(snapshot));
+    };
+
+    const fetchPerVideoFallback = async () => {
+      const fallbackMap: Record<string, WatchProgressItem> = {};
+      const fallbackResults = await Promise.allSettled(
+        uniqueContentIds.slice(0, 80).map(async (contentId) => {
+          const perItemResp = await fetch(`${API_URL}/student/watch-progress/${contentId}`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          if (!perItemResp.ok) return null;
+          const parsed = (await perItemResp.json()) as SingleWatchProgressResponse | null;
+          if (!parsed) return null;
+
+          const item: WatchProgressItem = {
+            contentId,
+            watchedAt: parsed.watchedAt || new Date().toISOString(),
+            duration: Number(parsed.duration || 0),
+            completed: !!parsed.completed,
+            progress: Number(parsed.progress || 0),
+            lastPosition: Number(parsed.lastPosition || 0),
+          };
+          return item;
+        }),
+      );
+
+      fallbackResults.forEach((entry) => {
+        if (entry.status !== 'fulfilled' || !entry.value?.contentId) return;
+        const item = entry.value;
+        fallbackMap[item.contentId] = item;
+        writeSnapshotForItem(item);
+      });
+
+      return fallbackMap;
+    };
+
+    try {
+      let nextMap: Record<string, WatchProgressItem> = {};
+      let shouldFallback = false;
+
+      const response = await fetch(`${API_URL}/student/watch-progress/batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ contentIds: uniqueContentIds }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          handleInvalidAuth();
+          return;
+        }
+        shouldFallback = true;
+      } else {
+        const data = (await response.json()) as WatchProgressBatchResponse;
+        (data?.items || []).forEach((item) => {
+          if (!item?.contentId) return;
+          nextMap[item.contentId] = item;
+          writeSnapshotForItem(item);
+        });
+
+        // Fallback path: if batch returns empty, fetch per-video to avoid missing progress right after login.
+        if ((data?.items || []).length === 0) {
+          shouldFallback = true;
+        }
+      }
+
+      if (shouldFallback) {
+        const fallbackMap = await fetchPerVideoFallback();
+        nextMap = { ...nextMap, ...fallbackMap };
+      }
+
+      setWatchProgressByVideo(nextMap);
+    } catch (error) {
+      console.error('Error fetching watch progress batch, switching to per-video fallback:', error);
+      const fallbackMap = await fetchPerVideoFallback();
+      setWatchProgressByVideo(fallbackMap);
+    }
   };
 
   const handleInvalidAuth = () => {
@@ -694,31 +848,80 @@ export default function StudentDashboard() {
   }, []);
 
   useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== 'accessToken' && event.key !== 'token' && event.key !== 'user') return;
-      const token = localStorage.getItem('accessToken');
+    const refreshAuthSensitiveState = () => {
+      const token = getStoredToken();
+
       if (!token) {
         handleInvalidAuth();
       } else {
         setHasAuthToken(true);
+        fetchStudentProfile();
+        fetchRecommendations();
       }
+
+      setProgressRenderTick((prev) => prev + 1);
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== 'accessToken' && event.key !== 'token' && event.key !== 'user') return;
+      refreshAuthSensitiveState();
     };
 
     const handleVisibility = () => {
       if (document.visibilityState !== 'visible') return;
-      const token = localStorage.getItem('accessToken');
-      if (!token) {
-        handleInvalidAuth();
-      }
+      refreshAuthSensitiveState();
     };
 
     window.addEventListener('storage', handleStorage);
+    window.addEventListener(AUTH_STATE_CHANGED_EVENT, refreshAuthSensitiveState as EventListener);
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(AUTH_STATE_CHANGED_EVENT, refreshAuthSensitiveState as EventListener);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasAuthToken) {
+      setWatchProgressByVideo({});
+      return;
+    }
+
+    const visibleIds = Array.from(
+      new Set([
+        ...topTrending.map((item) => item.id),
+        ...recommendedByInterest.map((item) => item.id),
+        ...recommendedNextParts.map((item) => item.id),
+        ...filteredVideosByInterest.map((item) => item.id),
+      ].filter(Boolean)),
+    );
+
+    if (visibleIds.length === 0) {
+      setWatchProgressByVideo({});
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void fetchWatchProgressForVideos(visibleIds);
+    }, 120);
+
+    const retryTimer = window.setTimeout(() => {
+      void fetchWatchProgressForVideos(visibleIds);
+    }, 1200);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(retryTimer);
+    };
+  }, [
+    hasAuthToken,
+    topTrending,
+    recommendedByInterest,
+    recommendedNextParts,
+    filteredVideosByInterest,
+    selectedInterest,
+  ]);
 
   useEffect(() => {
     fetchVideosByInterest(selectedInterest);
@@ -857,7 +1060,11 @@ export default function StudentDashboard() {
                     whileHover={{ y: -1, transition: { duration: 0.2 } }}
                     className="w-full"
                   >
-                    <EnglishVideoCard item={item} index={index} />
+                    <EnglishVideoCard
+                      item={item}
+                      index={index}
+                      progressRatio={getProgressRatioForVideo(item.id, item.duration)}
+                    />
                   </motion.div>
                 ))}
               </div>
@@ -969,7 +1176,11 @@ export default function StudentDashboard() {
                   whileHover={{ y: -5, transition: { duration: 0.3 } }}
                   className="h-full"
                 >
-                  <TrendingCard item={item} index={index} />
+                  <TrendingCard
+                    item={item}
+                    index={index}
+                    progressRatio={getProgressRatioForVideo(item.id, item.duration)}
+                  />
                 </motion.div>
               ))}
             </div>
@@ -995,7 +1206,11 @@ export default function StudentDashboard() {
                       whileHover={{ y: -5, transition: { duration: 0.3 } }}
                       className="h-full"
                     >
-                      <TrendingCard item={item} index={index} />
+                      <TrendingCard
+                        item={item}
+                        index={index}
+                        progressRatio={getProgressRatioForVideo(item.id, item.duration)}
+                      />
                     </motion.div>
                   ))}
                 </div>
@@ -1016,7 +1231,11 @@ export default function StudentDashboard() {
                       whileHover={{ y: -5, transition: { duration: 0.3 } }}
                       className="h-full"
                     >
-                      <TrendingCard item={item} index={index} />
+                      <TrendingCard
+                        item={item}
+                        index={index}
+                        progressRatio={getProgressRatioForVideo(item.id, item.duration)}
+                      />
                     </motion.div>
                   ))}
                 </div>

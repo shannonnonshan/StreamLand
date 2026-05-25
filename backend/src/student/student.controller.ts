@@ -210,6 +210,15 @@ export class StudentController {
     return this.studentService.getWatchProgress(req.user.sub, contentId);
   }
 
+  // Get watch progress in batch for multiple videos (scoped to current user)
+  @Post('watch-progress/batch')
+  async getWatchProgressBatch(
+    @Request() req: { user: { sub: string } },
+    @Body() body: { contentIds?: string[] },
+  ) {
+    return this.studentService.getWatchProgressBatch(req.user.sub, body?.contentIds || []);
+  }
+
   // Get student statistics
   @Get('stats')
   async getStudentStats(@Request() req: { user: { sub: string } }) {

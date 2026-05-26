@@ -236,7 +236,7 @@ export default function Dashboard() {
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-gray-200 rounded-lg overflow-hidden">
                             {livestream.teacher.avatar ? (
-                              <img src={livestream.teacher.avatar} alt={livestream.teacher.fullName} className="w-full h-full object-cover" />
+                              <Image src={livestream.teacher.avatar} alt={livestream.teacher.fullName} width={40} height={40} className="h-full w-full object-cover" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center bg-gray-300 text-gray-600 font-bold">
                                 {livestream.teacher.fullName.charAt(0).toUpperCase()}
@@ -296,7 +296,7 @@ export default function Dashboard() {
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-gray-200 rounded-lg overflow-hidden">
                             {teacher.avatar ? (
-                              <img src={teacher.avatar} alt={teacher.fullName} className="w-full h-full object-cover" />
+                              <Image src={teacher.avatar} alt={teacher.fullName} width={40} height={40} className="h-full w-full object-cover" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center bg-gray-300 text-gray-600 font-bold">
                                 {teacher.fullName.charAt(0).toUpperCase()}

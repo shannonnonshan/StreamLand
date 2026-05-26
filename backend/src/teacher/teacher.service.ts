@@ -3,6 +3,37 @@ import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
 import { ProcessingService } from '../processing/processing.service';
+import { RedisService } from '../redis/redis.service';
+
+type TeacherProfileResponse = {
+  id: string;
+  email: string;
+  fullName: string;
+  name: string;
+  username: string;
+  avatar: string;
+  bio: string;
+  location: string | null;
+  subscribers: number;
+  totalVideos: number;
+  rating: number;
+  createAt: Date;
+  twoFactorEnabled: boolean;
+  teacherProfile: {
+    education: string | null;
+    experience: number | null;
+    website: string | null;
+    linkedin: string | null;
+    subjects: string[];
+    cvUrl: string | null;
+  };
+  address: string | null;
+  substantiate: string | null;
+  yearOfWorking: number | null;
+  subjects: string[];
+  website: string | null;
+  linkedin: string | null;
+};
 
 @Injectable()
 export class TeacherService {
@@ -10,6 +41,7 @@ export class TeacherService {
     private prisma: PrismaService,
     private r2StorageService: R2StorageService,
     private processingService: ProcessingService,
+    private redisService: RedisService,
   ) {}
 
   private shouldEnqueueProcessing(filename: string): boolean {
@@ -33,7 +65,8 @@ export class TeacherService {
   }
 
   // Get teacher videos/livestreams
-  async getTeacherVideos(teacherId: string, limit: number = 20) {
+  async getTeacherVideos(teacherId: string, page: number = 1, limit: number = 20) {
+    const skip = (page - 1) * limit;
     const livestreams = await this.prisma.postgres.liveStream.findMany({
       where: {
         teacherId,
@@ -53,6 +86,7 @@ export class TeacherService {
         { scheduledAt: 'desc' },
         { endedAt: 'desc' },
       ],
+      skip,
       take: limit,
       select: {
         id: true,
@@ -248,7 +282,14 @@ export class TeacherService {
   }
 
   // Get teacher profile by ID
-  async getProfile(teacherId: string) {
+  async getProfile(teacherId: string): Promise<TeacherProfileResponse> {
+    const cacheKey = `teacher:${teacherId}:profile`;
+    const cachedProfile = await this.redisService.get<TeacherProfileResponse>(cacheKey);
+
+    if (cachedProfile) {
+      return cachedProfile;
+    }
+
     const teacher = await this.prisma.postgres.user.findUnique({
       where: { 
         id: teacherId,
@@ -282,7 +323,7 @@ export class TeacherService {
       },
     });
 
-    return {
+    const profile: TeacherProfileResponse = {
       id: teacher.id,
       email: teacher.email,
       fullName: teacher.fullName,
@@ -312,6 +353,9 @@ export class TeacherService {
       website: teacher.teacherProfile.website || null,
       linkedin: teacher.teacherProfile.linkedin || null,
     };
+
+    await this.redisService.set(cacheKey, profile, 300);
+    return profile;
   }
 
   // Get teacher documents
@@ -333,12 +377,11 @@ export class TeacherService {
       where,
       orderBy: { uploadedAt: 'desc' },
     });
-    console.log('Documents fetched:', documents);
     return documents;
   }
 
   // Upload document to R2
-  async uploadDocument(teacherId: string, file: Express.Multer.File) {
+  async uploadDocument(teacherId: string, file: Express.Multer.File, description?: string) {
     const teacher = await this.prisma.postgres.user.findUnique({
       where: { id: teacherId },
       include: { teacherProfile: true },
@@ -371,6 +414,7 @@ export class TeacherService {
       data: {
         teacherId,
         title: file.originalname,
+        description: description?.trim() || null,
         fileUrl: documentUrl,
         fileName: file.originalname,
         fileType,
@@ -389,13 +433,29 @@ export class TeacherService {
       });
     }
 
-    // Return format expected by frontend
-    return {
-      url: documentUrl,
-      filename: file.originalname,
-      size: file.size,
-      documentId: document.id,
-    };
+    return document;
+  }
+
+  async updateDocumentDescription(teacherId: string, documentId: string, description?: string) {
+    const existing = await this.prisma.postgres.document.findFirst({
+      where: {
+        id: documentId,
+        teacherId,
+      },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Document not found');
+    }
+
+    const updated = await this.prisma.postgres.document.update({
+      where: { id: documentId },
+      data: {
+        description: description?.trim() || null,
+      },
+    });
+
+    return updated;
   }
 
   // Update teacher settings
@@ -439,6 +499,8 @@ export class TeacherService {
         data: profileUpdateData,
       });
     }
+
+    await this.redisService.del(`teacher:${teacherId}:profile`);
 
     return { success: true, message: 'Settings updated successfully' };
   }

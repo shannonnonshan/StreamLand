@@ -71,6 +71,7 @@ export class TeacherController {
   async uploadDocument(
     @Param('id') teacherId: string,
     @UploadedFile() file: Express.Multer.File,
+    @Body('description') description: string | undefined,
     @Request() req: { user: { sub: string } }
   ) {
     // Verify that the user is uploading to their own account
@@ -82,7 +83,22 @@ export class TeacherController {
       throw new BadRequestException('No file uploaded');
     }
 
-    return this.teacherService.uploadDocument(teacherId, file);
+    return this.teacherService.uploadDocument(teacherId, file, description);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/documents/:documentId/description')
+  async updateDocumentDescription(
+    @Param('id') teacherId: string,
+    @Param('documentId') documentId: string,
+    @Body('description') description: string | undefined,
+    @Request() req: { user: { sub: string; role?: string } },
+  ) {
+    if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Unauthorized');
+    }
+
+    return this.teacherService.updateDocumentDescription(teacherId, documentId, description);
   }
 
   // Update teacher settings (profile info)

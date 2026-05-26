@@ -7,6 +7,47 @@ import { calculateBanUntil } from '../common/utils/ban-until';
 export class AdminService {
   constructor(private prisma: PrismaService) {}
 
+  private async getProcessingAnalysisState(type: 'LIVESTREAM' | 'DOCUMENT', itemId: string) {
+    const result = await this.prisma.mongo.$runCommandRaw({
+      find: 'ai_transcript_summary',
+      filter: type === 'LIVESTREAM'
+        ? { type, recordingId: itemId }
+        : { type, documentId: itemId },
+      limit: 1,
+    });
+
+    const analysis = ((result as { cursor?: { firstBatch?: Record<string, unknown>[] } }).cursor?.firstBatch || [])[0];
+
+    if (!analysis) {
+      return {
+        processingStage: null,
+        processingProgress: 0,
+        processingError: null,
+      };
+    }
+
+    const processingProgress =
+      typeof analysis.processingProgress === 'number'
+        ? analysis.processingProgress
+        : typeof analysis.moderationCheckedAt === 'string' || analysis.moderationCheckedAt instanceof Date
+          ? 100
+          : typeof analysis.summaryGeneratedAt === 'string' || analysis.summaryGeneratedAt instanceof Date
+            ? 85
+            : typeof analysis.transcriptGeneratedAt === 'string' || analysis.transcriptGeneratedAt instanceof Date
+              ? 60
+              : analysis.transcriptStatus === 'processing'
+                ? 35
+                : analysis.processingStage === 'preparing'
+                  ? 10
+                  : 0;
+
+    return {
+      processingStage: typeof analysis.processingStage === 'string' ? analysis.processingStage : null,
+      processingProgress,
+      processingError: typeof analysis.processingError === 'string' ? analysis.processingError : null,
+    };
+  }
+
   private async markProcessingDoneForLivestream(livestreamId: string): Promise<void> {
     await this.prisma.postgres.liveStream.update({
       where: { id: livestreamId },
@@ -478,7 +519,7 @@ export class AdminService {
     ]);
 
     return {
-      livestreams: livestreams.map(ls => ({
+      livestreams: await Promise.all(livestreams.map(async ls => ({
         id: ls.id,
         title: ls.title,
         recordingUrl: ls.recordingUrl,
@@ -488,7 +529,8 @@ export class AdminService {
         rejectReason: ls.rejectReason ?? null,
         approvalStatus: ls.isApprove === 'TRUE' ? 'approved' : ls.isApprove === 'REJECTED' ? 'removed' : 'pending',
         processingStatus: ls.processingStatus,
-      })),
+        ...(await this.getProcessingAnalysisState('LIVESTREAM', ls.id)),
+      }))),
       pagination: {
         page,
         limit,
@@ -587,6 +629,7 @@ export class AdminService {
           uploadedAt: doc.uploadedAt,
           status: doc.isApprove === 'TRUE' ? 'approved' : doc.isApprove === 'REJECTED' ? 'removed' : 'pending',
           processingStatus: doc.processingStatus,
+          ...(await this.getProcessingAnalysisState('DOCUMENT', doc.id)),
         };
       })
     );

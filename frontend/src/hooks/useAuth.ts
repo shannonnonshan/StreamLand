@@ -20,31 +20,6 @@ interface AuthResponse {
   refreshToken: string;
 }
 
-interface LoginErrorResponse {
-  message?: unknown;
-  error?: string;
-  bannedUntil?: string;
-}
-
-interface LoginSuccessResponse {
-  message: string;
-  user: User;
-  accessToken?: string;
-  refreshToken?: string;
-  requires2FA?: boolean;
-  email?: string;
-}
-
-interface LoginResult {
-  success: boolean;
-  user?: User;
-  requires2FA?: boolean;
-  email?: string;
-  message?: string;
-  error?: string;
-  bannedUntil?: string;
-}
-
 interface RegisterData {
   fullName: string;
   email: string;
@@ -67,7 +42,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 export function useAuth() {
   const router = useRouter();
   const { user, isAuthenticated, setUser, setIsAuthenticated } = useAuthContext();
-  const [loading, setLoading] = useState(false);
+  // Keep auth in a loading state until the initial localStorage/token check finishes.
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Helper function to check if token is expired or about to expire
@@ -125,28 +101,35 @@ export function useAuth() {
 
   // Check token on mount and refresh if needed
   useEffect(() => {
-    const checkAndRefreshToken = async () => {
-      const accessToken = localStorage.getItem('accessToken');
-      const refreshToken = localStorage.getItem('refreshToken');
-      
-      // Only check if both tokens exist
-      if (!accessToken || !refreshToken) {
-        return;
-      }
+    let isMounted = true;
 
-      // Check if token is expired or expiring soon
-      if (isTokenExpiringSoon(accessToken)) {
-        console.log('Token expiring soon, refreshing...');
-        const refreshed = await refreshAccessToken();
-        
-        if (!refreshed) {
-          console.log('Token refresh failed, logging out');
-          router.push('/');
+    const checkAndRefreshToken = async () => {
+      try {
+        const accessToken = localStorage.getItem('accessToken');
+        const refreshToken = localStorage.getItem('refreshToken');
+
+        // Only check if both tokens exist.
+        if (accessToken && refreshToken && isTokenExpiringSoon(accessToken)) {
+          console.log('Token expiring soon, refreshing...');
+          const refreshed = await refreshAccessToken();
+
+          if (!refreshed) {
+            console.log('Token refresh failed, logging out');
+            router.push('/');
+          }
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
         }
       }
     };
 
     checkAndRefreshToken();
+
+    return () => {
+      isMounted = false;
+    };
   }, [refreshAccessToken, router]);
 
   // Auto-refresh token every 14 minutes (before 15min expiry)
@@ -299,7 +282,7 @@ export function useAuth() {
   }, [setUser, setIsAuthenticated]);
 
   // Login
-  const login = useCallback(async (data: LoginData): Promise<LoginResult> => {
+  const login = useCallback(async (data: LoginData) => {
     setLoading(true);
     setError(null);
 
@@ -312,35 +295,26 @@ export function useAuth() {
         body: JSON.stringify(data),
       });
 
-      const result = await response.json() as LoginSuccessResponse & LoginErrorResponse;
+      const result = await response.json() as AuthResponse & { requires2FA?: boolean; email?: string; bannedUntil?: string };
 
       if (!response.ok) {
-        const errorMessageObject = typeof result.message === 'object' && result.message !== null
-          ? (result.message as { message?: string; bannedUntil?: string })
-          : undefined;
-        const messageFromObject = errorMessageObject?.message;
-        const bannedUntil = result.bannedUntil || errorMessageObject?.bannedUntil;
-
-        setLoading(false);
         return {
           success: false,
-          error: messageFromObject || result.error || 'Login failed',
-          bannedUntil,
+          error: result.message || 'Login failed',
+          bannedUntil: result.bannedUntil,
         };
       }
 
+      // Check if 2FA is required
       if (result.requires2FA) {
         setLoading(false);
-        return {
-          success: true,
-          requires2FA: true,
-          email: result.email,
+        return { 
+          success: true, 
+          requires2FA: true, 
+          email: result.email!,
           message: result.message,
+          bannedUntil: result.bannedUntil,
         };
-      }
-
-      if (!result.accessToken || !result.refreshToken || !result.user) {
-        throw new Error('Login failed: missing authentication tokens');
       }
 
       // Normal login (no 2FA)
@@ -369,12 +343,12 @@ export function useAuth() {
       setIsAuthenticated(true);
       setLoading(false);
 
-      return { success: true, user: finalUser };
+      return { success: true, user: finalUser, bannedUntil: undefined };
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred';
       setError(errorMessage);
       setLoading(false);
-      return { success: false, error: errorMessage };
+      return { success: false, error: errorMessage, bannedUntil: undefined };
     }
   }, [setUser, setIsAuthenticated]);
 

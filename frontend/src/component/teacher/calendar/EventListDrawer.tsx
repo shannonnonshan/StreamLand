@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { CalendarEvent } from "@/utils/data/teacher/calendar";
 import { XIcon, ChevronRightIcon } from "lucide-react";
 import EventDrawer from "./EventDrawer";
 import { raleway } from "@/utils/front";
-import pastelise  from "@/utils/colorise"; // assuming you have pastelise() function
+import pastelize from "@/utils/colorise";
 
 interface EventListDrawerProps {
   date: Date | null;
@@ -14,87 +14,62 @@ interface EventListDrawerProps {
   onClose: () => void;
 }
 
-export default function EventListDrawer({
-  date,
-  events,
-  isOpen,
-  onClose,
-}: EventListDrawerProps) {
+export default function EventListDrawer({ date, events, isOpen, onClose }: EventListDrawerProps) {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
 
   useEffect(() => {
-    if (date) setSelectedEvent(null); // reset khi đổi ngày
+    if (date) setSelectedEvent(null);
   }, [date]);
 
   if (!isOpen || !date) return null;
 
-  // Nếu đã chọn event thì show EventDrawer (detail view)
   if (selectedEvent) {
-    return (
-      <EventDrawer
-        event={selectedEvent}
-        isOpen={isOpen}
-        onClose={() => setSelectedEvent(null)} // nút back
-      />
-    );
+    return <EventDrawer event={selectedEvent} isOpen={isOpen} onClose={() => setSelectedEvent(null)} />;
   }
 
   return (
-    <div
-      className={`fixed top-0 right-0 z-50 h-screen w-80 p-4
-      bg-white shadow-lg overflow-y-auto transition-transform ${raleway.className}`}
-    >
-      {/* Nút đóng ở góc phải trên */}
-      <button
-        onClick={onClose}
-        className="absolute top-2.5 right-2.5 text-gray-400 hover:text-gray-900"
-      >
+    <div className={`fixed right-0 top-0 z-50 h-screen w-full max-w-sm overflow-y-auto border-l border-slate-200 bg-white/95 px-4 py-5 text-slate-800 backdrop-blur ${raleway.className}`}>
+      <button onClick={onClose} className="absolute right-3 top-3 text-slate-400 transition hover:text-slate-700">
         <XIcon size={20} />
         <span className="sr-only">Close</span>
       </button>
 
-      {/* Nút đóng dạng tròn ở mép trái giữa */}
       <button
         onClick={onClose}
-        className="absolute top-1/2 -left-4 transform -translate-y-1/2
-        bg-white border rounded-full shadow p-2 hover:bg-gray-100"
+        className="absolute -left-3.5 top-1/2 -translate-y-1/2 rounded-full border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-50"
       >
-        <ChevronRightIcon size={18} className="text-gray-600" />
+        <ChevronRightIcon size={18} />
       </button>
 
-      <h5 className="text-lg font-bold text-black mb-4">
-        Events on {date.toDateString()}
-      </h5>
+      <h5 className="mb-4 text-lg font-semibold text-slate-800">Events on {date.toDateString()}</h5>
 
       {events.length === 0 ? (
-        <p className="text-sm text-gray-500">No events</p>
+        <p className="text-sm text-slate-500">No events</p>
       ) : (
         <ul className="space-y-2">
-          {events.map((ev) => {
-            const eventDate = new Date(ev.date);
+          {events.map((event) => {
+            const eventDate = new Date(event.date);
             const isPast = eventDate < new Date();
-            const baseColor = ev.color || "#3b82f6"; // fallback màu xanh Tailwind
+            const baseColor = event.color || "#3b82f6";
+
             return (
               <li
-                key={ev.id}
-                className="rounded px-2 py-1 cursor-pointer"
-                onClick={() => setSelectedEvent(ev)}
+                key={event.id}
+                className="cursor-pointer rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 transition hover:bg-sky-50"
+                onClick={() => setSelectedEvent(event)}
                 style={{
-                  backgroundColor: isPast ? "#f3f4f6" : pastelise(baseColor, 0.25),
-                  borderLeft: `4px solid ${isPast ? "#9ca3af" : baseColor}`,
-                  color: isPast ? "#6b7280" : "#111827",
+                  backgroundColor: isPast ? "#f8fafc" : pastelize(baseColor, 0.14),
+                  borderLeft: `4px solid ${isPast ? "#cbd5e1" : baseColor}`,
+                  color: isPast ? "#64748b" : "#334155",
                   fontSize: "13px",
                   lineHeight: "1.3em",
                 }}
               >
-                <p className="font-medium break-words">
-                  {ev.audience === "public" ? "🌐" : "🔒"} {ev.title}
+                <p className="font-medium wrap-break-word">
+                  {event.audience === "public" ? "🌐" : "🔒"} {event.title}
                 </p>
-                <p
-                  className="font-semibold"
-                  style={{ color: isPast ? "#6b7280" : baseColor }}
-                >
-                  {ev.start} - {ev.end}
+                <p className="font-semibold" style={{ color: isPast ? "#64748b" : baseColor }}>
+                  {event.start} - {event.end}
                 </p>
               </li>
             );

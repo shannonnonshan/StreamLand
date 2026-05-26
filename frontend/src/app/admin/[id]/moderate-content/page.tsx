@@ -1,6 +1,8 @@
 "use client"
 import React, { useState, useMemo, useEffect } from 'react'
-import { Check, X, Search, ChevronUp, ChevronDown, Filter, XCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, LayoutList } from 'lucide-react'
+import { Check, X, Search, ChevronUp, ChevronDown, Filter, XCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, LayoutList, Loader2, RefreshCw } from 'lucide-react'
+import { generateDocumentTranscript } from '@/lib/api/document'
+import { generateRecordingTranscript } from '@/lib/api/teacher'
 
 interface ReportedContent {
   id: string
@@ -10,6 +12,9 @@ interface ReportedContent {
   reportReason: string
   rejectReason?: string | null
   processingStatus?: string | null
+  processingProgress?: number | null
+  processingStage?: string | null
+  processingError?: string | null
   reportedBy: string
   reportedAt: string
   dateReported: string
@@ -24,6 +29,7 @@ export default function ContentModerationPage() {
   const [selectedContent, setSelectedContent] = useState<ReportedContent | null>(null)
   const [rejectReason, setRejectReason] = useState("")
   const [showModal, setShowModal] = useState(false)
+  const [retryingContentId, setRetryingContentId] = useState<string | null>(null)
   const [moderation, setModeration] = useState<{
     raw: Record<string, unknown> | null
     status: string
@@ -70,6 +76,24 @@ export default function ContentModerationPage() {
     return 'bg-slate-100 text-slate-600 ring-1 ring-slate-200';
   }
 
+  const normalizeProcessingProgress = (value: unknown) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return 0;
+    return Math.max(0, Math.min(100, Math.round(value)));
+  }
+
+  const getProcessingStageLabel = (value: unknown) => {
+    const stage = typeof value === 'string' ? value.trim().toLowerCase() : '';
+
+    if (stage === 'queued') return 'Queued';
+    if (stage === 'preparing') return 'Preparing';
+    if (stage === 'transcribing') return 'Transcribing';
+    if (stage === 'summarizing') return 'Summarizing';
+    if (stage === 'moderating') return 'Moderating';
+    if (stage === 'done') return 'Complete';
+    if (stage === 'error') return 'Failed';
+    return 'Waiting';
+  }
+
   const getApprovalStatusClasses = (value: ReportedContent['status']) => {
     if (value === 'approved') return 'bg-emerald-100 text-emerald-700';
     if (value === 'rejected') return 'bg-red-100 text-red-700';
@@ -89,6 +113,55 @@ export default function ContentModerationPage() {
 
     setRejectReason('')
   }, [selectedContent?.id, selectedContent?.status, selectedContent?.rejectReason])
+
+  const handleRetryProcessing = async (content: ReportedContent) => {
+    if (retryingContentId) return
+
+    try {
+      setRetryingContentId(content.id)
+
+      const applyResult = (result: { processingProgress?: number | null; processingStage?: string | null; processingError?: string | null }) => {
+        const progress = normalizeProcessingProgress(result.processingProgress)
+        const nextStatus = result.processingStage === 'done' || progress === 100
+          ? 'DONE'
+          : result.processingStage === 'error' || !!result.processingError
+            ? 'FAILED'
+            : 'PROCESSING'
+
+        setReportedContent(prev => prev.map(item => (
+          item.id === content.id
+            ? {
+                ...item,
+                processingStatus: nextStatus,
+                processingProgress: progress,
+                processingStage: result.processingStage ?? item.processingStage ?? null,
+                processingError: result.processingError ?? null,
+              }
+            : item
+        )))
+
+        setSelectedContent(prev => prev && prev.id === content.id ? {
+          ...prev,
+          processingStatus: nextStatus,
+          processingProgress: progress,
+          processingStage: result.processingStage ?? prev.processingStage ?? null,
+          processingError: result.processingError ?? null,
+        } : prev)
+      }
+
+      if (content.type === 'recording') {
+        const result = await generateRecordingTranscript(content.id, true)
+        applyResult(result)
+      } else {
+        const result = await generateDocumentTranscript(content.id, true)
+        applyResult(result)
+      }
+    } catch (error) {
+      console.error('Failed to retry processing:', error)
+    } finally {
+      setRetryingContentId(null)
+    }
+  }
 
   // Fetch livestreams and documents from backend
   useEffect(() => {
@@ -121,6 +194,9 @@ export default function ContentModerationPage() {
               reportReason: 'Pending review',
               rejectReason: ls.rejectReason ?? null,
               processingStatus: ls.processingStatus ?? null,
+              processingProgress: ls.processingProgress ?? null,
+              processingStage: ls.processingStage ?? null,
+              processingError: ls.processingError ?? null,
               reportedBy: 'System',
               reportedAt: ls.uploadedAt,
               dateReported: new Date(ls.uploadedAt).toLocaleDateString(),
@@ -152,6 +228,9 @@ export default function ContentModerationPage() {
               reportReason: 'Pending review',
               rejectReason: doc.rejectReason ?? null,
               processingStatus: doc.processingStatus ?? null,
+              processingProgress: doc.processingProgress ?? null,
+              processingStage: doc.processingStage ?? null,
+              processingError: doc.processingError ?? null,
               reportedBy: 'System',
               reportedAt: doc.uploadedAt,
               dateReported: new Date(doc.uploadedAt).toLocaleDateString(),
@@ -756,9 +835,14 @@ export default function ContentModerationPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getProcessingStatusClasses(content.processingStatus)}`}>
-                      {normalizeProcessingStatus(content.processingStatus)}
-                    </span>
+                    <div className="space-y-1">
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getProcessingStatusClasses(content.processingStatus)}`}>
+                        {normalizeProcessingStatus(content.processingStatus)}
+                      </span>
+                      <div className="text-[11px] font-medium text-gray-500">
+                        {normalizeProcessingProgress(content.processingProgress)}% · {getProcessingStageLabel(content.processingStage)}
+                      </div>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <button
@@ -841,9 +925,39 @@ export default function ContentModerationPage() {
                         <div className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getProcessingStatusClasses(selectedContent.processingStatus)}`}>
                           {normalizeProcessingStatus(selectedContent.processingStatus)}
                         </div>
+                        <p className="mt-2 text-sm font-medium text-slate-900">
+                          {normalizeProcessingProgress(selectedContent.processingProgress)}%
+                        </p>
+                        <div className="mt-2 h-2 w-full rounded-full bg-slate-200">
+                          <div
+                            className={`h-2 rounded-full transition-all ${selectedContent.processingError ? 'bg-red-500' : 'bg-[#292C6D]'}`}
+                            style={{ width: `${normalizeProcessingProgress(selectedContent.processingProgress)}%` }}
+                          />
+                        </div>
+                        <p className="mt-2 text-[11px] font-medium text-slate-500">
+                          {getProcessingStageLabel(selectedContent.processingStage)}
+                        </p>
                       </div>
 
                     </div>
+
+                    {(selectedContent.processingError || normalizeProcessingStatus(selectedContent.processingStatus) === 'FAILED') && (
+                      <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4">
+                        <p className="text-sm font-semibold text-red-800">Processing failed</p>
+                        <p className="mt-1 text-sm text-red-700">
+                          {selectedContent.processingError || 'The processing pipeline stopped with an error.'}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleRetryProcessing(selectedContent)}
+                          disabled={retryingContentId === selectedContent.id}
+                          className="mt-3 inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70"
+                        >
+                          {retryingContentId === selectedContent.id ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                          Retry processing
+                        </button>
+                      </div>
+                    )}
                   </section>
 
                   <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-5 shadow-sm">

@@ -13,8 +13,10 @@ import { R2StorageService } from '../r2-storage/r2-storage.service';
 import {
   PROCESSING_JOB_NAME,
   PROCESSING_QUEUE_NAME,
+  PROCESSING_STAGE_PROGRESS,
   ProcessingJobPayload,
   ProcessingJobStatus,
+  ProcessingStage,
 } from './processing.types';
 
 interface TranscribeResponse {
@@ -33,6 +35,31 @@ interface ModerateResponse {
   categories: string[];
 }
 
+interface ProcessingAnalysisDocument {
+  id?: string;
+  type: 'LIVESTREAM' | 'DOCUMENT';
+  recordingId?: string | null;
+  documentId?: string | null;
+  transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
+  transcriptError?: string | null;
+  transcript?: Prisma.JsonValue;
+  summary?: string;
+  audioUrl?: string;
+  moderationResult?: Prisma.JsonValue;
+  moderationCheckedAt?: Date;
+  toxicWords?: string[];
+  validationRate?: number;
+  moderationLabel?: string | null;
+  moderationCategories?: string[];
+  transcriptGeneratedAt?: Date;
+  summaryGeneratedAt?: Date;
+  processingStage?: ProcessingStage;
+  processingProgress?: number;
+  processingError?: string | null;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 @Processor(PROCESSING_QUEUE_NAME)
 @Injectable()
 export class ProcessingProcessor {
@@ -48,24 +75,71 @@ export class ProcessingProcessor {
   async handle(job: Job<ProcessingJobPayload>): Promise<void> {
     const payload = job.data;
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'streamland-processing-'));
+    let latestProgress = PROCESSING_STAGE_PROGRESS.preparing;
+    let transcriptCompleted = false;
 
     try {
       this.logger.log(
         `Processing started for ${payload.type}:${payload.itemId} (${payload.title}) [attempt ${job.attemptsMade + 1}/${job.opts.attempts || 1}]`,
       );
       await this.updateProcessingStatus(payload, 'PROCESSING');
+      await this.updateProcessingAnalysis(payload, {
+        transcriptStatus: 'processing',
+        transcriptError: null,
+        processingStage: 'preparing',
+        processingProgress: PROCESSING_STAGE_PROGRESS.preparing,
+        processingError: null,
+      });
 
       const sourcePath = await this.downloadFile(payload.fileUrl, tempDir, this.getSourceFileName(payload));
       const audioFileUrl = await this.prepareAudioFileUrl(payload, sourcePath, tempDir);
+      latestProgress = PROCESSING_STAGE_PROGRESS.transcribing;
+      await this.updateProcessingAnalysis(payload, {
+        processingStage: 'transcribing',
+        processingProgress: latestProgress,
+      });
 
       const transcript = await this.transcribe(audioFileUrl);
+      transcriptCompleted = true;
+      latestProgress = PROCESSING_STAGE_PROGRESS.summarizing;
+      await this.updateProcessingAnalysis(payload, {
+        transcriptStatus: 'success',
+        transcriptError: null,
+        transcript: transcript as unknown as Prisma.JsonValue,
+        audioUrl: audioFileUrl,
+        transcriptGeneratedAt: new Date(),
+        processingStage: 'summarizing',
+        processingProgress: latestProgress,
+      });
+
       const summary = await this.summarise(transcript.text, transcript.language);
+      latestProgress = PROCESSING_STAGE_PROGRESS.moderating;
+      await this.updateProcessingAnalysis(payload, {
+        summary: summary.summary,
+        summaryGeneratedAt: new Date(),
+        processingStage: 'moderating',
+        processingProgress: latestProgress,
+      });
+
       const moderation = await this.moderate(transcript.text);
 
       await this.upsertAnalysis(payload, transcript, summary, moderation);
+      await this.updateProcessingAnalysis(payload, {
+        processingStage: 'done',
+        processingProgress: PROCESSING_STAGE_PROGRESS.done,
+        processingError: null,
+      });
       await this.updateProcessingStatus(payload, 'DONE');
       this.logger.log(`Processing finished for ${payload.type}:${payload.itemId}`);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.updateProcessingAnalysis(payload, {
+        transcriptStatus: transcriptCompleted ? 'success' : 'error',
+        transcriptError: transcriptCompleted ? null : message,
+        processingStage: 'error',
+        processingProgress: latestProgress,
+        processingError: message,
+      }).catch(() => undefined);
       await this.updateProcessingStatus(payload, 'FAILED').catch(() => undefined);
       this.logger.error(
         `Processing failed for ${payload.type}:${payload.itemId}`,
@@ -94,6 +168,44 @@ export class ProcessingProcessor {
     await this.prisma.postgres.document.update({
       where: { id: payload.itemId },
       data,
+    });
+  }
+
+  private async updateProcessingAnalysis(
+    payload: ProcessingJobPayload,
+    data: Partial<ProcessingAnalysisDocument>,
+  ): Promise<void> {
+    const itemField =
+      payload.type === 'livestream'
+        ? { recordingId: payload.itemId, documentId: null }
+        : { recordingId: null, documentId: payload.itemId };
+
+    await this.prisma.mongo.$runCommandRaw({
+      update: 'ai_transcript_summary',
+      updates: [
+        {
+          q: {
+            type: payload.type === 'livestream' ? 'LIVESTREAM' : 'DOCUMENT',
+            ...itemField,
+          },
+          u: {
+            $set: {
+              id: payload.itemId,
+              type: payload.type === 'livestream' ? 'LIVESTREAM' : 'DOCUMENT',
+              ...itemField,
+              ...data,
+              updatedAt: new Date(),
+            },
+            $setOnInsert: {
+              id: payload.itemId,
+              type: payload.type === 'livestream' ? 'LIVESTREAM' : 'DOCUMENT',
+              ...itemField,
+              createdAt: new Date(),
+            },
+          },
+          upsert: true,
+        },
+      ],
     });
   }
 
@@ -259,7 +371,7 @@ export class ProcessingProcessor {
         id: payload.itemId,
         type,
         ...itemField,
-        transcript: transcript as unknown as Prisma.InputJsonValue,
+        transcript: transcript as unknown as Prisma.JsonValue,
         summary: summary.summary,
         moderationResult: moderation as unknown as Prisma.InputJsonValue,
         moderationCheckedAt: new Date(),

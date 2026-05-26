@@ -1,28 +1,105 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
-import { ArrowDownToLine, Upload, Trash2 } from "lucide-react";
+import { ArrowDownToLine, Upload, Trash2, Search, Filter, FileText, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { getTeacherDocuments, uploadDocument, deleteDocument, Document, mapDocumentTypeToFileType } from "@/lib/api/teacher";
 import { formatDate, formatDateTime } from "@/utils/dateFormat";
 import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
 import TranscriptSummaryStudio from "@/component/shared/TranscriptSummaryStudio";
+import { useDocumentsContext } from "../DocumentsContext";
 
 export default function DocumentsTypePage() {
   const params = useParams();
   const type = params?.type as string;
   const teacherId = params?.id as string;
   const { showDialog, DialogComponent } = useConfirmDialog();
+  const { documents, setDocuments, isLoading, setIsLoading, error, setError } = useDocumentsContext();
 
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
-  const [documents, setDocuments] = useState<Document[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "name">("newest");
+  const [quickFilter, setQuickFilter] = useState<"all" | "withDescription" | "large" | "recent">("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(12);
   const [isUploading, setIsUploading] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
+  const [failedPreviewIds, setFailedPreviewIds] = useState<Record<string, true>>({});
+
+  const fileTypeLabel = useMemo(() => {
+    if (type === "all") return "All documents";
+    if (type === "file") return "Files";
+    if (type === "image") return "Images";
+    if (type === "video") return "Videos";
+    return "Documents";
+  }, [type]);
+
+  const filteredDocuments = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const now = Date.now();
+
+    return [...documents]
+      .filter((doc) => {
+        const matchesQuery =
+          !query ||
+          doc.title.toLowerCase().includes(query) ||
+          doc.fileName.toLowerCase().includes(query) ||
+          (doc.description || "").toLowerCase().includes(query);
+
+        const uploadedAt = new Date(doc.uploadedAt).getTime();
+        const isRecent = Number.isFinite(uploadedAt) && now - uploadedAt < 7 * 24 * 60 * 60 * 1000;
+        const isLarge = doc.fileSize >= 10 * 1024 * 1024;
+
+        const matchesQuickFilter =
+          quickFilter === "all" ||
+          (quickFilter === "withDescription" && Boolean(doc.description?.trim())) ||
+          (quickFilter === "large" && isLarge) ||
+          (quickFilter === "recent" && isRecent);
+
+        return matchesQuery && matchesQuickFilter;
+      })
+      .sort((a, b) => {
+        if (sortBy === "name") {
+          return a.title.localeCompare(b.title);
+        }
+
+        const left = new Date(a.uploadedAt).getTime();
+        const right = new Date(b.uploadedAt).getTime();
+
+        return sortBy === "oldest" ? left - right : right - left;
+      });
+  }, [documents, searchQuery, quickFilter, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredDocuments.length / itemsPerPage));
+
+  const paginatedDocuments = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredDocuments.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredDocuments, currentPage]);
+
+  const visibleStart = filteredDocuments.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+  const visibleEnd = Math.min(currentPage * itemsPerPage, filteredDocuments.length);
+
+  const stats = useMemo(() => {
+    const total = documents.length;
+    const withDescription = documents.filter((doc) => Boolean(doc.description?.trim())).length;
+    const largeFiles = documents.filter((doc) => doc.fileSize >= 10 * 1024 * 1024).length;
+
+    return { total, withDescription, largeFiles };
+  }, [documents]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [type, searchQuery, quickFilter, sortBy, itemsPerPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // Fetch documents from backend
   useEffect(() => {
@@ -32,7 +109,7 @@ export default function DocumentsTypePage() {
       try {
         setIsLoading(true);
         setError(null);
-        const fileType = mapDocumentTypeToFileType(type);
+        const fileType = type === "all" ? undefined : mapDocumentTypeToFileType(type);
         console.log('Fetching documents:', { teacherId, type, fileType });
         const data = await getTeacherDocuments(teacherId, fileType);
         console.log('Documents received:', data);
@@ -46,7 +123,7 @@ export default function DocumentsTypePage() {
     };
 
     fetchDocuments();
-  }, [teacherId, type]);
+  }, [teacherId, type, setDocuments, setError, setIsLoading]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -69,7 +146,7 @@ export default function DocumentsTypePage() {
       }
       
       // Add new documents to list
-      setDocuments([...uploadedDocs, ...documents]);
+      setDocuments((prev) => [...uploadedDocs, ...prev]);
       showDialog({
         title: 'Upload Successful',
         message: `${uploadedDocs.length} document(s) uploaded successfully!`,
@@ -100,13 +177,20 @@ export default function DocumentsTypePage() {
     setShowDeleteConfirm(true);
   };
 
+  const handlePreviewError = (documentId: string) => {
+    setFailedPreviewIds((prev) => {
+      if (prev[documentId]) return prev;
+      return { ...prev, [documentId]: true };
+    });
+  };
+
   const confirmDelete = async () => {
     if (!documentToDelete) return;
 
     setIsDeleting(true);
     try {
       await deleteDocument(teacherId, documentToDelete.id);
-      setDocuments(documents.filter(doc => doc.id !== documentToDelete.id));
+      setDocuments((prev) => prev.filter(doc => doc.id !== documentToDelete.id));
       
       // Close preview if the deleted document was selected
       if (selectedDoc?.id === documentToDelete.id) {
@@ -153,76 +237,284 @@ export default function DocumentsTypePage() {
   }
 
   return (
-    <div className="p-4">
-      {/* Upload Button */}
-      <div className="mb-4 flex justify-end">
-        <label className="bg-[#EC255A] text-white px-4 py-2 rounded-lg hover:bg-red-600 cursor-pointer inline-flex items-center gap-2">
-          <Upload size={20} />
-          <span>{isUploading ? 'Uploading...' : 'Upload Documents'}</span>
-          <input
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFileUpload}
-            disabled={isUploading}
-          />
-        </label>
-      </div>
-
-      {/* Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-black">
-        {documents.map((doc) => (
-          <div
-            key={doc.id}
-            className="bg-white shadow p-3 cursor-pointer hover:shadow-md transition rounded-lg relative group"
-            onClick={() => setSelectedDoc(doc)}
-          >
-            {/* Delete Button */}
-            <button
-              onClick={(e) => handleDeleteClick(doc, e)}
-              className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 z-10"
-              title="Delete document"
-            >
-              <Trash2 size={14} />
-            </button>
-            <div className="h-32 w-full relative rounded overflow-hidden bg-gray-100 flex items-center justify-center">
-              {doc.fileType === 'image' ? (
-                <Image
-                  src={doc.fileUrl}
-                  alt={doc.title}
-                  fill
-                  style={{ objectFit: "cover" }}
-                  className="rounded"
-                />
-              ) : doc.fileType === 'pdf' ? (
-                <div className="flex flex-col items-center justify-center text-red-500">
-                  <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" />
-                  </svg>
-                  <span className="text-xs font-semibold mt-1">PDF</span>
-                </div>
-              ) : doc.fileType === 'video' ? (
-                <div className="flex flex-col items-center justify-center text-blue-500">
-                  <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
-                  </svg>
-                  <span className="text-xs font-semibold mt-1">VIDEO</span>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center text-gray-400">
-                  <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
-                  </svg>
-                  <span className="text-xs font-semibold mt-1">FILE</span>
-                </div>
-              )}
+    <div className="min-h-full bg-slate-50 pb-8 pt-2 text-slate-900">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by title, file name, or description"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-300 focus:bg-white"
+              />
             </div>
-            <p className="mt-2 text-sm font-semibold truncate" title={doc.title}>{doc.title}</p>
-            <p className="text-xs text-gray-500">
-              {formatDate(doc.uploadedAt)}
+
+            <div className="flex flex-wrap items-center gap-3 xl:justify-end">
+              <label className="inline-flex min-w-[180px] cursor-pointer items-center justify-center gap-2.5 rounded-full bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 hover:shadow-md active:scale-[0.99]">
+                <Upload size={17} />
+                <span>{isUploading ? 'Uploading...' : 'Upload Documents'}</span>
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileUpload}
+                  disabled={isUploading}
+                />
+              </label>
+
+              <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
+                <Filter size={16} />
+                <span>Sort</span>
+              </div>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none transition focus:border-emerald-300"
+              >
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="name">Name A-Z</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {[
+              { value: 'all', label: 'All' },
+              { value: 'recent', label: 'Recent' },
+              { value: 'withDescription', label: 'With description' },
+              { value: 'large', label: 'Large files' },
+            ].map((item) => {
+              const active = quickFilter === item.value;
+              return (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setQuickFilter(item.value as typeof quickFilter)}
+                  className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                    active
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'border border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:text-emerald-700'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+
+            {(searchQuery || quickFilter !== 'all' || sortBy !== 'newest') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setQuickFilter('all');
+                  setSortBy('newest');
+                }}
+                className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        </section>
+
+        {/* Grid */}
+        {filteredDocuments.length > 0 ? (
+          <>
+            <div className="grid grid-cols-1 gap-4 text-slate-900 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {paginatedDocuments.map((doc) => (
+              (() => {
+                const hasPreviewError = Boolean(failedPreviewIds[doc.id]);
+                return (
+              <div
+                key={doc.id}
+                className="group relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                onClick={() => setSelectedDoc(doc)}
+              >
+                <button
+                  onClick={(e) => handleDeleteClick(doc, e)}
+                  className="absolute right-3 top-3 z-10 rounded-full bg-rose-600 p-2 text-white opacity-0 shadow-sm transition group-hover:opacity-100 hover:bg-rose-700"
+                  title="Delete document"
+                >
+                  <Trash2 size={14} />
+                </button>
+
+                <div className="relative h-40 overflow-hidden border-b border-slate-100 bg-slate-50">
+                  {!hasPreviewError && doc.fileType === 'image' ? (
+                    <img
+                      src={doc.fileUrl}
+                      alt={doc.title}
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                      onError={() => handlePreviewError(doc.id)}
+                    />
+                  ) : !hasPreviewError && doc.fileType === 'video' ? (
+                    <>
+                      <video
+                        src={doc.fileUrl}
+                        className="h-full w-full object-cover pointer-events-none"
+                        muted
+                        playsInline
+                        preload="metadata"
+                        onError={() => handlePreviewError(doc.id)}
+                      />
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+                    </>
+                  ) : !hasPreviewError && doc.fileType === 'pdf' ? (
+                    <>
+                      <iframe
+                        src={`${doc.fileUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+                        className="h-full w-full border-0 pointer-events-none"
+                        title={`${doc.title} preview`}
+                        scrolling="no"
+                        onError={() => handlePreviewError(doc.id)}
+                      />
+                      <div className="pointer-events-none absolute inset-0 bg-white/20" />
+                    </>
+                  ) : (
+                    <div className="flex h-full flex-col items-center justify-center text-slate-500">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                        <svg className="h-10 w-10" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <span className="mt-3 text-xs font-semibold uppercase tracking-[0.2em]">
+                        {hasPreviewError ? 'Preview unavailable' : 'File'}
+                      </span>
+                    </div>
+                  )}
+
+                  {doc.fileType !== 'file' && (
+                    <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-700 shadow-sm">
+                      {doc.fileType}
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-2 p-3.5">
+                  <div>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="truncate text-base font-semibold text-slate-900" title={doc.title}>{doc.title}</p>
+                      <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+                        {doc.fileType}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {formatDate(doc.uploadedAt)}
+                    </p>
+                  </div>
+
+                  {doc.description ? (
+                    <p className="line-clamp-1 text-sm leading-5 text-slate-600">{doc.description}</p>
+                  ) : (
+                    <p className="text-sm text-slate-400">No description added.</p>
+                  )}
+
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs text-slate-500">
+                    <span>{(doc.fileSize / 1024 / 1024).toFixed(2)} MB</span>
+                    <span className="truncate">{doc.fileName}</span>
+                  </div>
+                </div>
+              </div>
+                );
+              })()
+            ))}
+            </div>
+
+            <div className="mt-6 flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white px-4 py-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+                <p>
+                  Showing <span className="font-semibold text-slate-900">{visibleStart}</span>
+                  {' '}to <span className="font-semibold text-slate-900">{visibleEnd}</span>
+                  {' '}of <span className="font-semibold text-slate-900">{filteredDocuments.length}</span> documents
+                </p>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-slate-700">Per page</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 outline-none transition focus:border-emerald-400"
+                  >
+                    <option value={4}>4</option>
+                    <option value={8}>8</option>
+                    <option value={12}>12</option>
+                    <option value={16}>16</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 lg:justify-end lg:ml-auto">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronsLeft size={16} />
+                  First
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronLeft size={16} />
+                  Prev
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => setCurrentPage(page)}
+                      className={`min-w-10 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                        page === currentPage
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'border border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:text-emerald-700'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Last
+                  <ChevronsRight size={16} />
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center shadow-sm">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+              <Search size={22} />
+            </div>
+            <h3 className="mt-4 text-lg font-semibold text-slate-900">No documents found</h3>
+            <p className="mt-2 text-sm text-slate-500">
+              Try a different keyword or clear the filters to see all {fileTypeLabel.toLowerCase()}.
             </p>
           </div>
-        ))}
+        )}
       </div>
 
       {/* Drawer Preview */}
@@ -235,18 +527,19 @@ export default function DocumentsTypePage() {
           />
           
           {/* Drawer */}
-          <div className="fixed right-0 top-0 h-full w-full max-w-2xl bg-white shadow-2xl z-50 overflow-y-auto animate-slide-in">
+          <div className="fixed right-0 top-0 z-50 h-full w-full max-w-2xl animate-slide-in overflow-y-auto bg-white shadow-2xl">
             <div className="p-6">
               {/* Header */}
-              <div className="flex items-start justify-between mb-6">
+              <div className="mb-6 flex items-start justify-between border-b border-slate-100 pb-4">
                 <div className="flex-1">
-                  <h3 className="font-bold text-xl text-black mb-1">{selectedDoc.title}</h3>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Document Detail</p>
+                  <h3 className="mb-1 mt-1 text-xl font-black tracking-tight text-slate-900">{selectedDoc.title}</h3>
+                  <p className="text-sm font-medium text-slate-500">
                     Uploaded: {formatDateTime(selectedDoc.uploadedAt)}
                   </p>
                 </div>
                 <button
-                  className="ml-4 text-gray-400 hover:text-gray-600 transition"
+                  className="ml-4 text-slate-400 transition hover:text-slate-700"
                   onClick={() => setSelectedDoc(null)}
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -257,34 +550,34 @@ export default function DocumentsTypePage() {
 
               {/* Description */}
               {selectedDoc.description && (
-                <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-black">{selectedDoc.description}</p>
+                <div className="mb-4 rounded-lg bg-slate-50 p-3">
+                  <p className="text-sm text-slate-700">{selectedDoc.description}</p>
                 </div>
               )}
 
               {/* File Info */}
-              <div className="mb-6 grid grid-cols-2 gap-4 text-black">
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500 mb-1">File Name</p>
-                  <p className="text-sm font-semibold truncate">{selectedDoc.fileName}</p>
+              <div className="mb-6 grid grid-cols-2 gap-4 text-slate-900">
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">File Name</p>
+                  <p className="truncate text-sm font-bold">{selectedDoc.fileName}</p>
                 </div>
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500 mb-1">Type</p>
-                  <p className="text-sm font-semibold uppercase">{selectedDoc.fileType}</p>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Type</p>
+                  <p className="text-sm font-bold uppercase">{selectedDoc.fileType}</p>
                 </div>
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500 mb-1">Size</p>
-                  <p className="text-sm font-semibold">{(selectedDoc.fileSize / 1024 / 1024).toFixed(2)} MB</p>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Size</p>
+                  <p className="text-sm font-bold">{(selectedDoc.fileSize / 1024 / 1024).toFixed(2)} MB</p>
                 </div>
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500 mb-1">MIME Type</p>
-                  <p className="text-sm font-semibold truncate">{selectedDoc.mimeType}</p>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">MIME Type</p>
+                  <p className="truncate text-sm font-bold">{selectedDoc.mimeType}</p>
                 </div>
               </div>
 
               {/* Preview */}
               <div className="mb-6">
-                <h4 className="text-sm font-semibold text-black mb-3">Preview</h4>
+                <h4 className="mb-3 text-sm font-black uppercase tracking-wider text-slate-700">Preview</h4>
                 
                 {selectedDoc.fileType === 'image' && (
                   <div className="w-full rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
@@ -318,20 +611,22 @@ export default function DocumentsTypePage() {
                 )}
               </div>
 
-              <div className="mb-6">
-                <TranscriptSummaryStudio
-                  documentId={selectedDoc?.id}
-                  transcriptSeedMessage="[Transcript preview] AI document transcription endpoint is pending backend integration. Extracted text will appear here."
-                  transcriptHint={'Click "Generate Transcript" to extract document content as text. The "Summarize" button activates when transcript is ready.'}
-                />
-              </div>
+              {selectedDoc.fileType === 'video' && (
+                <div className="mb-6">
+                  <TranscriptSummaryStudio
+                    documentId={selectedDoc.id}
+                    transcriptSeedMessage="[Transcript preview] AI document transcription endpoint is pending backend integration. Extracted text will appear here."
+                    transcriptHint={'Click "Generate Transcript" to extract document content as text. The "Summarize" button activates when transcript is ready.'}
+                  />
+                </div>
+              )}
 
               {/* Actions */}
               <div className="flex gap-3">
                 <a
                   href={selectedDoc.fileUrl}
                   download={selectedDoc.fileName}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-[#EC255A] text-white rounded-lg hover:bg-[#EC255A]/90 transition font-semibold"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-3 font-bold text-white transition hover:bg-emerald-700"
                 >
                   <ArrowDownToLine size={20} />
                   Download
@@ -340,7 +635,7 @@ export default function DocumentsTypePage() {
                   href={selectedDoc.fileUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 text-black rounded-lg hover:bg-gray-200 transition font-semibold"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-100 px-4 py-3 font-bold text-slate-900 transition hover:bg-slate-200"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -352,7 +647,7 @@ export default function DocumentsTypePage() {
                     e.stopPropagation();
                     handleDeleteClick(selectedDoc, e);
                   }}
-                  className="flex items-center justify-center gap-2 px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition font-semibold"
+                  className="flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-3 font-bold text-white transition hover:bg-rose-700"
                 >
                   <Trash2 size={20} />
                   Delete

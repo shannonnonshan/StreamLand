@@ -1,350 +1,180 @@
 "use client";
 
 import { useState, useEffect, use, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { raleway } from "@/utils/front";
-import pastelize from "@/utils/colorise";
 import EventDrawer from "@/component/teacher/calendar/EventDrawer";
 import { ScheduleEvent } from "@/component/teacher/calendar/ScheduleEventModal";
 import ScheduleEventModal from "@/component/teacher/calendar/ScheduleEventModal";
-import { getTeacherSchedules, formatScheduleForCalendar, createSchedule, getTeacherLivestreams, formatLivestreamForCalendar } from "@/lib/api/teacher";
+import {
+  createSchedule, formatLivestreamForCalendar, formatScheduleForCalendar,
+  getTeacherLivestreams, getTeacherSchedules,
+} from "@/lib/api/teacher";
 import { useToast } from "@/hooks/useToast";
 import ConfirmDialog from "@/component/ConfirmDialog";
+import { Plus } from "lucide-react";
 
-const MONTH_NAMES = [
-  "January","February","March","April","May","June",
-  "July","August","September","October","November","December"
-];
 const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
 interface CalendarEvent {
-  id?: string;
-  teacherId: string;
-  title: string;
-  date: string;
-  start: string;
-  end: string;
-  color: string;
-  audience: "public" | "subscribers";
-  notification?: number;
-  description?: string;
-  livestreamId?: string;
-  type?: 'livestream';
-  status?: string;
-  scheduleId?: string;
+  id?: string; teacherId: string; title: string; date: string;
+  start: string; end: string; color: string; audience: "public"|"subscribers";
+  notification?: number; description?: string; livestreamId?: string;
+  type?: "livestream"; status?: string; scheduleId?: string;
 }
 
-export default function MonthCalendarPage({
-  params,
-}: { params: Promise<{ id?: string; year?: string; month?: string }> }) {
+// Pha màu nền event — alpha cao hơn hẳn để rõ
+function eventBg(hex: string): string {
+  const c = hex.replace("#","");
+  if (c.length !== 6) return "#e0e7ff";
+  const r = parseInt(c.slice(0,2),16), g = parseInt(c.slice(2,4),16), b = parseInt(c.slice(4,6),16);
+  // Mix 22% color + 78% white
+  return `rgb(${Math.round(r*0.22+255*0.78)},${Math.round(g*0.22+255*0.78)},${Math.round(b*0.22+255*0.78)})`;
+}
+
+export default function MonthCalendarPage({ params }: { params: Promise<{ id?: string; year?: string; month?: string }> }) {
   const { id, year: yearParam, month: monthParam } = use(params);
   const today = new Date();
-  const router = useRouter();
   const { success, error: showError, ToastComponent } = useToast();
 
   const teacherId = id ?? "1";
-  const initialYear = yearParam ? Number(yearParam) : today.getFullYear();
-  const initialMonth = monthParam ? Number(monthParam) - 1 : today.getMonth();
-
-  const [month, setMonth] = useState<number>(initialMonth);
-  const [year, setYear] = useState<number>(initialYear);
+  const [month, setMonth] = useState(monthParam ? Number(monthParam)-1 : today.getMonth());
+  const [year, setYear] = useState(yearParam ? Number(yearParam) : today.getFullYear());
   const [noOfDays, setNoOfDays] = useState<number[]>([]);
   const [blankDays, setBlankDays] = useState<number[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-
-  // modal state
   const [openModal, setOpenModal] = useState(false);
   const [eventDate, setEventDate] = useState("");
-
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState({ open: false, date: 0 });
 
-  // confirm dialog state
-  const [confirmDialog, setConfirmDialog] = useState({
-    open: false,
-    date: 0
-  });
-
-  // Fetch schedules function (extracted for reuse)
   const fetchSchedules = useCallback(async () => {
     try {
-      const startDate = new Date(year, month, 1).toISOString().split('T')[0];
-      const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
-      
-      // Fetch both schedules and livestreams in parallel
+      const startDate = new Date(year, month, 1).toISOString().split("T")[0];
+      const endDate = new Date(year, month+1, 0).toISOString().split("T")[0];
       const [schedules, livestreams] = await Promise.all([
-        getTeacherSchedules(teacherId, startDate, endDate).catch((err) => {
-          console.error('Error fetching schedules:', err);
-          return [];
-        }),
-        getTeacherLivestreams(teacherId).catch((err) => {
-          console.error('Error fetching livestreams:', err);
-          return [];
-        })
+        getTeacherSchedules(teacherId, startDate, endDate).catch(() => []),
+        getTeacherLivestreams(teacherId).catch(() => []),
       ]);
-      
-      // Format schedules
-      const calendarEvents: CalendarEvent[] = schedules.map(formatScheduleForCalendar);
-      
-      // Format livestreams and add to events (only if no schedule is linked)
+      const cal: CalendarEvent[] = schedules.map(formatScheduleForCalendar);
       livestreams.forEach((ls: any) => {
-        // Skip livestreams that have a schedule (to avoid duplicates)
-        if (ls.schedule) {
-          return;
-        }
-        
-        if (ls.status === 'SCHEDULED') {
-          calendarEvents.push(formatLivestreamForCalendar(ls, 'scheduled') as CalendarEvent);
-        } else if (ls.status === 'LIVE') {
-          calendarEvents.push(formatLivestreamForCalendar(ls, 'live') as CalendarEvent);
-        } else if (ls.status === 'ENDED') {
-          calendarEvents.push(formatLivestreamForCalendar(ls, 'ended') as CalendarEvent);
-        }
+        if (ls.schedule) return;
+        if (["SCHEDULED","LIVE","ENDED"].includes(ls.status))
+          cal.push(formatLivestreamForCalendar(ls, ls.status.toLowerCase()) as CalendarEvent);
       });
-      
-      setEvents(calendarEvents);
-    } catch (error) {
-      console.error('Failed to fetch schedules:', error);
-      // Show empty calendar on error instead of blocking
-      setEvents([]);
-    }
+      setEvents(cal);
+    } catch { setEvents([]); }
   }, [teacherId, year, month]);
 
-  const handleSaveEvent = async (newEvent: ScheduleEvent) => {
-    try {
-      console.log('Creating schedule:', newEvent);
-      
-      // newEvent.startTime and endTime are already ISO strings from modal
-      const schedule = await createSchedule(teacherId, {
-        title: newEvent.title,
-        startTime: newEvent.startTime,
-        endTime: newEvent.endTime,
-        isPublic: newEvent.isPublic ?? true,
-        color: newEvent.color,
-        notifyBefore: newEvent.notifyBefore,
-        tags: newEvent.tags,
-        category: newEvent.category,
-      });
-
-      console.log('Schedule created successfully:', schedule);
-      
-      // Refetch schedules to show the new one
-      await fetchSchedules();
-      
-      // Show success message
-      success('Schedule created successfully!');
-    } catch (error) {
-      console.error('Failed to create schedule:', error);
-      const message = error instanceof Error ? error.message : 'Failed to create schedule';
-      showError(`Failed to create schedule: ${message}`);
-    }
-  };
-
-  const openDrawer = (ev: CalendarEvent) => {
-    setSelectedEvent(ev);
-    setDrawerOpen(true);
-  };
-
-  const closeDrawer = () => {
-    setDrawerOpen(false);
-    setSelectedEvent(null);
-  };
-
-  // Fetch schedules from backend with timeout & error recovery
+  useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
   useEffect(() => {
-    fetchSchedules();
-  }, [fetchSchedules]);
-
-  // khi đổi tháng/năm → tính lại số ngày
-  useEffect(() => {
-    if (year && month >= 0) {
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-      const dayOfWeek = new Date(year, month, 1).getDay();
-      setBlankDays(Array.from({ length: dayOfWeek }, (_, i) => i + 1));
-      setNoOfDays(Array.from({ length: daysInMonth }, (_, i) => i + 1));
-    }
+    const daysInMonth = new Date(year, month+1, 0).getDate();
+    const firstDow = new Date(year, month, 1).getDay();
+    setBlankDays(Array.from({ length: firstDow }, (_, i) => i));
+    setNoOfDays(Array.from({ length: daysInMonth }, (_, i) => i+1));
   }, [month, year]);
 
-  // sync state với url khi đổi month/year
-  const handleChangeMonth = (newMonth: number) => {
-    setMonth(newMonth);
-    router.push(`/teacher/${teacherId}/calendar/month/${year}/${newMonth + 1}`);
-  };
-
-  const handleChangeYear = (newYear: number) => {
-    setYear(newYear);
-    router.push(`/teacher/${teacherId}/calendar/month/${newYear}/${month + 1}`);
-  };
-
-  const isToday = (date: number) => {
-    const d = new Date(year, month, date);
-    return today.toDateString() === d.toDateString();
-  };
+  const isToday = (d: number) => today.toDateString() === new Date(year, month, d).toDateString();
+  const todayStr = today.toISOString().split("T")[0];
 
   const showEventModal = (date: number) => {
-    // Check if selected date is in the past
-    const selected = new Date(year, month, date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    if (selected < today) {
-      setConfirmDialog({ open: true, date });
-      return;
-    }
-
+    const sel = new Date(year, month, date);
+    const now = new Date(); now.setHours(0,0,0,0);
+    if (sel < now) { setConfirmDialog({ open: true, date }); return; }
     setOpenModal(true);
-
-    const localDate = new Date(selected.getTime() - selected.getTimezoneOffset() * 60000)
-      .toISOString()
-      .split("T")[0];
-
-    setEventDate(localDate);
+    setEventDate(new Date(sel.getTime() - sel.getTimezoneOffset()*60000).toISOString().split("T")[0]);
   };
 
+  const handleSaveEvent = async (ev: ScheduleEvent) => {
+    try {
+      await createSchedule(teacherId, {
+        title: ev.title, startTime: ev.startTime, endTime: ev.endTime,
+        isPublic: ev.isPublic ?? true, color: ev.color,
+        notifyBefore: ev.notifyBefore, tags: ev.tags, category: ev.category,
+      });
+      await fetchSchedules();
+      success("Schedule created!");
+    } catch (e) { showError(`Failed: ${e instanceof Error ? e.message : "error"}`); }
+  };
 
   return (
-    <div className={`w-full bg-white pt-2 shadow overflow-hidden ${raleway.className} mx-auto`}>
-      {/* header */}
-      <div className="flex items-center px-6">
-        <div className="flex items-center gap-0">
-          {/* chọn tháng */}
-          <select
-            value={month}
-            onChange={(e) => handleChangeMonth(Number(e.target.value))}
-            className="rounded px-1 py-1 hover:bg-[#F9DC7D] appearance-none text-black text-2xl font-bold"
-          >
-            {MONTH_NAMES.map((m, i) => (
-              <option key={i} value={i}>{m}</option>
-            ))}
-          </select>
-          {/* chọn năm */}
-          <select
-            value={year}
-            onChange={(e) => handleChangeYear(Number(e.target.value))}
-            className="rounded px-1 py-1 hover:bg-[#F9DC7D] appearance-none text-2xl text-black"
-          >
-            {Array.from({ length: 50 }, (_, i) => year - 25 + i).map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+    <div className={raleway.className}>
+      {/* Grid */}
+      <div className="overflow-hidden rounded-2xl border border-slate-200 shadow-sm">
+        {/* Day headers */}
+        <div className="grid grid-cols-7 bg-slate-800">
+          {DAYS.map((d, i) => (
+            <div key={d} className={`py-2.5 text-center text-[11px] font-bold uppercase tracking-widest ${i===0?"text-rose-300":i===6?"text-sky-300":"text-slate-300"}`}>{d}</div>
+          ))}
+        </div>
+
+        {/* Cells */}
+        <div className="grid grid-cols-7 divide-x divide-y divide-slate-200 bg-white">
+          {blankDays.map((_,i) => <div key={i} style={{minHeight:130}} className="bg-slate-50" />)}
+          {noOfDays.map(date => {
+            const dow = new Date(year, month, date).getDay();
+            const isWknd = dow===0||dow===6;
+            const cellDate = `${year}-${String(month+1).padStart(2,"0")}-${String(date).padStart(2,"0")}`;
+            const now = new Date(); now.setHours(0,0,0,0);
+            const isPast = new Date(year,month,date) < now;
+            const dayEvs = events
+              .filter(ev => ev.teacherId===teacherId && ev.date===cellDate)
+              .sort((a,b) => a.start.localeCompare(b.start));
+
+            return (
+              <div key={date} style={{minHeight:130}}
+                className={`group relative flex flex-col p-1.5 transition-colors ${
+                  isPast ? "bg-slate-50" : isToday(date) ? "bg-sky-50 ring-2 ring-inset ring-sky-400" : isWknd ? "bg-slate-50/80 hover:bg-sky-50/50" : "bg-white hover:bg-sky-50/40"
+                }`}>
+                {/* Date number row */}
+                <div className="mb-1 flex items-center justify-between">
+                  <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold cursor-pointer transition ${
+                    isToday(date) ? "bg-sky-500 text-white shadow-md shadow-sky-300"
+                    : isPast ? "text-slate-300"
+                    : isWknd ? "text-slate-500 hover:bg-slate-200" : "text-slate-700 hover:bg-sky-100 hover:text-sky-700"
+                  }`} onClick={() => !isPast && showEventModal(date)}>{date}</span>
+                  {!isPast && (
+                    <button onClick={() => showEventModal(date)}
+                      className="invisible h-5 w-5 items-center justify-center rounded-full bg-sky-500 text-white opacity-0 transition flex group-hover:visible group-hover:opacity-100 hover:bg-sky-600">
+                      <Plus size={11}/>
+                    </button>
+                  )}
+                </div>
+
+                {/* Events */}
+                <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto" style={{maxHeight:90}}>
+                  {dayEvs.map((ev, i) => {
+                    const evIsPast = ev.date < todayStr;
+                    const color = ev.color || "#6366f1";
+                    const isLive = ev.status==="LIVE"||ev.status==="live";
+                    if (isPast || evIsPast) return (
+                      <button key={i} onClick={() => { setSelectedEvent(ev); setDrawerOpen(true); }}
+                        className="w-full truncate rounded-md bg-slate-100 px-2 py-0.5 text-left text-[11px] font-medium text-slate-400 transition hover:bg-slate-200">
+                        {ev.start} {ev.title}
+                      </button>
+                    );
+                    return (
+                      <button key={i} onClick={() => { setSelectedEvent(ev); setDrawerOpen(true); }}
+                        className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-[11px] font-semibold transition hover:brightness-95 active:scale-[0.98]"
+                        style={{ backgroundColor: eventBg(color), borderLeft: `3px solid ${color}`, color: "#1e293b" }}>
+                        {isLive && <span className="shrink-0 rounded-sm bg-red-500 px-1 text-[9px] font-bold text-white">LIVE</span>}
+                        <span className="truncate">{ev.title}</span>
+                        <span className="ml-auto shrink-0 text-[10px] font-bold" style={{color}}>{ev.start}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* days of week */}
-      <div className="flex w-full ">
-        {DAYS.map((d, i) => (
-          <div key={i} className="w-[14.28%] text-black text-center font-bold">{d}</div>
-        ))}
-      </div>
-
-      {/* calendar grid */}
-      <div className="flex flex-wrap w-full border-t border-l">
-        {blankDays.map((_, i) => (
-          <div
-            key={i}
-            className="w-1/7 min-h-[150px] border-r border-b"
-            style={{ height: "calc((100vh - 150px) / 6)" }}
-          ></div>
-        ))}
-        {noOfDays.map((date, i) => {
-          const cellDate = `${year}-${String(month + 1).padStart(2, "0")}-${String(date).padStart(2, "0")}`;
-          
-          // Check if date is in the past
-          const selected = new Date(year, month, date);
-          const now = new Date();
-          now.setHours(0, 0, 0, 0);
-          const isPastDate = selected < now;
-
-          const dayEvents = events
-            .filter((ev) => ev.teacherId === teacherId && ev.date === cellDate) // lọc teacherId
-            .sort((a, b) => {
-              const [ah, am] = a.start.split(":").map(Number);
-              const [bh, bm] = b.start.split(":").map(Number);
-              return ah * 60 + am - (bh * 60 + bm);
-            });
-
-          return (
-            <div
-              key={i}
-              className={`w-1/7 border-r min-h-[150px] border-b p-1 ${isPastDate ? 'bg-gray-100' : ''}`}
-              style={{ height: "calc((100vh - 150px) / 6)" }}
-            >
-              <div
-                onClick={() => !isPastDate && showEventModal(date)}
-                className={`w-6 h-6 flex items-center justify-center rounded-full cursor-pointer transition ${
-                  isToday(date) 
-                    ? "bg-blue-500 text-white font-bold" 
-                    : isPastDate 
-                    ? "bg-gray-400 text-gray-600 cursor-not-allowed font-semibold"
-                    : "hover:bg-blue-200 text-black"
-                }`}
-                title={isPastDate ? "Cannot schedule in the past" : ""}
-              >
-                {date}
-              </div>
-
-              <div className={`overflow-y-auto h-25 text-sm ${isPastDate ? 'opacity-50' : ''}`}>
-                {dayEvents.map((ev, idx) => {
-                  const todayStr = new Date().toISOString().split("T")[0];
-                  const isPast = ev.date < todayStr;
-                  const isLivestream = ev.type === 'livestream';
-
-                  return (
-                    <div
-                      key={idx}
-                      className="mt-1 rounded-md p-1 cursor-pointer border-l-4"
-                      onClick={() => openDrawer(ev)}
-                      style={{
-                        backgroundColor: isPastDate ? "#d1d5db" : (isPast ? "#f3f4f6" : pastelize(ev.color, 0.25)),
-                        borderColor: isPastDate ? "#9ca3af" : (isPast ? "#9ca3af" : ev.color),
-                        color: isPastDate ? "#6b7280" : (isPast ? "#6b7280" : "#111827"),
-                      }}
-                    >
-                      <div className="truncate font-medium flex items-center gap-1">
-                        <span style={{ color: isPastDate ? "#9ca3af" : (isPast ? "#9ca3af" : ev.color) }}>{ev.start}</span>
-                        {isLivestream && (
-                          <span className={`text-xs px-1 rounded ${
-                            ev.status === 'scheduled' ? 'bg-purple-200 text-purple-800' :
-                            ev.status === 'live' ? 'bg-red-200 text-red-800' :
-                            'bg-gray-300 text-gray-700'
-                          }`}>
-                            {ev.status === 'scheduled' ? '🕛' : ev.status === 'live' ? '🔴' : '✓'}
-                          </span>
-                        )}
-                        <span className="truncate">{ev.title}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <EventDrawer event={selectedEvent} isOpen={drawerOpen} onClose={closeDrawer} />
-
-      {/* modal */}
-      <ScheduleEventModal
-        open={openModal}
-        onClose={() => setOpenModal(false)}
-        onSave={handleSaveEvent}
-        teacherId={teacherId}
-        defaultDate={eventDate}
-      />
-
+      <EventDrawer event={selectedEvent} isOpen={drawerOpen} onClose={() => { setDrawerOpen(false); setSelectedEvent(null); }}/>
+      <ScheduleEventModal open={openModal} onClose={() => setOpenModal(false)} onSave={handleSaveEvent} teacherId={teacherId} defaultDate={eventDate}/>
       {ToastComponent}
-
-      <ConfirmDialog
-        open={confirmDialog.open}
-        title="Cannot Schedule in the Past"
-        message="Cannot schedule events in the past. Please select a future date."
-        type="warning"
-        confirmText="OK"
-        cancelText="Close"
-        onConfirm={() => setConfirmDialog({ open: false, date: 0 })}
-        onCancel={() => setConfirmDialog({ open: false, date: 0 })}
-      />
+      <ConfirmDialog open={confirmDialog.open} title="Cannot Schedule in the Past" message="Select a future date." type="warning" confirmText="OK" cancelText="Close"
+        onConfirm={() => setConfirmDialog({open:false,date:0})} onCancel={() => setConfirmDialog({open:false,date:0})}/>
     </div>
   );
 }

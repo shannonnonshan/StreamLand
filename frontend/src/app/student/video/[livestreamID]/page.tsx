@@ -21,6 +21,7 @@ import LoginModal from "@/component/(modal)/login";
 import RegisterModal from "@/component/(modal)/register";
 import { getRecordingAiAnalysis } from "@/lib/api/teacher";
 import { AUTH_STATE_CHANGED_EVENT, getStoredToken, getStoredUser } from "@/lib/authStorage";
+import { getUserStats } from "@/lib/userStatsCache";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -84,6 +85,8 @@ interface RecordingAiAnalysisPayload {
 interface VideoComment {
   id: string;
   author: string;
+  authorId?: string | null;
+  authorStreak?: number | null;
   authorAvatar?: string;
   content: string;
   createdAt: string;
@@ -117,6 +120,7 @@ interface LocalVideoProgressSnapshot {
 }
 
 const VIDEO_PROGRESS_STORAGE_PREFIX = 'streamland:video-progress:';
+const STREAK_UPDATED_EVENT = 'streamland:streak-updated';
 
 const parseStoredUserProfile = (): CurrentStudentProfile | null => {
   if (typeof window === 'undefined') return null;
@@ -188,6 +192,8 @@ export default function VideoPlayerPage() {
   const restoreCompletedRef = useRef(false);
   const reportWatchInFlightRef = useRef(false);
   const prevViewerRef = useRef<string | null>(null);
+  const activeWatchSecondsRef = useRef(0);
+  const lastPlaybackPositionRef = useRef<number | null>(null);
 
   const coerceNumber = (value: unknown): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -421,7 +427,7 @@ export default function VideoPlayerPage() {
     }
 
     if (!isAuthenticated) return;
-    const token = localStorage.getItem('accessToken');
+    const token = getStoredToken();
     if (!token) return;
 
     const now = Date.now();
@@ -432,8 +438,15 @@ export default function VideoPlayerPage() {
     lastProgressPostRef.current = now;
 
     try {
+      // Optimistic UI: notify listeners of current active watch seconds before server acks
+      try {
+        window.dispatchEvent(new CustomEvent(STREAK_UPDATED_EVENT, { detail: { optimisticDaily: { activeWatchSeconds: Math.max(0, Math.floor(activeWatchSecondsRef.current)) } } }));
+      } catch (e) {
+        // ignore
+      }
       const completed = position / totalDuration >= 0.9;
-      await fetch(`${API_URL}/student/track-activity`, {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const response = await fetch(`${API_URL}/student/track-activity`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -446,8 +459,17 @@ export default function VideoPlayerPage() {
           duration: Math.max(1, Math.floor(totalDuration)),
           progress: (position / totalDuration) * 100,
           completed,
+          timezone,
+          activeWatchSeconds: Math.max(0, Math.floor(activeWatchSecondsRef.current)),
         }),
       });
+
+      if (response.ok) {
+        const payload = await response.json().catch(() => null);
+        if (payload && (payload.updated || payload.todayQualified)) {
+          window.dispatchEvent(new CustomEvent(STREAK_UPDATED_EVENT, { detail: payload }));
+        }
+      }
     } catch (err) {
       console.error('Failed to sync progress to server:', err);
     }
@@ -531,7 +553,7 @@ export default function VideoPlayerPage() {
   // Load current student profile and comments
   useEffect(() => {
     const loadProfileAndComments = async () => {
-      const token = localStorage.getItem('accessToken');
+      const token = getStoredToken();
       if (token) {
         try {
           const p = await fetch(`${API_URL}/auth/profile`, { headers: { Authorization: `Bearer ${token}` } });
@@ -558,16 +580,33 @@ export default function VideoPlayerPage() {
         const r = await fetch(`${API_URL}/livestream/${videoInfo.id}/comments?limit=50`);
         if (r.ok) {
           const data = await r.json();
-          setComments((data || []).map((c: any) => ({
+          const mapped: VideoComment[] = (data || []).map((c: any) => ({
             id: c.id,
             author: c.author || 'Student',
+            authorId: c.studentId || c.student_id || null,
             authorAvatar: c.authorAvatar || undefined,
             content: c.content,
             createdAt: c.createdAt,
             likes: c.likes || 0,
             dislikes: c.dislikes || 0,
             myReaction: null,
-          })));
+            authorStreak: null,
+          }));
+          setComments(mapped);
+          // Enrich with per-author streaks (dedupe)
+          const uniqueIds = Array.from(new Set(mapped.map((m) => m.authorId).filter(Boolean))) as string[];
+          if (uniqueIds.length > 0) {
+            try {
+              const streakMap: Record<string, number> = {};
+              const statsResults = await Promise.all(uniqueIds.map(async (uid) => [uid, await getUserStats(uid)] as const));
+              statsResults.forEach(([uid, stats]) => {
+                if (stats && typeof stats.streak === 'number') streakMap[uid] = stats.streak;
+              });
+              setComments((prev) => prev.map((c) => ({ ...c, authorStreak: c.authorId ? streakMap[c.authorId] ?? 0 : null })));
+            } catch (e) {
+              // ignore enrich failures
+            }
+          }
         }
       } catch (e) {
         console.error('Comments load failed', e);
@@ -579,7 +618,7 @@ export default function VideoPlayerPage() {
   useEffect(() => {
     const refreshProfile = async () => {
       if (showLoginModal || showRegisterModal) return;
-      const token = localStorage.getItem('accessToken');
+      const token = getStoredToken();
       if (!token) return;
       try {
         const resp = await fetch(`${API_URL}/auth/profile`, {
@@ -618,6 +657,8 @@ export default function VideoPlayerPage() {
       lastProgressPostRef.current = 0;
       restoreCompletedRef.current = true;
       setReportedView(false);
+      activeWatchSecondsRef.current = 0;
+      lastPlaybackPositionRef.current = null;
     };
 
     const syncAuthState = () => {
@@ -644,6 +685,8 @@ export default function VideoPlayerPage() {
         pendingSeekRef.current = null;
         progressSyncRef.current = false;
         lastProgressPostRef.current = 0;
+        activeWatchSecondsRef.current = 0;
+        lastPlaybackPositionRef.current = null;
       }
 
       prevViewerRef.current = nextViewer;
@@ -800,6 +843,15 @@ export default function VideoPlayerPage() {
         setCurrentTime(video.currentTime);
         console.log('[Video] Time update:', video.currentTime, 'Duration:', video.duration); // Debug
 
+        const previousPlaybackPosition = lastPlaybackPositionRef.current;
+        if (previousPlaybackPosition !== null) {
+          const delta = video.currentTime - previousPlaybackPosition;
+          if (delta > 0 && delta <= 2.5) {
+            activeWatchSecondsRef.current += delta;
+          }
+        }
+        lastPlaybackPositionRef.current = video.currentTime;
+
         if (!progressSyncRef.current) {
           progressSyncRef.current = true;
         }
@@ -876,6 +928,7 @@ export default function VideoPlayerPage() {
       };
       const handlePause = () => {
         setIsPlaying(false);
+        lastPlaybackPositionRef.current = video.currentTime;
         const effectiveDuration = video.duration && isFinite(video.duration) && video.duration > 0
           ? video.duration
           : (videoInfo?.duration || 0);
@@ -885,6 +938,14 @@ export default function VideoPlayerPage() {
       };
       const handleEnded = () => {
         setIsPlaying(false);
+        const previousPlaybackPosition = lastPlaybackPositionRef.current;
+        if (previousPlaybackPosition !== null) {
+          const delta = video.duration - previousPlaybackPosition;
+          if (delta > 0 && delta <= 2.5) {
+            activeWatchSecondsRef.current += delta;
+          }
+        }
+        lastPlaybackPositionRef.current = video.duration;
         const effectiveDuration = video.duration && isFinite(video.duration) && video.duration > 0
           ? video.duration
           : (videoInfo?.duration || 0);
@@ -915,6 +976,7 @@ export default function VideoPlayerPage() {
       };
 
       console.log('[Video] Setting up event listeners for:', videoInfo.recordingUrl);
+      lastPlaybackPositionRef.current = video.currentTime;
       video.addEventListener("timeupdate", updateTime);
       video.addEventListener("loadedmetadata", updateDuration);
       video.addEventListener("durationchange", updateDuration);
@@ -960,6 +1022,8 @@ export default function VideoPlayerPage() {
       if (!isAuthenticated) {
         restoreCompletedRef.current = true;
         pendingSeekRef.current = null;
+        activeWatchSecondsRef.current = 0;
+        lastPlaybackPositionRef.current = null;
         const video = videoRef.current;
         if (video) {
           video.currentTime = 0;
@@ -968,7 +1032,7 @@ export default function VideoPlayerPage() {
         return;
       }
 
-      const token = localStorage.getItem('accessToken');
+      const token = getStoredToken();
       if (!token) {
         restoreCompletedRef.current = true;
         return;
@@ -994,6 +1058,8 @@ export default function VideoPlayerPage() {
 
         const target = Math.max(0, Math.min(progress.lastPosition, (progress.duration || video.duration || 0) - 1));
         pendingSeekRef.current = target;
+        activeWatchSecondsRef.current = Math.max(0, progress.lastPosition || 0);
+        lastPlaybackPositionRef.current = target;
         if ((progress.duration || 0) > 0) {
           writeLocalProgressSnapshot(target, progress.duration);
         }
@@ -1027,6 +1093,8 @@ export default function VideoPlayerPage() {
 
     const target = Math.max(0, Math.min(snapshot.currentTime, (snapshot.duration || video.duration || 0) - 1));
     pendingSeekRef.current = target;
+    activeWatchSecondsRef.current = Math.max(0, snapshot.currentTime || 0);
+    lastPlaybackPositionRef.current = target;
 
     if (video.readyState >= 1 && video.currentTime < target - 1) {
       video.currentTime = target;
@@ -1247,7 +1315,31 @@ export default function VideoPlayerPage() {
       });
       if (!res.ok) return;
       const created = await res.json();
-      setComments(prev => [created, ...prev]);
+      // Normalize created comment shape
+      const createdNormalized: VideoComment = {
+        id: created.id,
+        author: created.author || (currentStudent?.fullName || 'Student'),
+        authorId: created.studentId || created.student_id || currentStudent?.id || null,
+        authorAvatar: created.authorAvatar || currentStudent?.avatar || undefined,
+        content: created.content,
+        createdAt: created.createdAt,
+        likes: created.likes || 0,
+        dislikes: created.dislikes || 0,
+        myReaction: null,
+        authorStreak: null,
+      };
+      setComments(prev => [createdNormalized, ...prev]);
+
+      // Fetch streak for the author we just added (best-effort)
+      const authorId = createdNormalized.authorId;
+      if (authorId) {
+        try {
+          const stats = await getUserStats(authorId);
+          setComments((prev) => prev.map((c) => (c.id === createdNormalized.id ? { ...c, authorStreak: typeof stats?.streak === 'number' ? stats.streak : 0 } : c)));
+        } catch (e) {
+          // ignore
+        }
+      }
       setNewComment('');
     } catch (e) { console.error(e); }
   };
@@ -1604,7 +1696,12 @@ export default function VideoPlayerPage() {
                               )}
                             </div>
                             <div>
-                              <div className="text-sm font-semibold text-gray-900">{c.author}</div>
+                              <div className="text-sm font-semibold text-gray-900">
+                                {c.author}
+                                {typeof c.authorStreak === 'number' && c.authorStreak > 0 && (
+                                  <span className="ml-2 inline-flex items-center gap-1 text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded">🔥 {c.authorStreak}</span>
+                                )}
+                              </div>
                               <div className="text-sm text-gray-700 mt-1">{c.content}</div>
                             </div>
                           </div>

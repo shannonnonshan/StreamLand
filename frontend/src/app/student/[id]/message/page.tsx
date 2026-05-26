@@ -648,7 +648,7 @@ export default function MessagePage({
                       )}
                     </div>
                     <p className="text-sm text-slate-600 truncate mt-0.5">
-                      {contact.lastMessage?.content || 'Chưa có tin nhắn'}
+                      {contact.lastMessage?.content || 'No messages yet'}
                     </p>
                   </div>
 
@@ -700,7 +700,7 @@ export default function MessagePage({
                     selectedContact.online ? 'text-green-600' : 'text-gray-500'
                   }`}>
                     {selectedContact.online ? 'Online' : 'Offline'}
-                    {typingUsers.has(selectedContact.id) && ' • Đang gõ...'}
+                    {typingUsers.has(selectedContact.id) && ' • Typing...'}
                   </p>
                 </div>
               </div>

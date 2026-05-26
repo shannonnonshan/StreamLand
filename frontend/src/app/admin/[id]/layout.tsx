@@ -162,9 +162,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             setShowRegisterModal(false);
             setShowLoginModal(true);
           }}
-          openOTPModal={(email: string, purpose: 'registration' | 'password-reset') => {
-            setOtpEmail(email);
-            setOtpPurpose(purpose);
+          openOTPModal={(email?: string, purpose?: 'registration' | 'password-reset') => {
+            setOtpEmail(email || '');
+            setOtpPurpose(purpose || 'registration');
             setShowRegisterModal(false);
             setShowOTPModal(true);
           }}
@@ -180,11 +180,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             setShowForgotPasswordModal(false);
             setShowLoginModal(true);
           }}
-          openOTPModal={(email: string) => {
-            setOtpEmail(email);
+          openOTPModal={(email?: string) => {
+            setOtpEmail(email || '');
             setOtpPurpose('password-reset');
             setShowForgotPasswordModal(false);
             setShowOTPModal(true);
+          }}
+          openLoginModal={() => {
+            setShowForgotPasswordModal(false);
+            setShowLoginModal(true);
           }}
         />
         

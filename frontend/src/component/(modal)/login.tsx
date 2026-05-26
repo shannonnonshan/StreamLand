@@ -131,23 +131,17 @@ export default function LoginModal({
           return;
         }
 
-        setNotification({
-          type: 'success',
-          message: 'Login successful!'
-        });
+        closeModal();
 
-        // Redirect based on role
-        setTimeout(() => {
-          const userId = result.user?.id;
-          if (result.user?.role === 'TEACHER') {
-            router.push(`/teacher/${userId}`);
-          } else if (result.user?.role === 'ADMIN') {
-            router.push(`/admin/${userId}`);
-          } else {
-            router.push(`/student/${userId}/dashboard`);
-          }
-          closeModal();
-        }, 1500);
+        // Redirect based on role immediately after a successful login.
+        const userId = result.user?.id;
+        if (result.user?.role === 'TEACHER') {
+          router.replace(`/teacher/${userId}`);
+        } else if (result.user?.role === 'ADMIN') {
+          router.replace(`/admin/${userId}`);
+        } else {
+          router.replace(`/student/${userId}/dashboard`);
+        }
       } else {
         if (!result.success && result.bannedUntil) {
           setNotification({

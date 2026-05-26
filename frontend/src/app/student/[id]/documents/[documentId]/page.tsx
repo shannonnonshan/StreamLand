@@ -41,6 +41,7 @@ export default function DocumentDetailPage() {
   const [tags, setTags] = useState('');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const isVideoDocument = (document?.fileType || '').toLowerCase().includes('video');
   
   const iframeRef = useRef<HTMLIFrameElement>(null);
   
@@ -469,13 +470,15 @@ export default function DocumentDetailPage() {
           </div>
         </div>
 
-        <div className="mt-6">
-          <TranscriptSummaryStudio
-            documentId={params.documentId}
-            transcriptSeedMessage="[Transcript preview] AI document transcription endpoint is pending backend integration. Extracted text will appear here."
-            transcriptHint={'Click "Generate Transcript" to extract document content as text. The "Summarize" button activates when transcript is ready.'}
-          />
-        </div>
+        {isVideoDocument && (
+          <div className="mt-6">
+            <TranscriptSummaryStudio
+              documentId={params.documentId}
+              transcriptSeedMessage="[Transcript preview] AI document transcription endpoint is pending backend integration. Extracted text will appear here."
+              transcriptHint={'Click "Generate Transcript" to extract document content as text. The "Summarize" button activates when transcript is ready.'}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

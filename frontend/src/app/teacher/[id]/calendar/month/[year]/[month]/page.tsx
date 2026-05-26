@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, use, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { raleway } from "@/utils/front";
 import EventDrawer from "@/component/teacher/calendar/EventDrawer";
 import { ScheduleEvent } from "@/component/teacher/calendar/ScheduleEventModal";
@@ -14,7 +13,6 @@ import { useToast } from "@/hooks/useToast";
 import ConfirmDialog from "@/component/ConfirmDialog";
 import { Plus } from "lucide-react";
 
-const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
 interface CalendarEvent {
@@ -36,7 +34,6 @@ function eventBg(hex: string): string {
 export default function MonthCalendarPage({ params }: { params: Promise<{ id?: string; year?: string; month?: string }> }) {
   const { id, year: yearParam, month: monthParam } = use(params);
   const today = new Date();
-  const router = useRouter();
   const { success, error: showError, ToastComponent } = useToast();
 
   const teacherId = id ?? "1";
@@ -102,21 +99,6 @@ export default function MonthCalendarPage({ params }: { params: Promise<{ id?: s
 
   return (
     <div className={raleway.className}>
-      {/* Header bar */}
-      <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-3 shadow-sm">
-        <div className="flex items-center gap-2">
-          <select value={month} onChange={e => { const m=Number(e.target.value); setMonth(m); router.push(`/teacher/${teacherId}/calendar/month/${year}/${m+1}`); }}
-            className="cursor-pointer appearance-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-300">
-            {MONTH_NAMES.map((n,i) => <option key={n} value={i}>{n}</option>)}
-          </select>
-          <select value={year} onChange={e => { const y=Number(e.target.value); setYear(y); router.push(`/teacher/${teacherId}/calendar/month/${y}/${month+1}`); }}
-            className="cursor-pointer appearance-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-sky-300">
-            {Array.from({ length: 50 }, (_, i) => year-25+i).map(v => <option key={v} value={v}>{v}</option>)}
-          </select>
-        </div>
-        <p className="hidden text-xs font-medium text-slate-400 sm:block">Click a date to schedule</p>
-      </div>
-
       {/* Grid */}
       <div className="overflow-hidden rounded-2xl border border-slate-200 shadow-sm">
         {/* Day headers */}

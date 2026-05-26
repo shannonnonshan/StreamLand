@@ -63,17 +63,6 @@ export default function WeekCalendar() {
 
   return (
     <section className={raleway.className}>
-      {/* Header */}
-      <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-2 shadow-sm">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-sky-500">Weekly</p>
-          <h2 className="text-base font-bold text-slate-800">{title}</h2>
-        </div>
-        <button onClick={() => { const t=new Date(); router.push(`/teacher/${teacherId}/calendar/week/${t.getFullYear()}/${t.getMonth()+1}/${t.getDate()}`); }}
-          className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-1.5 text-sm font-bold text-sky-600 transition hover:bg-sky-100 active:scale-95">
-          Today
-        </button>
-      </div>
 
       {/* Calendar */}
       <div className="overflow-hidden rounded-2xl border border-slate-200 shadow-sm">
@@ -81,7 +70,7 @@ export default function WeekCalendar() {
           <div style={{minWidth:680}}>
 
             {/* Day headers — dark bg */}
-            <div className="sticky grid grid-cols-[52px_repeat(7,1fr)] border-b border-slate-700 bg-slate-800 z-20" >
+            <div className="sticky grid grid-cols-[52px_repeat(7,1fr)] border-b border-slate-700 bg-slate-800 z-20">
               <div className="border-r border-slate-700 py-3"/>
               {daysOfWeek.map((d,i)=>{
                 const dStr=format(d,"yyyy-MM-dd");

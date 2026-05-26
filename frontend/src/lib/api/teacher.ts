@@ -125,12 +125,15 @@ export async function getTeacherDocuments(teacherId: string, fileType?: string):
   return authenticatedFetch(url);
 }
 
-export async function uploadDocument(teacherId: string, file: File): Promise<Document> {
+export async function uploadDocument(teacherId: string, file: File, description?: string): Promise<Document> {
   const token = getAuthToken();
   if (!token) throw new Error('Not authenticated');
 
   const formData = new FormData();
   formData.append('file', file);
+  if (typeof description === 'string' && description.trim().length > 0) {
+    formData.append('description', description.trim());
+  }
 
   const response = await fetch(`${API_URL}/teacher/${teacherId}/upload-document`, {
     method: 'POST',
@@ -145,6 +148,17 @@ export async function uploadDocument(teacherId: string, file: File): Promise<Doc
   }
 
   return response.json();
+}
+
+export async function updateDocumentDescription(
+  teacherId: string,
+  documentId: string,
+  description?: string,
+): Promise<Document> {
+  return authenticatedFetch(`${API_URL}/teacher/${teacherId}/documents/${documentId}/description`, {
+    method: 'PATCH',
+    body: JSON.stringify({ description: description?.trim() || '' }),
+  });
 }
 
 export async function deleteDocument(teacherId: string, documentId: string): Promise<void> {

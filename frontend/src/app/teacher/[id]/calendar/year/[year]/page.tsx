@@ -76,27 +76,6 @@ export default function YearCalendarClient({ initialYear, teacherId }: Props) {
   return (
     <div className={raleway.className}>
 
-      {/* ── Year navigation bar ── */}
-      <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-3 shadow-sm">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => changeYear(-1)}
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-lg font-bold text-slate-500 transition hover:bg-sky-50 hover:text-sky-600 active:scale-95"
-          >‹</button>
-          <span className="min-w-[4rem] text-center text-xl font-bold tabular-nums text-slate-800">{year}</span>
-          <button
-            onClick={() => changeYear(1)}
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-lg font-bold text-slate-500 transition hover:bg-sky-50 hover:text-sky-600 active:scale-95"
-          >›</button>
-        </div>
-        <button
-          onClick={() => { setYear(today.getFullYear()); setExpanded(null); router.push(`/teacher/${teacherId}/calendar/year/${today.getFullYear()}`); }}
-          className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-1.5 text-sm font-bold text-sky-600 transition hover:bg-sky-100 active:scale-95"
-        >
-          This year
-        </button>
-      </div>
-
       {/* ── 12-month grid ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.from({ length: 12 }, (_, mi) => {

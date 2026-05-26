@@ -381,7 +381,7 @@ export class TeacherService {
   }
 
   // Upload document to R2
-  async uploadDocument(teacherId: string, file: Express.Multer.File) {
+  async uploadDocument(teacherId: string, file: Express.Multer.File, description?: string) {
     const teacher = await this.prisma.postgres.user.findUnique({
       where: { id: teacherId },
       include: { teacherProfile: true },
@@ -414,6 +414,7 @@ export class TeacherService {
       data: {
         teacherId,
         title: file.originalname,
+        description: description?.trim() || null,
         fileUrl: documentUrl,
         fileName: file.originalname,
         fileType,
@@ -432,13 +433,29 @@ export class TeacherService {
       });
     }
 
-    // Return format expected by frontend
-    return {
-      url: documentUrl,
-      filename: file.originalname,
-      size: file.size,
-      documentId: document.id,
-    };
+    return document;
+  }
+
+  async updateDocumentDescription(teacherId: string, documentId: string, description?: string) {
+    const existing = await this.prisma.postgres.document.findFirst({
+      where: {
+        id: documentId,
+        teacherId,
+      },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Document not found');
+    }
+
+    const updated = await this.prisma.postgres.document.update({
+      where: { id: documentId },
+      data: {
+        description: description?.trim() || null,
+      },
+    });
+
+    return updated;
   }
 
   // Update teacher settings

@@ -144,7 +144,12 @@ export class R2StorageService {
     fileBuffer: Buffer,
     contentType: string,
   ): Promise<string> {
-    const key = `documents/${teacherId}/${Date.now()}-${fileName}`;
+    const normalizedName = path.posix
+      .basename(fileName.replace(/\\/g, '/'))
+      .replace(/[\r\n]/g, '')
+      .trim();
+    const safeName = normalizedName || 'document';
+    const key = `documents/${teacherId}/${safeName}`;
 
     try {
       const command = new PutObjectCommand({

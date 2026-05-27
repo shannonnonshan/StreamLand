@@ -1,10 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import { Job, Queue } from 'bull';
+import { PrismaService } from '../prisma/prisma.service';
+import { ProcessingStateService } from './processing-state.service';
 import {
   PROCESSING_JOB_NAME,
   PROCESSING_QUEUE_NAME,
   ProcessingJobPayload,
+  ProcessingEntityType,
 } from './processing.types';
 
 @Injectable()
@@ -14,10 +17,13 @@ export class ProcessingService {
   constructor(
     @InjectQueue(PROCESSING_QUEUE_NAME)
     private readonly processingQueue: Queue<ProcessingJobPayload>,
+    private readonly prisma: PrismaService,
+    private readonly processingStateService: ProcessingStateService,
   ) {}
 
   async enqueue(payload: ProcessingJobPayload): Promise<Job<ProcessingJobPayload> | null> {
     try {
+      this.logger.log(`Queueing processing job for ${payload.type}:${payload.itemId} (${payload.title})`);
       return await this.processingQueue.add(PROCESSING_JOB_NAME, payload, {
         attempts: 3,
         backoff: {
@@ -34,5 +40,77 @@ export class ProcessingService {
       );
       return null;
     }
+  }
+
+  async retry(entityType: ProcessingEntityType, entityId: string): Promise<Job<ProcessingJobPayload> | null> {
+    this.logger.log(`Retry requested for ${entityType}:${entityId}`);
+    const payload = await this.resolvePayload(entityType, entityId);
+    await this.processingStateService.resetForRetry(entityType, entityId);
+
+    if (entityType === 'LIVESTREAM') {
+      await this.prisma.postgres.liveStream.update({
+        where: { id: entityId },
+        data: {
+          processingStatus: 'PENDING',
+        },
+      });
+    } else {
+      await this.prisma.postgres.document.update({
+        where: { id: entityId },
+        data: {
+          processingStatus: 'PENDING',
+        },
+      });
+    }
+
+    return this.enqueue(payload);
+  }
+
+  private async resolvePayload(entityType: ProcessingEntityType, entityId: string): Promise<ProcessingJobPayload> {
+    if (entityType === 'LIVESTREAM') {
+      const livestream = await this.prisma.postgres.liveStream.findUnique({
+        where: { id: entityId },
+        select: {
+          id: true,
+          title: true,
+          recordingUrl: true,
+        },
+      });
+
+      if (!livestream) {
+        throw new NotFoundException('Livestream not found');
+      }
+
+      if (!livestream.recordingUrl) {
+        throw new BadRequestException('Recording URL is missing');
+      }
+
+      return {
+        type: 'livestream',
+        itemId: livestream.id,
+        fileUrl: livestream.recordingUrl,
+        title: livestream.title,
+      };
+    }
+
+    const document = await this.prisma.postgres.document.findUnique({
+      where: { id: entityId },
+      select: {
+        id: true,
+        title: true,
+        fileUrl: true,
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    return {
+      type: 'document',
+      itemId: document.id,
+      fileUrl: document.fileUrl,
+      title: document.title,
+    };
   }
 }

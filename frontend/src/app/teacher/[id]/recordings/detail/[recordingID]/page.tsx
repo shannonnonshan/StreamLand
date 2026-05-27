@@ -6,6 +6,7 @@ import { ArrowLeft, Calendar, Clock, Download, Share2, MessageCircle, Globe, Loc
 import { useEffect, useState } from "react";
 import { getLivestreamById, updateLivestreamVisibility } from "@/lib/api/teacher";
 import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
+import ProcessingTracker from "@/components/shared/ProcessingTracker";
 import TranscriptSummaryStudio from "@/component/shared/TranscriptSummaryStudio";
 
 const recordingDateFormatter = new Intl.DateTimeFormat("en-US", {
@@ -321,6 +322,12 @@ export default function RecordingDetailPage() {
 
           {/* Sidebar */}
           <div className="space-y-4">
+            <ProcessingTracker
+              entityId={recordingID}
+              entityType="LIVESTREAM"
+              showRetry
+            />
+
             {/* Transcript Studio */}
             <TranscriptSummaryStudio
               recordingId={recordingID}

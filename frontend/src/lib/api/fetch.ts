@@ -1,17 +1,26 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
+let refreshInFlight: Promise<string | null> | null = null;
+
 // Helper to get auth token
 export function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem('token') || localStorage.getItem('accessToken');
 }
 
-// Helper to refresh access token
-async function refreshToken(): Promise<boolean> {
+// Helper to refresh access token.
+// Single-flight so concurrent 401s reuse the same refresh request and do not
+// race against refresh-token rotation on the backend.
+export async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) {
+    return refreshInFlight;
+  }
+
+  refreshInFlight = (async () => {
   const refreshToken = localStorage.getItem('refreshToken');
   
   if (!refreshToken) {
-    return false;
+    return null;
   }
 
   try {
@@ -27,14 +36,22 @@ async function refreshToken(): Promise<boolean> {
       const result = await response.json();
       localStorage.setItem('accessToken', result.accessToken);
       localStorage.setItem('refreshToken', result.refreshToken);
-      return true;
+      return result.accessToken as string;
     }
     
-    return false;
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
+    return null;
   } catch (error) {
     console.error('Error refreshing token:', error);
-    return false;
+    return null;
+  } finally {
+    refreshInFlight = null;
   }
+  })();
+
+  return refreshInFlight;
 }
 
 // Helper for authenticated fetch with auto-retry on 401
@@ -71,9 +88,9 @@ export async function authenticatedFetch(url: string, options: RequestInit = {},
   // If 401 and haven't retried yet, try refreshing token
   if (response.status === 401 && !retried) {
     console.log('Got 401, attempting token refresh...');
-    const refreshed = await refreshToken();
+    const newToken = await refreshAccessToken();
     
-    if (refreshed) {
+    if (newToken) {
       console.log('Token refreshed successfully, retrying request...');
       // Retry the request with new token
       return authenticatedFetch(url, options, true);

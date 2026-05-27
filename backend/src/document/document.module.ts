@@ -8,5 +8,6 @@ import { DocumentService } from './document.service';
   imports: [PrismaModule, R2StorageModule],
   controllers: [DocumentController],
   providers: [DocumentService],
+  exports: [DocumentService],
 })
 export class DocumentModule {}

@@ -1,8 +1,7 @@
 "use client"
 import React, { useState, useMemo, useEffect } from 'react'
 import { Check, X, Search, ChevronUp, ChevronDown, Filter, XCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, LayoutList, Loader2, RefreshCw } from 'lucide-react'
-import { generateDocumentTranscript } from '@/lib/api/document'
-import { generateRecordingTranscript } from '@/lib/api/teacher'
+import ProcessingTracker from '@/components/shared/ProcessingTracker'
 
 interface ReportedContent {
   id: string
@@ -113,55 +112,6 @@ export default function ContentModerationPage() {
 
     setRejectReason('')
   }, [selectedContent?.id, selectedContent?.status, selectedContent?.rejectReason])
-
-  const handleRetryProcessing = async (content: ReportedContent) => {
-    if (retryingContentId) return
-
-    try {
-      setRetryingContentId(content.id)
-
-      const applyResult = (result: { processingProgress?: number | null; processingStage?: string | null; processingError?: string | null }) => {
-        const progress = normalizeProcessingProgress(result.processingProgress)
-        const nextStatus = result.processingStage === 'done' || progress === 100
-          ? 'DONE'
-          : result.processingStage === 'error' || !!result.processingError
-            ? 'FAILED'
-            : 'PROCESSING'
-
-        setReportedContent(prev => prev.map(item => (
-          item.id === content.id
-            ? {
-                ...item,
-                processingStatus: nextStatus,
-                processingProgress: progress,
-                processingStage: result.processingStage ?? item.processingStage ?? null,
-                processingError: result.processingError ?? null,
-              }
-            : item
-        )))
-
-        setSelectedContent(prev => prev && prev.id === content.id ? {
-          ...prev,
-          processingStatus: nextStatus,
-          processingProgress: progress,
-          processingStage: result.processingStage ?? prev.processingStage ?? null,
-          processingError: result.processingError ?? null,
-        } : prev)
-      }
-
-      if (content.type === 'recording') {
-        const result = await generateRecordingTranscript(content.id, true)
-        applyResult(result)
-      } else {
-        const result = await generateDocumentTranscript(content.id, true)
-        applyResult(result)
-      }
-    } catch (error) {
-      console.error('Failed to retry processing:', error)
-    } finally {
-      setRetryingContentId(null)
-    }
-  }
 
   // Fetch livestreams and documents from backend
   useEffect(() => {
@@ -941,6 +891,14 @@ export default function ContentModerationPage() {
 
                     </div>
 
+                      <div className="mt-4">
+                        <ProcessingTracker
+                          entityId={selectedContent.id}
+                          entityType={selectedContent.type === 'recording' ? 'LIVESTREAM' : 'DOCUMENT'}
+                          showRetry={false}
+                        />
+                      </div>
+
                     {(selectedContent.processingError || normalizeProcessingStatus(selectedContent.processingStatus) === 'FAILED') && (
                       <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4">
                         <p className="text-sm font-semibold text-red-800">Processing failed</p>
@@ -949,7 +907,38 @@ export default function ContentModerationPage() {
                         </p>
                         <button
                           type="button"
-                          onClick={() => handleRetryProcessing(selectedContent)}
+                          onClick={async () => {
+                            try {
+                              setRetryingContentId(selectedContent.id)
+                              const { retryProcessing } = await import('@/lib/api/processing')
+                              const result = await retryProcessing(
+                                selectedContent.type === 'recording' ? 'LIVESTREAM' : 'DOCUMENT',
+                                selectedContent.id,
+                              )
+
+                              setReportedContent(prev => prev.map(item => (
+                                item.id === selectedContent.id
+                                  ? {
+                                      ...item,
+                                      processingStatus: result.processingStatus,
+                                      processingProgress: result.processingStatus === 'DONE' ? 100 : 0,
+                                      processingStage: result.processingStatus === 'PROCESSING' ? 'preparing' : result.processingStatus === 'PENDING' ? 'queued' : item.processingStage,
+                                      processingError: null,
+                                    }
+                                  : item
+                              )))
+
+                              setSelectedContent(prev => prev && prev.id === selectedContent.id ? {
+                                ...prev,
+                                processingStatus: result.processingStatus,
+                                processingError: null,
+                              } : prev)
+                            } catch (error) {
+                              console.error('Failed to retry processing:', error)
+                            } finally {
+                              setRetryingContentId(null)
+                            }
+                          }}
                           disabled={retryingContentId === selectedContent.id}
                           className="mt-3 inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70"
                         >

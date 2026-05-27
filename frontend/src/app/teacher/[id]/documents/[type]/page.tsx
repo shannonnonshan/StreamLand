@@ -8,6 +8,7 @@ import { ArrowDownToLine, Upload, Trash2, Search, Filter, FileText, ChevronLeft,
 import { getTeacherDocuments, uploadDocument, deleteDocument, Document, mapDocumentTypeToFileType } from "@/lib/api/teacher";
 import { formatDate, formatDateTime } from "@/utils/dateFormat";
 import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
+import ProcessingTracker from "@/components/shared/ProcessingTracker";
 import TranscriptSummaryStudio from "@/component/shared/TranscriptSummaryStudio";
 import { useDocumentsContext } from "../DocumentsContext";
 
@@ -260,7 +261,7 @@ export default function DocumentsTypePage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3 xl:justify-end">
-              <label className="inline-flex min-w-[180px] cursor-pointer items-center justify-center gap-2.5 rounded-full bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 hover:shadow-md active:scale-[0.99]">
+              <label className="inline-flex min-w-45 cursor-pointer items-center justify-center gap-2.5 rounded-full bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 hover:shadow-md active:scale-[0.99]">
                 <Upload size={17} />
                 <span>{isUploading ? 'Uploading...' : 'Upload Documents'}</span>
                 <input
@@ -368,7 +369,7 @@ export default function DocumentsTypePage() {
                         preload="metadata"
                         onError={() => handlePreviewError(doc.id)}
                       />
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+                      <div className="pointer-events-none absolute inset-0 bg-linear-to-t from-black/30 via-transparent to-transparent" />
                     </>
                   ) : !hasPreviewError && doc.fileType === 'pdf' ? (
                     <>
@@ -672,6 +673,16 @@ export default function DocumentsTypePage() {
 
               {selectedDoc.fileType === 'video' && (
                 <div className="mb-6">
+                  <ProcessingTracker
+                    entityId={selectedDoc.id}
+                    entityType="DOCUMENT"
+                    showRetry
+                  />
+                </div>
+              )}
+
+              {selectedDoc.fileType === 'video' && (
+                <div className="mb-6">
                   <TranscriptSummaryStudio
                     documentId={selectedDoc.id}
                     transcriptSeedMessage="[Transcript preview] AI document transcription endpoint is pending backend integration. Extracted text will appear here."
@@ -681,22 +692,22 @@ export default function DocumentsTypePage() {
               )}
 
               {/* Actions */}
-              <div className="flex gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <a
                   href={selectedDoc.fileUrl}
                   download={selectedDoc.fileName}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-3 font-bold text-white transition hover:bg-emerald-700"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
                 >
-                  <ArrowDownToLine size={20} />
+                  <ArrowDownToLine size={18} />
                   Download
                 </a>
                 <a
                   href={selectedDoc.fileUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-100 px-4 py-3 font-bold text-slate-900 transition hover:bg-slate-200"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                   </svg>
                   Open
@@ -706,9 +717,9 @@ export default function DocumentsTypePage() {
                     e.stopPropagation();
                     handleDeleteClick(selectedDoc, e);
                   }}
-                  className="flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-3 font-bold text-white transition hover:bg-rose-700"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
                 >
-                  <Trash2 size={20} />
+                  <Trash2 size={18} />
                   Delete
                 </button>
               </div>

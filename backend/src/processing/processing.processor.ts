@@ -4,23 +4,10 @@ import { Prisma } from '@prisma/client';
 import { Job } from 'bull';
 import { createWriteStream, promises as fs } from 'fs';
 import { spawn } from 'child_process';
-// Use ffmpeg-static binary if available to avoid ENOENT when system ffmpeg is missing
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const ffmpegStatic: string | null = (() => {
-  try {
-    // require returns path string
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('ffmpeg-static');
-  } catch (err) {
-    return null;
-  }
-})();
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 import * as os from 'os';
 import * as path from 'path';
-import FormData from 'form-data';
-import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
 import {
@@ -242,8 +229,7 @@ export class ProcessingProcessor {
     const audioPath = path.join(tempDir, `${path.parse(sourcePath).name}.wav`);
 
     await new Promise<void>((resolve, reject) => {
-      const ffmpegCmd = ffmpegStatic || 'ffmpeg';
-      const ffmpeg = spawn(ffmpegCmd, [
+      const ffmpeg = spawn('ffmpeg', [
         '-y',
         '-i',
         sourcePath,
@@ -292,104 +278,30 @@ export class ProcessingProcessor {
   }
 
   private async transcribe(fileUrl: string): Promise<TranscribeResponse> {
-    const fs = require('fs');
-    let tempFilePath: string | null = null;
-    let fileStream;
+    const response = await fetch(`${this.requireAiServiceUrl()}/transcribe`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ fileUrl }),
+    });
 
-    try {
-      // If fileUrl is a local file path, use it directly. If it's a remote URL, download it first.
-      if (/^https?:\/\//.test(fileUrl)) {
-        // Download file to temp path
-        const res = await axios.get(fileUrl, { responseType: 'stream' });
-        // Try OS temp dir, fallback to ./tmp if error
-        let tmpDir = os.tmpdir();
-        try {
-          fs.accessSync(tmpDir, fs.constants.W_OK);
-        } catch {
-          tmpDir = path.join(process.cwd(), 'tmp');
-          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir);
-        }
-        tempFilePath = path.join(
-          tmpDir,
-          `transcribe-upload-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`
-        );
-        // Use pipeline to ensure the stream is fully flushed and closed
-        const { pipeline: streamPipeline } = require('stream/promises');
-        await streamPipeline(res.data, fs.createWriteStream(tempFilePath));
-        // Check file exists before reading (with short retry to avoid transient FS races)
-        const maxAttempts = 5;
-        let attempt = 0;
-        while (attempt < maxAttempts && !fs.existsSync(tempFilePath)) {
-          await new Promise((res) => setTimeout(res, 100));
-          attempt += 1;
-        }
-        if (!fs.existsSync(tempFilePath)) {
-          throw new Error('Temp file not found after download');
-        }
-        // Try to create read stream, retry on ENOENT a few times
-        let created = false;
-        let lastErr: any = null;
-        for (let i = 0; i < 5; i++) {
-          try {
-            fileStream = fs.createReadStream(tempFilePath);
-            created = true;
-            break;
-          } catch (e) {
-            lastErr = e;
-            await new Promise((res) => setTimeout(res, 100));
-          }
-        }
-        if (!created) {
-          throw lastErr || new Error('Failed to create read stream for temp file');
-        }
-      } else {
-        if (!fs.existsSync(fileUrl)) {
-          throw new Error('Source file not found: ' + fileUrl);
-        }
-        fileStream = fs.createReadStream(fileUrl);
-      }
-
-      const form = new FormData();
-      form.append('file', fileStream);
-
-      const response = await axios.post(
-        this.aiServiceUrl + '/transcribe',
-        form,
-        {
-          headers: form.getHeaders(),
-          maxContentLength: Infinity,
-          maxBodyLength: Infinity,
-        }
-      );
-
-      const payload = response.data as Partial<TranscribeResponse>;
-      const text = typeof payload.text === 'string' ? payload.text.trim() : '';
-
-      if (!text) {
-        throw new BadRequestException('Transcribe service returned an empty transcript');
-      }
-
-      return {
-        text,
-        language: typeof payload.language === 'string' && payload.language.trim() ? payload.language.trim() : 'und',
-        timestamps: Array.isArray(payload.timestamps) ? payload.timestamps : [],
-      };
-    } catch (err) {
-      if (err && typeof err === 'object' && 'response' in err) {
-        const response = (err as any).response;
-        throw new BadRequestException(`Transcribe service error (${response.status}): ${response.data && typeof response.data === 'string' ? response.data : JSON.stringify(response.data)}`);
-      }
-      // fallback: print error message if available
-      if (err instanceof Error) {
-        throw new BadRequestException(`Transcribe error: ${err.message}`);
-      }
-      throw new BadRequestException('Unknown error during transcribe');
-    } finally {
-      // Clean up temp file if created
-      if (tempFilePath) {
-        try { fs.unlinkSync(tempFilePath); } catch {}
-      }
+    if (!response.ok) {
+      throw new BadRequestException(`Transcribe service error (${response.status}): ${await response.text()}`);
     }
+
+    const payload = (await response.json()) as Partial<TranscribeResponse>;
+    const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+
+    if (!text) {
+      throw new BadRequestException('Transcribe service returned an empty transcript');
+    }
+
+    return {
+      text,
+      language: typeof payload.language === 'string' && payload.language.trim() ? payload.language.trim() : 'und',
+      timestamps: Array.isArray(payload.timestamps) ? payload.timestamps : [],
+    };
   }
 
   private async summarise(text: string, language: string): Promise<SummariseResponse> {

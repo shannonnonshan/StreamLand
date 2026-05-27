@@ -6,7 +6,7 @@ import { ProcessingStepUpdatePayload } from './processing.types';
 @WebSocketGateway({ cors: { origin: '*' } })
 export class ProcessingGateway {
   @WebSocketServer()
-  server: Server;
+  server: Server | undefined;
 
   private readonly logger = new Logger(ProcessingGateway.name);
 

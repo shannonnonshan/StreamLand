@@ -9,37 +9,40 @@ export function getAuthToken(): string | null {
   return getStoredToken();
 }
 
-// Helper to refresh access token
-async function refreshToken(): Promise<boolean> {
-  const refreshToken = localStorage.getItem('refreshToken');
-  
-  if (!refreshToken) {
-    return null;
-  }
+// Helper to refresh access token (deduplicates concurrent refreshes)
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
 
-  try {
-    const response = await fetch(`${API_URL}/auth/refresh`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ refreshToken }),
-    });
+  refreshInFlight = (async (): Promise<string | null> => {
+    const storedRefresh = localStorage.getItem('refreshToken');
 
-    if (response.ok) {
+    if (!storedRefresh) {
+      refreshInFlight = null;
+      return null;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: storedRefresh }),
+      });
+
+      if (!response.ok) {
+        clearAuthStorage();
+        return null;
+      }
+
       const result = await response.json();
       localStorage.setItem('accessToken', result.accessToken);
       localStorage.setItem('refreshToken', result.refreshToken);
       return result.accessToken as string;
+    } catch (error) {
+      console.error('Error refreshing token:', error);
+      return null;
+    } finally {
+      refreshInFlight = null;
     }
-    clearAuthStorage();
-    return false;
-  } catch (error) {
-    console.error('Error refreshing token:', error);
-    return null;
-  } finally {
-    refreshInFlight = null;
-  }
   })();
 
   return refreshInFlight;

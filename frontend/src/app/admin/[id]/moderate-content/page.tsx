@@ -40,6 +40,7 @@ export default function ContentModerationPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState<'all' | 'recording' | 'document'>('all')
   const [approvalFilter, setApprovalFilter] = useState<'all' | 'approved' | 'rejected' | 'pending'>('all')
+  const [processFilter, setProcessFilter] = useState<'all' | 'processing' | 'done' | 'failed' | 'pending'>('all')
   const [dateFromFilter, setDateFromFilter] = useState('')
   const [dateToFilter, setDateToFilter] = useState('')
   const [pageSize, setPageSize] = useState(10)
@@ -97,6 +98,14 @@ export default function ContentModerationPage() {
     if (value === 'approved') return 'bg-emerald-100 text-emerald-700';
     if (value === 'rejected') return 'bg-red-100 text-red-700';
     return 'bg-amber-100 text-amber-700';
+  }
+
+  const getProcessFilterValue = (content: ReportedContent): 'processing' | 'done' | 'failed' | 'pending' => {
+    const processingStatus = normalizeProcessingStatus(content.processingStatus);
+    if (processingStatus === 'PROCESSING') return 'processing';
+    if (processingStatus === 'DONE') return 'done';
+    if (processingStatus === 'FAILED') return 'failed';
+    return 'pending';
   }
 
   useEffect(() => {
@@ -214,6 +223,7 @@ export default function ContentModerationPage() {
       
       const matchesType = typeFilter === 'all' || content.type === typeFilter
       const matchesApproval = approvalFilter === 'all' || content.status === approvalFilter
+      const matchesProcess = processFilter === 'all' || getProcessFilterValue(content) === processFilter
 
       const reportedAt = new Date(content.reportedAt)
       const fromDate = dateFromFilter ? new Date(dateFromFilter) : null
@@ -221,7 +231,7 @@ export default function ContentModerationPage() {
       const matchesDateFrom = !fromDate || Number.isNaN(fromDate.getTime()) || reportedAt >= fromDate
       const matchesDateTo = !toDate || Number.isNaN(toDate.getTime()) || reportedAt <= toDate
       
-      return matchesSearch && matchesType && matchesApproval && matchesDateFrom && matchesDateTo
+      return matchesSearch && matchesType && matchesApproval && matchesProcess && matchesDateFrom && matchesDateTo
     })
 
     return filtered.sort((a, b) => {
@@ -244,7 +254,7 @@ export default function ContentModerationPage() {
       }
       return 0
     })
-  }, [reportedContent, searchQuery, typeFilter, approvalFilter, dateFromFilter, dateToFilter, sortConfig])
+  }, [reportedContent, searchQuery, typeFilter, approvalFilter, processFilter, dateFromFilter, dateToFilter, sortConfig])
 
   const totalPages = Math.max(1, Math.ceil(filteredAndSortedContent.length / pageSize))
 
@@ -256,7 +266,7 @@ export default function ContentModerationPage() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, typeFilter, approvalFilter, dateFromFilter, dateToFilter, pageSize])
+  }, [searchQuery, typeFilter, approvalFilter, processFilter, dateFromFilter, dateToFilter, pageSize])
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages))
@@ -517,7 +527,7 @@ export default function ContentModerationPage() {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="mt-4 flex flex-wrap items-end gap-3">
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setTypeFilter('all')}
@@ -553,40 +563,63 @@ export default function ContentModerationPage() {
 
           <div className="h-8 w-px bg-slate-200" />
 
-          <select
-            value={approvalFilter}
-            onChange={(e) => setApprovalFilter(e.target.value as typeof approvalFilter)}
-            className="min-w-37.5 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20"
-          >
-            <option value="all">All approvals</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="pending">Pending</option>
-          </select>
+          <div className="min-w-56 self-end">
+            <label className="mb-1 block h-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Process filter
+            </label>
+            <select
+              value={processFilter}
+              onChange={(e) => setProcessFilter(e.target.value as typeof processFilter)}
+              className="h-10 w-full rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+            >
+              <option value="all">All process states</option>
+              <option value="processing">Processing ({reportedContent.filter(c => getProcessFilterValue(c) === 'processing').length})</option>
+              <option value="done">Done ({reportedContent.filter(c => getProcessFilterValue(c) === 'done').length})</option>
+              <option value="failed">Failed ({reportedContent.filter(c => getProcessFilterValue(c) === 'failed').length})</option>
+              <option value="pending">Pending ({reportedContent.filter(c => getProcessFilterValue(c) === 'pending').length})</option>
+            </select>
+          </div>
+
+          <div className="min-w-56 self-end">
+            <label className="mb-1 block h-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Approval filter
+            </label>
+            <select
+              value={approvalFilter}
+              onChange={(e) => setApprovalFilter(e.target.value as typeof approvalFilter)}
+              className="h-10 w-full rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+            >
+              <option value="all">All approvals</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
 
           <input
             type="date"
             value={dateFromFilter}
             onChange={(e) => setDateFromFilter(e.target.value)}
-            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+            className="h-10 rounded-full border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
           />
 
           <input
             type="date"
             value={dateToFilter}
             onChange={(e) => setDateToFilter(e.target.value)}
-            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+            className="h-10 rounded-full border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
           />
 
           <button
             onClick={() => {
               setApprovalFilter('all')
+              setProcessFilter('all')
               setDateFromFilter('')
               setDateToFilter('')
             }}
             title="Clear filters"
             aria-label="Clear filters"
-            className="inline-flex items-center justify-center rounded-full bg-linear-to-r from-slate-900 to-slate-700 p-2.5 text-white shadow-md shadow-slate-900/20 transition hover:scale-[1.02] hover:from-slate-800 hover:to-slate-600"
+            className="inline-flex h-10 items-center justify-center rounded-full bg-linear-to-r from-slate-900 to-slate-700 px-3 text-white shadow-md shadow-slate-900/20 transition hover:scale-[1.02] hover:from-slate-800 hover:to-slate-600"
           >
             <XCircle size={18} />
           </button>
@@ -762,7 +795,9 @@ export default function ContentModerationPage() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {paginatedContent.map((content) => (
-                <tr key={content.id}>
+                <tr
+                  key={content.id}
+                >
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{content.title}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
@@ -824,11 +859,7 @@ export default function ContentModerationPage() {
                 <p className="mt-1 text-sm text-white/75">{selectedContent.title} · {selectedContent.type === 'recording' ? 'Recording' : 'Document'}</p>
               </div>
               <button
-                onClick={() => {
-                  setShowModal(false)
-                  setSelectedContent(null)
-                  setRejectReason("")
-                }}
+                onClick={() => { setShowModal(false); setSelectedContent(null); setRejectReason(""); }}
                 title="Close modal"
                 aria-label="Close modal"
                 className="rounded-full border border-white/10 bg-white/10 p-2 text-white transition hover:bg-white/20"
@@ -846,9 +877,7 @@ export default function ContentModerationPage() {
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#292C6D]/50">Content Details</p>
                         <h3 className="mt-1 text-lg font-bold text-slate-900">{selectedContent.title}</h3>
                       </div>
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        selectedContent.type === 'recording' ? 'bg-[#292C6D]/10 text-[#292C6D]' : 'bg-[#EC255A]/10 text-[#EC255A]'
-                      }`}>
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${selectedContent.type === 'recording' ? 'bg-[#292C6D]/10 text-[#292C6D]' : 'bg-[#EC255A]/10 text-[#EC255A]'}`}>
                         {selectedContent.type === 'recording' ? 'Recording' : 'Document'}
                       </span>
                     </div>
@@ -864,40 +893,27 @@ export default function ContentModerationPage() {
                       </div>
                       <div className="rounded-2xl bg-slate-50 p-4">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Approval</p>
-                        <p className="mt-1 text-sm font-medium text-slate-900">
-                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getApprovalStatusClasses(selectedContent.status)}`}>
-                            {selectedContent.status === 'approved' ? 'Approved' : selectedContent.status === 'rejected' ? 'Rejected' : 'Pending'}
-                          </span>
-                        </p>
+                        <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getApprovalStatusClasses(selectedContent.status)}`}>
+                          {selectedContent.status === 'approved' ? 'Approved' : selectedContent.status === 'rejected' ? 'Rejected' : 'Pending'}
+                        </span>
                       </div>
                       <div className="rounded-2xl bg-slate-50 p-4">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Process Status</p>
-                        <div className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getProcessingStatusClasses(selectedContent.processingStatus)}`}>
+                        <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getProcessingStatusClasses(selectedContent.processingStatus)}`}>
                           {normalizeProcessingStatus(selectedContent.processingStatus)}
-                        </div>
-                        <p className="mt-2 text-sm font-medium text-slate-900">
-                          {normalizeProcessingProgress(selectedContent.processingProgress)}%
-                        </p>
-                        <div className="mt-2 h-2 w-full rounded-full bg-slate-200">
-                          <div
-                            className={`h-2 rounded-full transition-all ${selectedContent.processingError ? 'bg-red-500' : 'bg-[#292C6D]'}`}
-                            style={{ width: `${normalizeProcessingProgress(selectedContent.processingProgress)}%` }}
-                          />
-                        </div>
-                        <p className="mt-2 text-[11px] font-medium text-slate-500">
-                          {getProcessingStageLabel(selectedContent.processingStage)}
-                        </p>
+                        </span>
                       </div>
-
                     </div>
 
-                      <div className="mt-4">
-                        <ProcessingTracker
-                          entityId={selectedContent.id}
-                          entityType={selectedContent.type === 'recording' ? 'LIVESTREAM' : 'DOCUMENT'}
-                          showRetry={false}
-                        />
-                      </div>
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Process Detail</p>
+                      <ProcessingTracker
+                        entityId={selectedContent.id}
+                        entityType={selectedContent.type === 'recording' ? 'LIVESTREAM' : 'DOCUMENT'}
+                        showRetry={false}
+                        showInlineProgress
+                      />
+                    </div>
 
                     {(selectedContent.processingError || normalizeProcessingStatus(selectedContent.processingStatus) === 'FAILED') && (
                       <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4">
@@ -909,34 +925,25 @@ export default function ContentModerationPage() {
                           type="button"
                           onClick={async () => {
                             try {
-                              setRetryingContentId(selectedContent.id)
-                              const { retryProcessing } = await import('@/lib/api/processing')
+                              setRetryingContentId(selectedContent.id);
+                              const { retryProcessing } = await import('@/lib/api/processing');
                               const result = await retryProcessing(
                                 selectedContent.type === 'recording' ? 'LIVESTREAM' : 'DOCUMENT',
                                 selectedContent.id,
-                              )
-
-                              setReportedContent(prev => prev.map(item => (
+                              );
+                              setReportedContent(prev => prev.map(item =>
                                 item.id === selectedContent.id
-                                  ? {
-                                      ...item,
-                                      processingStatus: result.processingStatus,
-                                      processingProgress: result.processingStatus === 'DONE' ? 100 : 0,
-                                      processingStage: result.processingStatus === 'PROCESSING' ? 'preparing' : result.processingStatus === 'PENDING' ? 'queued' : item.processingStage,
-                                      processingError: null,
-                                    }
+                                  ? { ...item, processingStatus: result.processingStatus, processingError: null }
                                   : item
-                              )))
-
-                              setSelectedContent(prev => prev && prev.id === selectedContent.id ? {
-                                ...prev,
-                                processingStatus: result.processingStatus,
-                                processingError: null,
-                              } : prev)
+                              ));
+                              setSelectedContent(prev => prev && prev.id === selectedContent.id
+                                ? { ...prev, processingStatus: result.processingStatus, processingError: null }
+                                : prev
+                              );
                             } catch (error) {
-                              console.error('Failed to retry processing:', error)
+                              console.error('Failed to retry processing:', error);
                             } finally {
-                              setRetryingContentId(null)
+                              setRetryingContentId(null);
                             }
                           }}
                           disabled={retryingContentId === selectedContent.id}
@@ -950,58 +957,18 @@ export default function ContentModerationPage() {
                   </section>
 
                   <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-5 shadow-sm">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#292C6D]/50">Content Preview</p>
-                        <h3 className="mt-1 text-lg font-bold text-slate-900">Preview</h3>
-                      </div>
-                    </div>
-
+                    <p className="mb-4 text-xs font-semibold uppercase tracking-[0.2em] text-[#292C6D]/50">Content Preview</p>
                     <div className="rounded-2xl bg-slate-100 p-4">
-                      {selectedContent.type === 'recording' ? (
-                        selectedContent.videoUrl ? (
-                          <div className="space-y-4">
-                            <video
-                              controls
-                              className="w-full rounded-2xl bg-black shadow-lg"
-                              src={selectedContent.videoUrl}
-                            >
-                              Your browser does not support the video tag.
-                            </video>
-                            <div className="break-all rounded-2xl bg-white p-4">
-                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 mb-1">Recording URL</p>
-                              <a
-                                href={selectedContent.videoUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-sm font-medium text-[#292C6D] underline decoration-[#EC255A]/40 underline-offset-4 break-all"
-                              >
-                                {selectedContent.videoUrl}
-                              </a>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex min-h-56 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white text-slate-500">
-                            No recording URL available
-                          </div>
-                        )
-                      ) : selectedContent.videoUrl ? (
+                      {selectedContent.videoUrl ? (
                         <div className="space-y-4">
-                          <video
-                            controls
-                            className="w-full rounded-2xl bg-black shadow-lg"
-                            src={selectedContent.videoUrl}
-                          >
+                          <video controls className="w-full rounded-2xl bg-black shadow-lg" src={selectedContent.videoUrl}>
                             Your browser does not support the video tag.
                           </video>
                           <div className="break-all rounded-2xl bg-white p-4">
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 mb-1">Video URL</p>
-                            <a
-                              href={selectedContent.videoUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm font-medium text-[#292C6D] underline decoration-[#EC255A]/40 underline-offset-4 break-all"
-                            >
+                            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              {selectedContent.type === 'recording' ? 'Recording URL' : 'Video URL'}
+                            </p>
+                            <a href={selectedContent.videoUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-[#292C6D] underline decoration-[#EC255A]/40 underline-offset-4 break-all">
                               {selectedContent.videoUrl}
                             </a>
                           </div>
@@ -1018,8 +985,7 @@ export default function ContentModerationPage() {
                 <div className="space-y-6">
                   <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-5 shadow-sm">
                     <label className="mb-2 block text-sm font-semibold text-slate-900">
-                      Rejection Reason
-                      <span className="ml-1 text-[#EC255A]">*</span>
+                      Rejection Reason <span className="ml-1 text-[#EC255A]">*</span>
                     </label>
                     <textarea
                       className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#292C6D] focus:bg-white focus:ring-4 focus:ring-[#292C6D]/10"
@@ -1037,17 +1003,9 @@ export default function ContentModerationPage() {
                         <h3 className="mt-1 text-lg font-bold text-slate-900">AI Review</h3>
                       </div>
                       <button
-                        onClick={async () => {
-                          console.log('Re-run Moderation clicked', {
-                            contentId: selectedContent.id,
-                            contentType: selectedContent.type,
-                          })
-                          await fetchLiveModerationForSelected();
-                        }}
+                        onClick={() => void fetchLiveModerationForSelected()}
                         disabled={moderationLoading}
-                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                          moderationLoading ? 'cursor-not-allowed bg-slate-200 text-slate-400' : 'bg-[#292C6D] text-white hover:bg-[#1f2350]'
-                        }`}
+                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${moderationLoading ? 'cursor-not-allowed bg-slate-200 text-slate-400' : 'bg-[#292C6D] text-white hover:bg-[#1f2350]'}`}
                       >
                         {moderationLoading ? 'Running...' : 'Re-run Moderation'}
                       </button>
@@ -1056,7 +1014,7 @@ export default function ContentModerationPage() {
                     <div className="mb-4 rounded-2xl border border-dashed border-[#292C6D]/15 bg-[#F8FAFF] px-4 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Content ID</p>
                       <p className="mt-1 font-mono text-sm font-semibold text-slate-900">
-                        {(selectedContent.type === 'recording' ? 'recordingId' : 'documentId')}: {selectedContent.id}
+                        {selectedContent.type === 'recording' ? 'recordingId' : 'documentId'}: {selectedContent.id}
                       </p>
                     </div>
 
@@ -1084,9 +1042,7 @@ export default function ContentModerationPage() {
                           <div className="mt-3 flex flex-wrap gap-2">
                             {moderation.toxicWords.length > 0 ? (
                               moderation.toxicWords.map((word) => (
-                                <span key={word} className="rounded-full bg-[#EC255A]/10 px-3 py-1 text-xs font-semibold text-[#EC255A]">
-                                  {word}
-                                </span>
+                                <span key={word} className="rounded-full bg-[#EC255A]/10 px-3 py-1 text-xs font-semibold text-[#EC255A]">{word}</span>
                               ))
                             ) : (
                               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">N/A</span>
@@ -1099,16 +1055,13 @@ export default function ContentModerationPage() {
                           <div className="mt-3 flex flex-wrap gap-2">
                             {moderation.categories && moderation.categories.length > 0 ? (
                               moderation.categories.map((category) => (
-                                <span key={category} className="rounded-full bg-[#292C6D]/10 px-3 py-1 text-xs font-semibold text-[#292C6D]">
-                                  {category}
-                                </span>
+                                <span key={category} className="rounded-full bg-[#292C6D]/10 px-3 py-1 text-xs font-semibold text-[#292C6D]">{category}</span>
                               ))
                             ) : (
                               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">N/A</span>
                             )}
                           </div>
                         </div>
-
                       </div>
                     ) : (
                       <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No moderation data available</div>
@@ -1126,8 +1079,7 @@ export default function ContentModerationPage() {
                       <button
                         onClick={() => void handleReject(selectedContent)}
                         disabled={!rejectReason}
-                        className={`inline-flex items-center rounded-full px-4 py-2.5 text-sm font-semibold transition focus:ring-2 focus:ring-red-500 focus:ring-offset-2
-                          ${rejectReason ? 'bg-[#EC255A] text-white hover:bg-[#d31f4c]' : 'cursor-not-allowed bg-slate-100 text-slate-400'}`}
+                        className={`inline-flex items-center rounded-full px-4 py-2.5 text-sm font-semibold transition focus:ring-2 focus:ring-red-500 focus:ring-offset-2 ${rejectReason ? 'bg-[#EC255A] text-white hover:bg-[#d31f4c]' : 'cursor-not-allowed bg-slate-100 text-slate-400'}`}
                       >
                         <X size={18} className="mr-2" /> Reject Content
                       </button>

@@ -196,3 +196,17 @@ html, body {
 .animate-scale-in {
   animation: scale-in 0.2s ease-out;
 }
+
+/* Teacher UI: fully rounded buttons with subtle elevation */
+.teacher-ui button {
+  border-radius: 0.75rem;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+}
+
+.teacher-ui button:hover {
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+}
+
+.teacher-ui button.transcript-cue-button {
+  border-radius: 0.375rem;
+}

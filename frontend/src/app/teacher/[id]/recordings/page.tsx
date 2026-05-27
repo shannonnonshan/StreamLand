@@ -49,6 +49,7 @@ export default function RecordingsPage() {
         setIsLoading(true);
         setError(null);
         const data = await getRecordedLivestreams(teacherId);
+        console.log('[RecordingsPage] getRecordedLivestreams response', { teacherId, length: Array.isArray(data) ? data.length : 'non-array', sample: Array.isArray(data) ? data.slice(0,3) : data });
         setRecordings(data);
         if (data.length > 0) {
           const grouped = groupRecordingsByMonth(data);

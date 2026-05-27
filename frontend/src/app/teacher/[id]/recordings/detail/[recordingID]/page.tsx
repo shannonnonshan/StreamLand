@@ -123,6 +123,25 @@ export default function RecordingDetailPage() {
     fetchRecording();
   }, [recordingID, teacherId]);
 
+  // Listen for transcript cue click events to seek the video
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail as { start?: number } | undefined;
+      if (!detail || typeof detail.start !== 'number') return;
+      const video = document.querySelector('video');
+      if (!video) return;
+      try {
+        (video as HTMLVideoElement).currentTime = detail.start;
+        (video as HTMLVideoElement).play().catch(() => {});
+      } catch (err) {
+        console.error('Failed to seek video from transcript cue:', err);
+      }
+    };
+
+    window.addEventListener('streamland:transcript-seek', handler as EventListener);
+    return () => window.removeEventListener('streamland:transcript-seek', handler as EventListener);
+  }, []);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 p-6 flex items-center justify-center">
@@ -208,9 +227,9 @@ export default function RecordingDetailPage() {
           <span className="font-medium">Back to Recordings</span>
         </button>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
           {/* Main Video Section */}
-          <div className="lg:col-span-2 space-y-4">
+          <div className="space-y-4 lg:col-span-3">
             {/* Video Player */}
             <div className="bg-black rounded-xl overflow-hidden shadow-2xl">
               <video
@@ -277,6 +296,13 @@ export default function RecordingDetailPage() {
                   <Share2 size={18} />
                   Share
                 </button>
+                <ProcessingTracker
+                  entityId={recordingID}
+                  entityType="LIVESTREAM"
+                  showRetry
+                  showInlineProgress
+                  triggerClassName="bg-emerald-600 text-white shadow-md shadow-emerald-600/25 hover:bg-emerald-700"
+                />
               </div>
             </div>
 
@@ -321,13 +347,7 @@ export default function RecordingDetailPage() {
           </div>
 
           {/* Sidebar */}
-          <div className="space-y-4">
-            <ProcessingTracker
-              entityId={recordingID}
-              entityType="LIVESTREAM"
-              showRetry
-            />
-
+          <div className="space-y-4 lg:col-span-2">
             {/* Transcript Studio */}
             <TranscriptSummaryStudio
               recordingId={recordingID}

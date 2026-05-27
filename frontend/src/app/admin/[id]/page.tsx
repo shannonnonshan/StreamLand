@@ -113,8 +113,8 @@ export default function Dashboard() {
           setTopLivestreams(sortedLivestreams.slice(0, 3));
         }
 
-        // Fetch top teachers (would need a dedicated endpoint, for now use users endpoint)
-        const teachersResponse = await fetch(`${API_URL}/admin/users?role=TEACHER&limit=4`, {
+        // Fetch teachers and rank them from real DB fields
+        const teachersResponse = await fetch(`${API_URL}/admin/users?role=TEACHER&limit=100`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
@@ -122,7 +122,34 @@ export default function Dashboard() {
 
         if (teachersResponse.ok) {
           const data = await teachersResponse.json();
-          setTopTeachers(data.users.slice(0, 4));
+          const rankedTeachers = (data.users || [])
+            .map((teacher: any) => ({
+              id: teacher.id,
+              fullName: teacher.fullName,
+              email: teacher.email,
+              avatar: teacher.avatar ?? null,
+              teacherProfile: teacher.teacherProfile ?? { followers: [] },
+              _count: teacher._count ?? { livestreams: 0 },
+            }))
+            .sort((a: Teacher, b: Teacher) => {
+              const followersA = a.teacherProfile?.followers?.length || 0;
+              const followersB = b.teacherProfile?.followers?.length || 0;
+
+              if (followersB !== followersA) {
+                return followersB - followersA;
+              }
+
+              const livestreamsA = a._count?.livestreams || 0;
+              const livestreamsB = b._count?.livestreams || 0;
+
+              if (livestreamsB !== livestreamsA) {
+                return livestreamsB - livestreamsA;
+              }
+
+              return a.fullName.localeCompare(b.fullName);
+            });
+
+          setTopTeachers(rankedTeachers.slice(0, 4));
         }
 
       } catch (error) {
@@ -137,13 +164,19 @@ export default function Dashboard() {
 
   // Compute stats for display
   const stats = dashboardStats ? [
-    { count: dashboardStats.pendingTeachers, label: "waiting-approved TEACHER" },
-    { count: dashboardStats.totalStudents, label: "total STUDENTS" },
-    { count: dashboardStats.totalLivestreams, label: "video STREAMING" },
+    { count: dashboardStats.totalUsers, label: "Total users" },
+    { count: dashboardStats.totalTeachers, label: "Total teachers" },
+    { count: dashboardStats.totalStudents, label: "Total students" },
+    { count: dashboardStats.pendingTeachers, label: "Pending approvals" },
+    { count: dashboardStats.activeLivestreams, label: "Active livestreams" },
+    { count: dashboardStats.totalViews, label: "Total views" },
   ] : [
-    { count: 0, label: "waiting-approved TEACHER" },
-    { count: 0, label: "total STUDENTS" },
-    { count: 0, label: "video STREAMING" },
+    { count: 0, label: "Total users" },
+    { count: 0, label: "Total teachers" },
+    { count: 0, label: "Total students" },
+    { count: 0, label: "Pending approvals" },
+    { count: 0, label: "Active livestreams" },
+    { count: 0, label: "Total views" },
   ];
 
   // ================== Color logic ==================
@@ -195,18 +228,18 @@ export default function Dashboard() {
           {/* Today we have */}
           <div className="bg-white rounded-2xl p-6 shadow-sm">
             <h3 className="text-[#161853] font-bold mb-4">Today we have</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
               {cards.map((item, i) => (
                 <div
                   key={i}
-                  className="rounded-xl shadow-sm flex items-center gap-3 p-4 w-fit transition-all duration-300"
+                  className="rounded-xl shadow-sm flex items-center gap-3 p-4 w-full transition-all duration-300"
                   style={{ backgroundColor: item.bgColor }}
                 >
                   <div
                     className="font-extrabold text-xl transition-all duration-300"
                     style={{ color: item.textColor }}
                   >
-                    {item.count}+
+                    {formatNumber(item.count)}
                   </div>
                   <div className="text-sm font-semibold transition-all duration-300" style={{ color: item.textColor }}>
                     {item.label}

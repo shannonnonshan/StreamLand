@@ -33,6 +33,7 @@ export interface ProcessingStatusResponse {
   waitingForApproval: boolean;
   updatedAt: string;
   title?: string | null;
+  rejectReason?: string | null;
 }
 
 export async function getProcessingStatus(

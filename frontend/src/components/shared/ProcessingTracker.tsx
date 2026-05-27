@@ -29,37 +29,37 @@ import {
 const STEP_META: Record<ProcessingStep, { label: string; description: string; icon: typeof FileAudio2 }> = {
   EXTRACT_AUDIO: {
     label: 'Extract Audio',
-    description: 'ffmpeg converts the source video into WAV 16kHz mono.',
+    description: 'We prepare the video sound so the system can read it clearly.',
     icon: FileAudio2,
   },
   UPLOAD_AUDIO: {
     label: 'Upload Audio',
-    description: 'The extracted WAV is stored in R2 for downstream processing.',
+    description: 'The prepared sound is safely uploaded for the next step.',
     icon: Upload,
   },
   TRANSCRIBE: {
     label: 'Transcribe',
-    description: 'faster-whisper converts audio into transcript JSON.',
+    description: 'We turn what is spoken into written text.',
     icon: Sparkles,
   },
   SUMMARIZE: {
     label: 'Summarize',
-    description: 'The HuggingFace pipeline generates a concise summary string.',
+    description: 'We create a short and easy-to-read summary.',
     icon: FileText,
   },
   MODERATION: {
     label: 'Moderation',
-    description: 'The moderation API returns moderationResult, toxicWords, and validationRate.',
+    description: 'We check the content to help keep it safe and appropriate.',
     icon: ShieldAlert,
   },
   SAVE_RESULTS: {
     label: 'Save Results',
-    description: 'MongoDB and PostgreSQL are updated with the latest analysis state.',
+    description: 'Your transcript and summary are saved and ready to use.',
     icon: Save,
   },
   COMPLETED: {
     label: 'Completed',
-    description: 'Final approval state is ready for review or publication.',
+    description: 'Everything is finished and ready for review.',
     icon: BadgeCheck,
   },
 };
@@ -80,6 +80,8 @@ interface ProcessingTrackerProps {
   showRetry?: boolean;
   onCompleted?: () => void;
   onFailed?: (step: string) => void;
+  triggerClassName?: string;
+  showInlineProgress?: boolean;
 }
 
 const normalizeApprovalState = (value: ProcessingStatusResponse['isApprove']) => {
@@ -89,7 +91,6 @@ const normalizeApprovalState = (value: ProcessingStatusResponse['isApprove']) =>
     if (normalized === 'TRUE') return 'approved';
     if (normalized === 'REJECTED') return 'rejected';
   }
-
   return 'pending';
 };
 
@@ -106,6 +107,8 @@ export default function ProcessingTracker({
   showRetry = false,
   onCompleted,
   onFailed,
+  triggerClassName,
+  showInlineProgress = false,
 }: ProcessingTrackerProps) {
   const [status, setStatus] = useState<ProcessingStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,13 +120,26 @@ export default function ProcessingTracker({
   const completedNotifiedRef = useRef(false);
   const failedNotifiedRef = useRef<string | null>(null);
   const stepRefs = useRef<Partial<Record<ProcessingStep, HTMLDivElement | null>>>({});
-
-  const activeStep = status?.activeStep || status?.steps.find((step) => step.status === 'running')?.step || status?.steps.find((step) => step.status === 'failed')?.step || status?.steps.find((step) => step.status === 'pending')?.step || null;
+  const statusSteps = status?.steps ?? [];
 
   const approvalState = normalizeApprovalState(status?.isApprove ?? null);
+  const isRejected = approvalState === 'rejected';
   const isWaitingForApproval = Boolean(status?.waitingForApproval);
-  const isCompleted = Boolean(status?.completed && status?.processingStatus === 'DONE' && !isWaitingForApproval);
+  const isCompleted = Boolean(
+    !isRejected &&
+    status?.completed &&
+    status?.processingStatus === 'DONE' &&
+    !isWaitingForApproval
+  );
   const isFailed = status?.processingStatus === 'FAILED';
+
+  const activeStep = isRejected
+    ? 'COMPLETED'
+    : status?.activeStep
+    || statusSteps.find((step) => step.status === 'running')?.step
+    || statusSteps.find((step) => step.status === 'failed')?.step
+    || statusSteps.find((step) => step.status === 'pending')?.step
+    || null;
 
   const triggerConfig = useMemo(() => {
     if (status?.processingStatus === 'PROCESSING') {
@@ -131,6 +147,14 @@ export default function ProcessingTracker({
         label: 'Processing...',
         className: 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700',
         icon: Loader2,
+      };
+    }
+
+    if (isRejected) {
+      return {
+        label: 'Rejected – View Details',
+        className: 'bg-rose-600 text-white shadow-lg shadow-rose-600/20 hover:bg-rose-700',
+        icon: AlertTriangle,
       };
     }
 
@@ -142,7 +166,7 @@ export default function ProcessingTracker({
       };
     }
 
-    if (isCompleted || approvalState === 'approved' || approvalState === 'rejected') {
+    if (isCompleted || approvalState === 'approved') {
       return {
         label: 'View Processing Result',
         className: 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-700',
@@ -163,12 +187,14 @@ export default function ProcessingTracker({
       className: 'border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50',
       icon: Clock3,
     };
-  }, [approvalState, isCompleted, isFailed, isWaitingForApproval, status?.processingStatus]);
+  }, [approvalState, isCompleted, isFailed, isRejected, isWaitingForApproval, status?.processingStatus]);
 
   const loadStatus = async () => {
     try {
       const nextStatus = await getProcessingStatus(entityType, entityId);
       setStatus(nextStatus);
+      console.log('isApprove raw:', nextStatus?.isApprove, '| normalized:', normalizeApprovalState(nextStatus?.isApprove ?? null));
+
       setError(null);
       return nextStatus;
     } catch (loadError) {
@@ -181,10 +207,7 @@ export default function ProcessingTracker({
   };
 
   const startPolling = () => {
-    if (pollRef.current) {
-      return;
-    }
-
+    if (pollRef.current) return;
     setIsPolling(true);
     pollRef.current = setInterval(() => {
       void loadStatus();
@@ -196,7 +219,6 @@ export default function ProcessingTracker({
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
-
     setIsPolling(false);
   };
 
@@ -214,10 +236,7 @@ export default function ProcessingTracker({
       message?: string;
       timestamp: string;
     }) => {
-      if (payload.entityId !== entityId || payload.entityType !== entityType) {
-        return;
-      }
-
+      if (payload.entityId !== entityId || payload.entityType !== entityType) return;
       void loadStatus();
     };
 
@@ -250,18 +269,13 @@ export default function ProcessingTracker({
   }, [entityId, entityType]);
 
   useEffect(() => {
-    if (!isOpen || !activeStep) {
-      return;
-    }
-
+    if (!isOpen || !activeStep) return;
     const currentRef = stepRefs.current[activeStep];
     currentRef?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [activeStep, isOpen]);
 
   useEffect(() => {
-    if (!status) {
-      return;
-    }
+    if (!status) return;
 
     if (isCompleted && !completedNotifiedRef.current) {
       completedNotifiedRef.current = true;
@@ -272,7 +286,11 @@ export default function ProcessingTracker({
       completedNotifiedRef.current = false;
     }
 
-    const failedStep = status.lastFailedStep || status.steps.find((step) => step.status === 'failed')?.step || null;
+    const failedStep =
+      status.lastFailedStep ||
+      status.steps?.find((step) => step.status === 'failed')?.step ||
+      null;
+
     if (isFailed && failedStep && failedNotifiedRef.current !== failedStep) {
       failedNotifiedRef.current = failedStep;
       onFailed?.(failedStep);
@@ -296,33 +314,90 @@ export default function ProcessingTracker({
     }
   };
 
-  const steps = status?.steps?.length ? STEP_ORDER.map((step) => {
-    const current = status.steps.find((entry) => entry.step === step);
-    return current || {
-      step,
-      status: 'pending' as ProcessingStepStatus,
-      message: null,
-      timestamp: new Date().toISOString(),
-    };
-  }) : STEP_ORDER.map((step) => ({
-    step,
-    status: 'pending' as ProcessingStepStatus,
-    message: null,
-    timestamp: new Date().toISOString(),
-  }));
+  const steps = statusSteps.length
+    ? STEP_ORDER.map((step) => {
+        const current = statusSteps.find((entry) => entry.step === step);
+        const fallbackStep = current || {
+          step,
+          status: 'pending' as ProcessingStepStatus,
+          message: null,
+          timestamp: new Date().toISOString(),
+        };
+
+        if (isRejected) {
+          return {
+            ...fallbackStep,
+            status: step === 'COMPLETED'
+              ? ('failed' as ProcessingStepStatus)
+              : ('done' as ProcessingStepStatus),
+            message: step === 'COMPLETED'
+              ? (status?.rejectReason ?? 'This content was rejected.')
+              : (fallbackStep.message ?? null),
+          };
+        }
+
+        return fallbackStep;
+      })
+    : STEP_ORDER.map((step) => ({
+        step,
+        status: isRejected
+          ? step === 'COMPLETED'
+            ? ('failed' as ProcessingStepStatus)
+            : ('done' as ProcessingStepStatus)
+          : ('pending' as ProcessingStepStatus),
+        message: isRejected && step === 'COMPLETED'
+          ? (status?.rejectReason ?? 'This content was rejected.')
+          : null,
+        timestamp: new Date().toISOString(),
+      }));
 
   const TriggerIcon = triggerConfig.icon;
+  const doneStepsCount = statusSteps.filter((step) => step.status === 'done').length;
+  const runningStep = statusSteps.find((step) => step.status === 'running');
+
+  const progressPercent = useMemo(() => {
+    if (!status) return 0;
+    if (isRejected) return 100;
+    if (status.processingStatus === 'DONE' && !status.waitingForApproval) return 100;
+    const totalSteps = STEP_ORDER.length;
+    const runningWeight = runningStep ? 0.5 : 0;
+    const raw = ((doneStepsCount + runningWeight) / totalSteps) * 100;
+    return Math.max(0, Math.min(100, Math.round(raw)));
+  }, [doneStepsCount, isRejected, runningStep, status]);
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setIsOpen(true)}
-        className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition ${triggerConfig.className}`}
-      >
-        <TriggerIcon size={16} className={status?.processingStatus === 'PROCESSING' ? 'animate-spin' : ''} />
-        {loading ? 'Loading status...' : triggerConfig.label}
-      </button>
+      <div className={showInlineProgress ? 'min-w-60' : ''}>
+        <button
+          type="button"
+          onClick={() => setIsOpen(true)}
+          className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition ${triggerClassName || triggerConfig.className}`}
+        >
+          <TriggerIcon size={16} className={status?.processingStatus === 'PROCESSING' ? 'animate-spin' : ''} />
+          {loading ? 'Loading status...' : triggerConfig.label}
+        </button>
+
+        {showInlineProgress && (
+          <div className="mt-2">
+            <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-600">
+              <span>{runningStep ? STEP_META[runningStep.step].label : 'Progress'}</span>
+              <span>{progressPercent}%</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+              <div
+                className={`h-2 rounded-full transition-all ${
+                  isRejected || status?.processingStatus === 'FAILED'
+                    ? 'bg-rose-500'
+                    : progressPercent >= 100
+                      ? 'bg-emerald-500'
+                      : 'bg-[#292C6D]'
+                }`}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
 
       {isOpen && (
         <div className="fixed inset-0 z-70 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-md">
@@ -352,19 +427,25 @@ export default function ProcessingTracker({
                 </div>
               )}
 
-              {isWaitingForApproval && (
+              {isRejected && (
+                <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">
+                  This content was rejected{status?.rejectReason ? `: ${status.rejectReason}` : '.'} The process has been terminated.
+                </div>
+              )}
+
+              {!isRejected && isWaitingForApproval && (
                 <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
                   Waiting for approval. Processing results are complete, but final approval is still pending.
                 </div>
               )}
 
-              {isCompleted && (
+              {!isRejected && isCompleted && (
                 <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
                   Processing is complete and the content is ready for review.
                 </div>
               )}
 
-              {isFailed && (
+              {!isRejected && isFailed && (
                 <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">
                   Processing failed. Review the failed step below and retry if needed.
                 </div>
@@ -385,7 +466,9 @@ export default function ProcessingTracker({
                       ref={(node) => {
                         stepRefs.current[step.step] = node;
                       }}
-                      className={`rounded-3xl border p-4 transition ${isActive ? 'border-[#121826]/20 bg-white shadow-sm' : 'border-slate-200 bg-white/80'} ${isFailedStep ? 'ring-1 ring-rose-200' : ''}`}
+                      className={`rounded-3xl border p-4 transition ${
+                        isActive ? 'border-[#121826]/20 bg-white shadow-sm' : 'border-slate-200 bg-white/80'
+                      } ${isFailedStep ? 'ring-1 ring-rose-200' : ''}`}
                     >
                       <div className="flex items-start gap-4">
                         <div
@@ -437,14 +520,18 @@ export default function ProcessingTracker({
                             </p>
                           )}
 
-                          {showRetry && isFailedStep && (
+                          {showRetry && isFailedStep && !isRejected && (
                             <button
                               type="button"
                               onClick={() => void handleRetry(step.step)}
                               disabled={retryingStep === step.step}
                               className="mt-3 inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-70"
                             >
-                              {retryingStep === step.step ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                              {retryingStep === step.step ? (
+                                <Loader2 size={16} className="animate-spin" />
+                              ) : (
+                                <RefreshCw size={16} />
+                              )}
                               Retry from this step
                             </button>
                           )}

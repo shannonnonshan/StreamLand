@@ -17,6 +17,7 @@ type EntityRecord = {
   title: string;
   processingStatus: ProcessingJobStatus;
   isApprove: string | boolean | null;
+  rejectReason?: string | null;
 };
 
 type AnalysisRecord = {
@@ -114,6 +115,7 @@ export class ProcessingStateService {
     entityType: ProcessingEntityType;
     processingStatus: ProcessingJobStatus;
     isApprove: string | boolean | null;
+    rejectReason?: string | null;
     steps?: ProcessingStepState[];
     activeStep?: ProcessingStep | null;
     lastFailedStep?: ProcessingStep | null;
@@ -219,13 +221,25 @@ export class ProcessingStateService {
   ): ProcessingStatusResponse {
     const baseSteps = existingSteps ? existingSteps.map((step) => ({ ...step })) : this.createDefaultSteps();
     const timestamp = new Date().toISOString();
+
     const hasTranscript = Boolean(analysis?.transcript);
     const hasSummary = typeof analysis?.summary === 'string' && analysis.summary.trim().length > 0;
     const hasModeration = Boolean(analysis?.moderationResult) && Boolean(analysis?.moderationCheckedAt);
     const hasAudio = Boolean(analysis?.audioUrl);
     const saveResultsDone = entity.processingStatus === 'DONE';
-    const completed = saveResultsDone && hasTranscript && hasSummary && hasModeration && this.isFinalApproval(entity.isApprove);
-    const waitingForApproval = this.isWaitingForApproval(entity.processingStatus, entity.isApprove);
+    const isRejected = entity.isApprove === 'REJECTED';
+
+    const completed =
+      !isRejected &&
+      saveResultsDone &&
+      hasTranscript &&
+      hasSummary &&
+      hasModeration &&
+      this.isFinalApproval(entity.isApprove);
+
+    const waitingForApproval =
+      !isRejected &&
+      this.isWaitingForApproval(entity.processingStatus, entity.isApprove);
 
     const nextStatus = (step: ProcessingStep, status: ProcessingStepStatus, message?: string | null) => {
       const entry = baseSteps.find((item) => item.step === step);
@@ -237,34 +251,36 @@ export class ProcessingStateService {
     };
 
     if (hasAudio || hasTranscript || hasSummary || hasModeration || saveResultsDone) {
-      nextStatus('EXTRACT_AUDIO', 'done', hasAudio ? 'Audio prepared' : 'Audio will be rebuilt on retry');
-      nextStatus('UPLOAD_AUDIO', 'done', hasAudio ? 'Audio uploaded to R2' : 'Audio will be uploaded on retry');
+      nextStatus('EXTRACT_AUDIO', 'done', hasAudio ? 'Audio is ready' : 'We will prepare the audio again when you retry');
+      nextStatus('UPLOAD_AUDIO', 'done', hasAudio ? 'Audio uploaded successfully' : 'Audio will be uploaded when you retry');
     }
 
     if (hasTranscript) {
-      nextStatus('TRANSCRIBE', 'done', 'Transcript already stored');
+      nextStatus('TRANSCRIBE', 'done', 'Transcript is ready');
     }
 
     if (hasSummary) {
-      nextStatus('SUMMARIZE', 'done', 'Summary already stored');
+      nextStatus('SUMMARIZE', 'done', 'Summary is ready');
     }
 
     if (hasModeration) {
-      nextStatus('MODERATION', 'done', 'Moderation already stored');
+      nextStatus('MODERATION', 'done', 'Safety check is complete');
     }
 
     if (saveResultsDone) {
-      nextStatus('SAVE_RESULTS', 'done', 'Results saved to MongoDB and PostgreSQL');
+      nextStatus('SAVE_RESULTS', 'done', 'Results have been saved');
     }
 
-    if (completed) {
+    if (isRejected) {
+      nextStatus('COMPLETED', 'failed', entity.rejectReason ?? 'This content was rejected.');
+    } else if (completed) {
       nextStatus('COMPLETED', 'done', 'Processing completed');
     } else if (waitingForApproval) {
       nextStatus('COMPLETED', 'pending', 'Waiting for approval');
     }
 
-    const failedStep = existingSteps?.find((step) => step.status === 'failed')?.step || null;
-    const runningStep = existingSteps?.find((step) => step.status === 'running')?.step || null;
+    const failedStep = baseSteps.find((step) => step.status === 'failed')?.step || null;
+    const runningStep = baseSteps.find((step) => step.status === 'running')?.step || null;
     const activeStep = runningStep || failedStep || baseSteps.find((step) => step.status === 'pending')?.step || null;
 
     return this.buildStatusResponse({
@@ -272,6 +288,7 @@ export class ProcessingStateService {
       entityType,
       processingStatus: entity.processingStatus,
       isApprove: entity.isApprove,
+      rejectReason: entity.rejectReason ?? null,
       steps: baseSteps,
       activeStep,
       lastFailedStep: failedStep,

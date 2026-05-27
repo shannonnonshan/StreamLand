@@ -37,6 +37,7 @@ export default function DocumentsTypePage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
   const [failedPreviewIds, setFailedPreviewIds] = useState<Record<string, true>>({});
+  const selectedVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const fileTypeLabel = useMemo(() => {
     if (type === "all") return "All documents";
@@ -109,6 +110,28 @@ export default function DocumentsTypePage() {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    const handleTranscriptSeek = (e: Event) => {
+      if (!selectedDoc || selectedDoc.fileType !== 'video') return;
+
+      const detail = (e as CustomEvent)?.detail as { start?: number } | undefined;
+      if (!detail || typeof detail.start !== 'number') return;
+
+      const video = selectedVideoRef.current;
+      if (!video) return;
+
+      try {
+        video.currentTime = detail.start;
+        void video.play().catch(() => {});
+      } catch (err) {
+        console.error('Failed to seek document video from transcript cue:', err);
+      }
+    };
+
+    window.addEventListener('streamland:transcript-seek', handleTranscriptSeek as EventListener);
+    return () => window.removeEventListener('streamland:transcript-seek', handleTranscriptSeek as EventListener);
+  }, [selectedDoc]);
 
   // Fetch documents from backend
   useEffect(() => {
@@ -372,16 +395,14 @@ export default function DocumentsTypePage() {
                       <div className="pointer-events-none absolute inset-0 bg-linear-to-t from-black/30 via-transparent to-transparent" />
                     </>
                   ) : !hasPreviewError && doc.fileType === 'pdf' ? (
-                    <>
-                      <iframe
-                        src={`${doc.fileUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                        className="h-full w-full border-0 pointer-events-none"
-                        title={`${doc.title} preview`}
-                        scrolling="no"
-                        onError={() => handlePreviewError(doc.id)}
-                      />
-                      <div className="pointer-events-none absolute inset-0 bg-white/20" />
-                    </>
+                    <div className="flex h-full flex-col items-center justify-center text-slate-600">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-100 text-rose-600">
+                        <FileText size={30} />
+                      </div>
+                      <span className="mt-3 text-xs font-semibold uppercase tracking-[0.2em]">
+                        PDF
+                      </span>
+                    </div>
                   ) : (
                     <div className="flex h-full flex-col items-center justify-center text-slate-500">
                       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
@@ -535,7 +556,13 @@ export default function DocumentsTypePage() {
           />
           
           {/* Drawer */}
-          <div className="fixed right-0 top-0 z-50 h-full w-full max-w-2xl animate-slide-in overflow-y-auto bg-white shadow-2xl">
+          <div
+            className={`fixed right-0 top-0 z-50 h-full w-full animate-slide-in overflow-y-auto bg-white shadow-2xl ${
+              selectedDoc.fileType === 'video'
+                ? 'max-w-[96vw] lg:max-w-6xl xl:max-w-7xl'
+                : 'max-w-2xl'
+            }`}
+          >
             <div className="p-6">
               {/* Header */}
               <div className="mb-6 flex items-start justify-between border-b border-slate-100 pb-4">
@@ -636,58 +663,60 @@ export default function DocumentsTypePage() {
               </div>
 
               {/* Preview */}
-              <div className="mb-6">
-                <h4 className="mb-3 text-sm font-black uppercase tracking-wider text-slate-700">Preview</h4>
-                
-                {selectedDoc.fileType === 'image' && (
-                  <div className="w-full rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
-                    <Image
-                      src={selectedDoc.fileUrl}
-                      alt={selectedDoc.title}
-                      width={800}
-                      height={600}
-                      style={{ objectFit: "contain" }}
-                      className="max-h-125"
-                    />
+              {selectedDoc.fileType === 'video' ? (
+                <div className="mb-6 space-y-4">
+                  <h4 className="text-sm font-black uppercase tracking-wider text-slate-700">Preview</h4>
+                  <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
+                    <div className="space-y-4 lg:col-span-3">
+                      <video
+                        ref={selectedVideoRef}
+                        src={selectedDoc.fileUrl}
+                        className="aspect-video w-full rounded-lg bg-black object-cover"
+                        controls
+                      />
+                      <ProcessingTracker
+                        entityId={selectedDoc.id}
+                        entityType="DOCUMENT"
+                        showRetry
+                        showInlineProgress
+                        triggerClassName="bg-emerald-600 text-white shadow-md shadow-emerald-600/25 hover:bg-emerald-700"
+                      />
+                    </div>
+                    <div className="lg:col-span-2 space-y-4">
+                      <TranscriptSummaryStudio
+                        documentId={selectedDoc.id}
+                        transcriptSeedMessage="[Transcript preview] AI document transcription endpoint is pending backend integration. Extracted text will appear here."
+                        transcriptHint={'Click "Generate Transcript" to extract document content as text. The "Summarize" button activates when transcript is ready.'}
+                      />
+                    </div>
                   </div>
-                )}
-
-                {selectedDoc.fileType === 'video' && (
-                  <video
-                    src={selectedDoc.fileUrl}
-                    className="w-full rounded-lg"
-                    controls
-                  />
-                )}
-
-                {selectedDoc.fileType === 'pdf' && (
-                  <div className="w-full h-150 rounded-lg overflow-hidden border">
-                    <iframe
-                      src={selectedDoc.fileUrl}
-                      className="w-full h-full"
-                      title={selectedDoc.title}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {selectedDoc.fileType === 'video' && (
-                <div className="mb-6">
-                  <ProcessingTracker
-                    entityId={selectedDoc.id}
-                    entityType="DOCUMENT"
-                    showRetry
-                  />
                 </div>
-              )}
-
-              {selectedDoc.fileType === 'video' && (
+              ) : (
                 <div className="mb-6">
-                  <TranscriptSummaryStudio
-                    documentId={selectedDoc.id}
-                    transcriptSeedMessage="[Transcript preview] AI document transcription endpoint is pending backend integration. Extracted text will appear here."
-                    transcriptHint={'Click "Generate Transcript" to extract document content as text. The "Summarize" button activates when transcript is ready.'}
-                  />
+                  <h4 className="mb-3 text-sm font-black uppercase tracking-wider text-slate-700">Preview</h4>
+
+                  {selectedDoc.fileType === 'image' && (
+                    <div className="w-full rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
+                      <Image
+                        src={selectedDoc.fileUrl}
+                        alt={selectedDoc.title}
+                        width={800}
+                        height={600}
+                        style={{ objectFit: "contain" }}
+                        className="max-h-125"
+                      />
+                    </div>
+                  )}
+
+                  {selectedDoc.fileType === 'pdf' && (
+                    <div className="w-full h-150 rounded-lg overflow-hidden border">
+                      <iframe
+                        src={selectedDoc.fileUrl}
+                        className="w-full h-full"
+                        title={selectedDoc.title}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -365,7 +365,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           [&::-webkit-scrollbar-thumb]:rounded-full
           [&::-webkit-scrollbar-thumb]:bg-[#FAEDF0]`}
         >
-          <div className="flex min-h-screen flex-col bg-[#F9F9F9]">
+          <div className="teacher-ui flex min-h-screen flex-col bg-[#F9F9F9]">
           {/* Top Navigation */}
           <nav className=" bg-[#F9F9F9] shadow-2xs pl-[8%] px-10 py-4 flex justify-between items-center">
             {/* Logo */}

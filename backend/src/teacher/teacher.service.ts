@@ -1,4 +1,16 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+// Minimal Multer file type to avoid dependency on Express.Multer namespace
+type MulterFile = {
+  fieldname: string;
+  originalname: string;
+  encoding?: string;
+  mimetype: string;
+  size: number;
+  buffer?: Buffer;
+  destination?: string;
+  filename?: string;
+  path?: string;
+};
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
@@ -381,7 +393,7 @@ export class TeacherService {
   }
 
   // Upload document to R2
-  async uploadDocument(teacherId: string, file: Express.Multer.File, description?: string) {
+  async uploadDocument(teacherId: string, file: MulterFile, description?: string) {
     const teacher = await this.prisma.postgres.user.findUnique({
       where: { id: teacherId },
       include: { teacherProfile: true },
@@ -395,7 +407,7 @@ export class TeacherService {
     const documentUrl = await this.r2StorageService.uploadDocument(
       teacherId,
       file.originalname,
-      file.buffer,
+      file.buffer!,
       file.mimetype,
     );
 
@@ -456,6 +468,43 @@ export class TeacherService {
     });
 
     return updated;
+  }
+
+  // Delete a document (remove from R2 and database)
+  async deleteDocument(teacherId: string, documentId: string) {
+    const existing = await this.prisma.postgres.document.findFirst({
+      where: { id: documentId, teacherId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Document not found');
+    }
+
+    // Attempt to delete from R2 (ignore if fails but log)
+    try {
+      if (existing.fileUrl) {
+        await this.r2StorageService.deleteDocument(existing.fileUrl);
+      }
+    } catch (err) {
+      // Log and continue to delete DB record
+      console.error('Failed to delete document from R2:', err);
+    }
+
+    // Delete any associated audio export if exists
+    try {
+      const audioUrl = this.r2StorageService.getDocumentAudioUrlFromUrl(existing.fileUrl);
+      if (audioUrl) {
+        // try deleting audio file
+        await this.r2StorageService.deleteDocument(audioUrl).catch(() => {});
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Remove DB record
+    await this.prisma.postgres.document.delete({ where: { id: documentId } });
+
+    return { success: true, message: 'Document deleted' };
   }
 
   // Update teacher settings

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
+import { useRef } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import { ArrowDownToLine, Upload, Trash2, Search, Filter, FileText, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
@@ -24,6 +25,13 @@ export default function DocumentsTypePage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(12);
   const [isUploading, setIsUploading] = useState(false);
+  const [showDescriptionModal, setShowDescriptionModal] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingDescription, setPendingDescription] = useState("");
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [editDescriptionValue, setEditDescriptionValue] = useState("");
+  const [editDescriptionLoading, setEditDescriptionLoading] = useState(false);
+  const descriptionInputRef = useRef<HTMLInputElement>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
@@ -125,27 +133,26 @@ export default function DocumentsTypePage() {
     fetchDocuments();
   }, [teacherId, type, setDocuments, setError, setIsLoading]);
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Khi chọn file, show modal nhập description
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
+    setPendingFiles(Array.from(files));
+    setPendingDescription("");
+    setShowDescriptionModal(true);
+    // Reset input để có thể chọn lại cùng file
+    event.target.value = '';
+  };
 
+  // Thực hiện upload khi đã nhập description
+  const handleConfirmUpload = async () => {
     setIsUploading(true);
-
     try {
       const uploadedDocs: Document[] = [];
-      for (const file of Array.from(files)) {
-        console.log('Uploading file:', {
-          name: file.name,
-          type: file.type,
-          size: file.size,
-        });
-        
-        const data = await uploadDocument(teacherId, file);
-        console.log('Upload response:', data);
+      for (const file of pendingFiles) {
+        const data = await uploadDocument(teacherId, file, pendingDescription);
         uploadedDocs.push(data);
       }
-      
-      // Add new documents to list
       setDocuments((prev) => [...uploadedDocs, ...prev]);
       showDialog({
         title: 'Upload Successful',
@@ -154,8 +161,10 @@ export default function DocumentsTypePage() {
         confirmText: 'OK',
         cancelText: 'Close'
       });
+      setShowDescriptionModal(false);
+      setPendingFiles([]);
+      setPendingDescription("");
     } catch (error) {
-      console.error('Upload failed:', error);
       const errorMsg = error instanceof Error ? error.message : 'Failed to upload documents';
       showDialog({
         title: 'Upload Failed',
@@ -166,8 +175,6 @@ export default function DocumentsTypePage() {
       });
     } finally {
       setIsUploading(false);
-      // Reset input to allow re-upload same file
-      event.target.value = '';
     }
   };
 
@@ -549,11 +556,63 @@ export default function DocumentsTypePage() {
               </div>
 
               {/* Description */}
-              {selectedDoc.description && (
-                <div className="mb-4 rounded-lg bg-slate-50 p-3">
-                  <p className="text-sm text-slate-700">{selectedDoc.description}</p>
-                </div>
-              )}
+              <div className="mb-4 flex items-center gap-2">
+                {editingDescription ? (
+                  <>
+                    <input
+                      ref={descriptionInputRef}
+                      className="flex-1 rounded border px-2 py-1 text-sm"
+                      value={editDescriptionValue}
+                      onChange={e => setEditDescriptionValue(e.target.value)}
+                      disabled={editDescriptionLoading}
+                      placeholder="Enter description..."
+                    />
+                    <button
+                      className="px-2 py-1 rounded bg-emerald-600 text-white text-xs font-semibold"
+                      disabled={editDescriptionLoading}
+                      onClick={async () => {
+                        setEditDescriptionLoading(true);
+                        try {
+                          const updated = await import("@/lib/api/teacher").then(m => m.updateDocumentDescription(teacherId, selectedDoc.id, editDescriptionValue));
+                          setDocuments(prev => prev.map(doc => doc.id === updated.id ? updated : doc));
+                          setSelectedDoc(updated);
+                          setEditingDescription(false);
+                        } catch (err) {
+                          showDialog({
+                            title: 'Update Failed',
+                            message: 'Could not update description.',
+                            type: 'danger',
+                            confirmText: 'OK',
+                            cancelText: 'Close'
+                          });
+                        } finally {
+                          setEditDescriptionLoading(false);
+                        }
+                      }}
+                    >Save</button>
+                    <button
+                      className="px-2 py-1 rounded bg-gray-200 text-gray-700 text-xs font-semibold"
+                      disabled={editDescriptionLoading}
+                      onClick={() => setEditingDescription(false)}
+                    >Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <p className="flex-1 text-sm text-slate-700">{selectedDoc.description || <span className="text-slate-400">No description.</span>}</p>
+                    <button
+                      className="ml-2 text-emerald-600 hover:text-emerald-800"
+                      title="Edit description"
+                      onClick={() => {
+                        setEditDescriptionValue(selectedDoc.description || "");
+                        setEditingDescription(true);
+                        setTimeout(() => descriptionInputRef.current?.focus(), 100);
+                      }}
+                    >
+                      <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536M9 11l6.586-6.586a2 2 0 112.828 2.828L11.828 13.828a2 2 0 01-.707.464l-4 1a1 1 0 01-1.213-1.213l1-4a2 2 0 01.464-.707z"/></svg>
+                    </button>
+                  </>
+                )}
+              </div>
 
               {/* File Info */}
               <div className="mb-6 grid grid-cols-2 gap-4 text-slate-900">
@@ -706,6 +765,36 @@ export default function DocumentsTypePage() {
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Add description when uploading */}
+      {showDescriptionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <h3 className="text-lg font-bold mb-2">Add a description for the document</h3>
+            <p className="text-sm text-gray-500 mb-4">You can enter a description for this document (optional).</p>
+            <input
+              className="w-full rounded border px-3 py-2 mb-4 text-sm"
+              placeholder="Enter document description..."
+              value={pendingDescription}
+              onChange={e => setPendingDescription(e.target.value)}
+              autoFocus
+              disabled={isUploading}
+            />
+            <div className="flex gap-3">
+              <button
+                className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50"
+                onClick={handleConfirmUpload}
+                disabled={isUploading}
+              >{isUploading ? 'Uploading...' : 'Confirm & Upload'}</button>
+              <button
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 disabled:opacity-50"
+                onClick={() => { setShowDescriptionModal(false); setPendingFiles([]); setPendingDescription(""); }}
+                disabled={isUploading}
+              >Cancel</button>
             </div>
           </div>
         </div>

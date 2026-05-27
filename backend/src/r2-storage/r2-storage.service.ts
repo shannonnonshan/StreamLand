@@ -171,11 +171,27 @@ export class R2StorageService {
   }
 
   /**
-   * Delete document from R2
+   * Delete document from R2 by full public URL
    */
-  deleteDocument(key: string): void {
-    // Implementation for deleting document
-    this.logger.log(`Delete requested for document ${key}`);
+  async deleteDocument(documentUrl: string): Promise<void> {
+    try {
+      const key = this.getDocumentKeyFromUrl(documentUrl);
+      if (!key) {
+        this.logger.warn(`Could not determine key from document URL: ${documentUrl}`);
+        return;
+      }
+
+      const command = new DeleteObjectCommand({
+        Bucket: this.documentBucketName,
+        Key: key,
+      });
+
+      await this.documentS3Client.send(command);
+      this.logger.log(`Deleted document from R2: ${key}`);
+    } catch (error) {
+      this.logger.error(`Failed to delete document ${documentUrl}:`, error);
+      throw error;
+    }
   }
 
   private getKeyFromUrl(resourceUrl: string): string | null {

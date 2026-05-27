@@ -72,7 +72,7 @@ export interface DocumentAiAnalysisResponse {
 export class DocumentService {
   private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
   private readonly logger = new Logger(DocumentService.name);
-  private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
+  private readonly localAiBaseUrl = (process.env.AI_SERVICE_URL || 'http://localhost:8080').replace(/\/$/, '');
 
   constructor(
     private prisma: PrismaService,

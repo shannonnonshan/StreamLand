@@ -26,9 +26,10 @@ import {
   Maximize2,
   Minimize2,
 } from "lucide-react";
+import { uploadDocument } from "@/lib/api/teacher";
 
 interface DocumentFile {
-  id: number;
+  id: string;
   name: string;
   type: 'pdf' | 'image' | 'video' | 'doc' | 'ppt';
   url: string;
@@ -99,7 +100,10 @@ export default function BroadcasterPage() {
     type: 'pdf' | 'image' | 'video' | 'doc' | 'ppt';
     originalName: string;
     size: number;
+    description?: string;
   } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadingFileName, setUploadingFileName] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
   const [chatMessages, setChatMessages] = useState<Array<{
     id: string;
@@ -1552,54 +1556,52 @@ export default function BroadcasterPage() {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
-    const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-    if (!token) {
-      showDialog({
-        title: 'Login Required',
-        message: 'Please login to upload documents',
-        type: 'warning',
-        confirmText: 'OK',
-        cancelText: 'Close'
-      });
-      return;
-    }
-
     const file = files[0]; // Handle one file at a time
     const fileType = file.type.startsWith('image/') ? 'image' : 
                      file.type.startsWith('video/') ? 'video' : 
                      file.type.includes('pdf') ? 'pdf' :
                      file.type.includes('document') || file.type.includes('word') ? 'doc' :
                      file.type.includes('presentation') || file.type.includes('powerpoint') ? 'ppt' : 'doc';
-    
+
+    setUploadPreview({
+      file,
+      url: URL.createObjectURL(file),
+      type: fileType as 'pdf' | 'image' | 'video' | 'doc' | 'ppt',
+      originalName: file.name,
+      size: file.size,
+      description: '',
+    });
+    setNewFileName(file.name.replace(/\.[^/.]+$/, ''));
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const confirmUpload = async () => {
+    if (!uploadPreview) return;
+    const fileExtension = uploadPreview.originalName.split('.').pop() || '';
+    const finalName = newFileName.trim() 
+      ? `${newFileName}.${fileExtension}` 
+      : uploadPreview.originalName;
+
+    setUploadingFileName(finalName);
+    setUploadProgress(0);
     try {
-      // Upload to R2 first
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const response = await fetch(`${API_URL}/teacher/${teacherID}/upload-document`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        throw new Error('Upload failed');
-      }
-      
-      const data = await response.json();
-      
-      // Show preview with rename option
-      setUploadPreview({
-        file,
-        url: data.url, // R2 public URL for preview
-        type: fileType as 'pdf' | 'image' | 'video' | 'doc' | 'ppt',
-        originalName: file.name,
-        size: data.size || file.size,
-      });
-      setNewFileName(file.name.replace(/\.[^/.]+$/, '')); // Filename without extension
-      
+      // Use uploadDocument API (handles description and filename)
+      const fileToUpload = new File([uploadPreview.file], finalName, { type: uploadPreview.file.type });
+      const doc = await uploadDocument(teacherID, fileToUpload, uploadPreview.description || '');
+      setDocuments(prev => [...prev, {
+        id: doc.id,
+        name: doc.fileName,
+        type: doc.fileType as 'pdf' | 'image' | 'video' | 'doc' | 'ppt',
+        url: doc.fileUrl,
+        uploadedAt: doc.uploadedAt,
+        size: doc.fileSize,
+      }]);
+      // Optionally emit socket event if needed
+      // socket.emit('document-uploaded', { teacherID, livestreamID, document: doc });
+      setUploadPreview(null);
+      setNewFileName('');
     } catch (error) {
       showDialog({
         title: 'Upload Failed',
@@ -1608,46 +1610,10 @@ export default function BroadcasterPage() {
         confirmText: 'OK',
         cancelText: 'Close'
       });
+    } finally {
+      setUploadProgress(null);
+      setUploadingFileName(null);
     }
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const confirmUpload = () => {
-    if (!uploadPreview) return;
-    
-    const fileExtension = uploadPreview.originalName.split('.').pop() || '';
-    const finalName = newFileName.trim() 
-      ? `${newFileName}.${fileExtension}` 
-      : uploadPreview.originalName;
-    
-    const newDoc: DocumentFile = {
-      id: Date.now() + Math.random(),
-      name: finalName,
-      type: uploadPreview.type,
-      url: uploadPreview.url,
-      uploadedAt: new Date().toISOString(),
-      size: uploadPreview.size
-    };
-    
-    setDocuments(prev => {
-      const updatedDocs = [...prev, newDoc];
-      
-      // Emit only the new document to viewers
-      socket.emit('document-uploaded', {
-        teacherID,
-        livestreamID,
-        document: newDoc
-      });
-      
-      return updatedDocs;
-    });
-    
-    // Reset
-    setUploadPreview(null);
-    setNewFileName('');
   };
 
   const cancelUpload = () => {
@@ -1659,7 +1625,7 @@ export default function BroadcasterPage() {
     fileInputRef.current?.click();
   };
 
-  const removeFile = (fileId: number) => {
+  const removeFile = (fileId: string) => {
     setDocuments((prev) => prev.filter((f) => f.id !== fileId));
   };
 
@@ -2108,105 +2074,73 @@ export default function BroadcasterPage() {
       {/* Upload Preview & Rename Dialog */}
       {uploadPreview && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-gray-900">Preview & Rename Document</h2>
-                <button
-                  onClick={cancelUpload}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition"
-                >
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
-              </div>
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900">Upload File</h2>
+              <button
+                onClick={cancelUpload}
+                className="p-2 hover:bg-gray-100 rounded-lg transition"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
             </div>
-            
             <div className="p-6">
-              {/* Preview Section */}
-              <div className="mb-6">
-                <label className="block text-sm font-semibold text-gray-700 mb-3">Preview</label>
-                <div className="border-2 border-gray-200 rounded-lg p-4 bg-gray-50">
+              {/* File Preview and Info */}
+              <div className="flex items-center gap-4 mb-6">
+                <div className="shrink-0">
                   {uploadPreview.type === 'image' && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img 
-                      src={uploadPreview.url} 
-                      alt="Preview" 
-                      className="max-h-64 mx-auto rounded"
-                    />
-                  )}
-                  {uploadPreview.type === 'pdf' && (
-                    <div className="flex flex-col items-center gap-3">
-                      <FileText className="w-16 h-16 text-red-500" />
-                      <a 
-                        href={uploadPreview.url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline text-sm"
-                      >
-                        Open PDF in new tab
-                      </a>
-                    </div>
+                    <img src={uploadPreview.url} alt="Preview" className="w-20 h-20 object-cover rounded border" />
                   )}
                   {uploadPreview.type === 'video' && (
-                    <video 
-                      src={uploadPreview.url} 
-                      controls 
-                      className="max-h-64 mx-auto rounded"
-                    />
+                    <video src={uploadPreview.url} className="w-20 h-20 object-cover rounded border" />
                   )}
-                  {(uploadPreview.type === 'doc' || uploadPreview.type === 'ppt') && (
-                    <div className="flex flex-col items-center gap-3">
-                      {uploadPreview.type === 'doc' ? (
-                        <FileText className="w-16 h-16 text-blue-500" />
-                      ) : (
-                        <FileText className="w-16 h-16 text-orange-500" />
-                      )}
-                      <a 
-                        href={uploadPreview.url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline text-sm"
-                      >
-                        Open document in new tab
-                      </a>
-                    </div>
+                  {uploadPreview.type === 'pdf' && (
+                    <FileText className="w-16 h-16 text-red-500" />
+                  )}
+                  {uploadPreview.type === 'doc' && (
+                    <FileText className="w-16 h-16 text-blue-500" />
+                  )}
+                  {uploadPreview.type === 'ppt' && (
+                    <FileText className="w-16 h-16 text-orange-500" />
                   )}
                 </div>
-              </div>
-
-              {/* File Info */}
-              <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <span className="text-gray-600">Original name:</span>
-                    <p className="font-medium text-gray-900 break-all">{uploadPreview.originalName}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Size:</span>
-                    <p className="font-medium text-gray-900">
-                      {(uploadPreview.size / 1024).toFixed(2)} KB
-                    </p>
-                  </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-gray-900 truncate">{uploadPreview.originalName}</div>
+                  <div className="text-xs text-gray-500">{(uploadPreview.size / 1024).toFixed(2)} KB</div>
                 </div>
               </div>
 
               {/* Rename Input */}
-              <div className="mb-6">
+              <div className="mb-4">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Document Name
+                  File Name
                 </label>
                 <input
                   type="text"
                   value={newFileName}
                   onChange={(e) => setNewFileName(e.target.value)}
-                  placeholder="Enter document name (without extension)"
+                  placeholder="Enter file name (without extension)"
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 <p className="mt-2 text-sm text-gray-500">
                   Final name: <span className="font-medium text-gray-900">
-                    {newFileName.trim() || uploadPreview.originalName.replace(/\\.[^/.]+$/, '')}.{uploadPreview.originalName.split('.').pop()}
+                    {newFileName.trim() || uploadPreview.originalName.replace(/\.[^/.]+$/, '')}.{uploadPreview.originalName.split('.').pop()}
                   </span>
                 </p>
+              </div>
+
+              {/* Description Input */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Description
+                </label>
+                <textarea
+                  value={uploadPreview.description || ''}
+                  onChange={e => setUploadPreview({ ...uploadPreview, description: e.target.value })}
+                  placeholder="Enter a description for this file (optional)"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[60px]"
+                />
               </div>
 
               {/* Action Buttons */}
@@ -2221,7 +2155,7 @@ export default function BroadcasterPage() {
                   onClick={confirmUpload}
                   className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
                 >
-                  Add to Documents
+                  Upload
                 </button>
               </div>
             </div>
@@ -2498,6 +2432,31 @@ export default function BroadcasterPage() {
                 className="flex-1 px-4 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 transition font-medium"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {uploadProgress !== null && (
+        <div className="fixed bottom-6 right-6 w-80 bg-white/95 text-black rounded-lg shadow-lg p-3 z-50">
+          <div className="flex items-start gap-3">
+            <div className="flex-1">
+              <div className="text-sm font-medium truncate">{uploadingFileName || 'Uploading...'}</div>
+              <div className="w-full bg-gray-200 rounded h-2 mt-2">
+                <div
+                  className="h-2 bg-blue-600 rounded"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <div className="text-xs text-gray-600 mt-2">{uploadProgress}%</div>
+            </div>
+            <div className="shrink-0">
+              <button
+                onClick={() => { /* no-op for now; could implement cancel later */ }}
+                className="text-xs text-gray-600 hover:text-gray-800"
+                aria-label="Upload progress"
+              >
+                ✱
               </button>
             </div>
           </div>

@@ -10,6 +10,16 @@ import { ProcessingService } from '../processing/processing.service';
 import { Readable } from 'stream';
 import { createWriteStream, promises as fs } from 'fs';
 import { spawn } from 'child_process';
+// Try to use ffmpeg-static when available to avoid ENOENT if ffmpeg not installed on system
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const ffmpegStaticPath: string | null = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('ffmpeg-static');
+  } catch (err) {
+    return null;
+  }
+})();
 import { pipeline } from 'stream/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -51,7 +61,7 @@ type ModerationApiResult = Prisma.JsonObject & {
 export class LivestreamService {
   private readonly logger = new Logger(LivestreamService.name);
   private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
-  private readonly localAiBaseUrl = (process.env.LOCAL_AI_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
+  private readonly localAiBaseUrl = (process.env.AI_SERVICE_URL || 'http://localhost:8080').replace(/\/$/, '');
   
   constructor(
     private prisma: PrismaService,
@@ -2299,7 +2309,8 @@ export class LivestreamService {
           await pipeline(Readable.fromWeb(recordingResponse.body as any), createWriteStream(inputPath));
 
           await new Promise<void>((resolve, reject) => {
-            const ffmpeg = spawn('ffmpeg', [
+            const ffmpegCmd = ffmpegStaticPath || 'ffmpeg';
+            const ffmpeg = spawn(ffmpegCmd, [
               '-y',
               '-i',
               inputPath,

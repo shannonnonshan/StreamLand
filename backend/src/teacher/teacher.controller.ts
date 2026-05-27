@@ -1,4 +1,15 @@
-import { Controller, Get, Patch, Body, Param, Query, UseGuards, Request, Post, UploadedFile, UseInterceptors, BadRequestException, UploadedFiles } from '@nestjs/common';
+import { Controller, Get, Patch, Body, Delete, Param, Query, UseGuards, Request, Post, UploadedFile, UseInterceptors, BadRequestException, UploadedFiles } from '@nestjs/common';
+type MulterFile = {
+  fieldname: string;
+  originalname: string;
+  encoding?: string;
+  mimetype: string;
+  size: number;
+  buffer?: Buffer;
+  destination?: string;
+  filename?: string;
+  path?: string;
+};
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { TeacherService } from './teacher.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -70,7 +81,7 @@ export class TeacherController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadDocument(
     @Param('id') teacherId: string,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: MulterFile,
     @Body('description') description: string | undefined,
     @Request() req: { user: { sub: string } }
   ) {
@@ -99,6 +110,21 @@ export class TeacherController {
     }
 
     return this.teacherService.updateDocumentDescription(teacherId, documentId, description);
+  }
+
+  // Delete a document
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id/documents/:documentId')
+  async deleteDocument(
+    @Param('id') teacherId: string,
+    @Param('documentId') documentId: string,
+    @Request() req: { user: { sub: string; role?: string } }
+  ) {
+    if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Unauthorized');
+    }
+
+    return this.teacherService.deleteDocument(teacherId, documentId);
   }
 
   // Update teacher settings (profile info)
@@ -150,7 +176,7 @@ export class TeacherController {
   async messageAdmin(
     @Param('id') teacherId: string,
     @Body('content') content: string,
-    @UploadedFiles() images: Express.Multer.File[],
+    @UploadedFiles() images: MulterFile[],
     @Request() req: { user: { sub: string } }
   ): Promise<any> {
     if (req.user.sub !== teacherId) {
@@ -181,7 +207,7 @@ export class TeacherController {
         images.map(async (image) => {
           return await this.r2StorageService.uploadChatImage(
             image.originalname,
-            image.buffer,
+            image.buffer!,
             image.mimetype,
           );
         })

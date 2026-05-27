@@ -1,22 +1,16 @@
+import { clearAuthStorage, getStoredToken } from '@/lib/authStorage';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 let refreshInFlight: Promise<string | null> | null = null;
 
 // Helper to get auth token
 export function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('token') || localStorage.getItem('accessToken');
+  return getStoredToken();
 }
 
-// Helper to refresh access token.
-// Single-flight so concurrent 401s reuse the same refresh request and do not
-// race against refresh-token rotation on the backend.
-export async function refreshAccessToken(): Promise<string | null> {
-  if (refreshInFlight) {
-    return refreshInFlight;
-  }
-
-  refreshInFlight = (async () => {
+// Helper to refresh access token
+async function refreshToken(): Promise<boolean> {
   const refreshToken = localStorage.getItem('refreshToken');
   
   if (!refreshToken) {
@@ -38,11 +32,8 @@ export async function refreshAccessToken(): Promise<string | null> {
       localStorage.setItem('refreshToken', result.refreshToken);
       return result.accessToken as string;
     }
-    
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
-    return null;
+    clearAuthStorage();
+    return false;
   } catch (error) {
     console.error('Error refreshing token:', error);
     return null;
@@ -97,9 +88,7 @@ export async function authenticatedFetch(url: string, options: RequestInit = {},
     } else {
       console.error('Token refresh failed');
       // Clear auth data and redirect to login
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('user');
+      clearAuthStorage();
       window.location.href = '/';
       throw new Error('Session expired. Please login again.');
     }

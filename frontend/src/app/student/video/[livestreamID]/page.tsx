@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Sparkles } from "lucide-react";
 import Image from "next/image";
 import {
   Play,
@@ -16,11 +15,13 @@ import {
   Share2,
   Loader2,
   ArrowLeft,
+  Captions,
 } from "lucide-react";
-import { Captions } from "lucide-react";
 import LoginModal from "@/component/(modal)/login";
 import RegisterModal from "@/component/(modal)/register";
-import TranscriptSummaryStudio from "@/component/shared/TranscriptSummaryStudio";
+import { getRecordingAiAnalysis } from "@/lib/api/teacher";
+import { AUTH_STATE_CHANGED_EVENT, getStoredToken, getStoredUser } from "@/lib/authStorage";
+import { getUserStats } from "@/lib/userStatsCache";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -65,9 +66,27 @@ interface SubtitleCue {
   text: string;
 }
 
+type TranscriptPayload =
+  | string
+  | {
+      full_text?: unknown;
+      text?: unknown;
+      transcript?: unknown;
+      result?: unknown;
+      segments?: unknown[];
+    }
+  | unknown[];
+
+interface RecordingAiAnalysisPayload {
+  transcript?: TranscriptPayload | null;
+  summary?: string | null;
+}
+
 interface VideoComment {
   id: string;
   author: string;
+  authorId?: string | null;
+  authorStreak?: number | null;
   authorAvatar?: string;
   content: string;
   createdAt: string;
@@ -100,6 +119,30 @@ interface LocalVideoProgressSnapshot {
   updatedAt: number;
 }
 
+const VIDEO_PROGRESS_STORAGE_PREFIX = 'streamland:video-progress:';
+const STREAK_UPDATED_EVENT = 'streamland:streak-updated';
+
+const parseStoredUserProfile = (): CurrentStudentProfile | null => {
+  if (typeof window === 'undefined') return null;
+
+  const raw = getStoredUser();
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as { id?: string; userId?: string; sub?: string; fullName?: string; avatar?: string };
+    const id = parsed.id || parsed.userId || parsed.sub || '';
+    if (!id) return null;
+
+    return {
+      id,
+      fullName: parsed.fullName || 'Student',
+      avatar: parsed.avatar,
+    };
+  } catch {
+    return null;
+  }
+};
+
 export default function VideoPlayerPage() {
   const params = useParams<{ livestreamID?: string }>();
   const router = useRouter();
@@ -116,17 +159,17 @@ export default function VideoPlayerPage() {
   const [videoReaction, setVideoReaction] = useState<'like' | 'dislike' | null>(null);
   const [videoLikeCount, setVideoLikeCount] = useState(0);
   const [videoDislikeCount, setVideoDislikeCount] = useState(0);
-  const [isSubscribed, setIsSubscribed] = useState(false);
   const [showSubs, setShowSubs] = useState(true);
-  const [activeCueId, setActiveCueId] = useState<string | null>(null);
-
-  // Subtitles and transcript panel
   const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([]);
+  const [activeCueId, setActiveCueId] = useState<string | null>(null);
+  const [summaryText, setSummaryText] = useState('');
   const [selectedCueId, setSelectedCueId] = useState<string | null>(null);
   const [showTranscriptPanel, setShowTranscriptPanel] = useState(false);
-  const [transcriptionComplete, setTranscriptionComplete] = useState(false);
-  const [summary, setSummary] = useState('');
-  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [showSummaryPanel, setShowSummaryPanel] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const [transcriptPayload, setTranscriptPayload] = useState<TranscriptPayload | null>(null);
+  const transcriptPanelRef = useRef<HTMLDivElement | null>(null);
 
   // Comments and auth
   const [comments, setComments] = useState<VideoComment[]>([]);
@@ -148,100 +191,235 @@ export default function VideoPlayerPage() {
   const lastProgressPostRef = useRef(0);
   const restoreCompletedRef = useRef(false);
   const reportWatchInFlightRef = useRef(false);
+  const prevViewerRef = useRef<string | null>(null);
+  const activeWatchSecondsRef = useRef(0);
+  const lastPlaybackPositionRef = useRef<number | null>(null);
 
-  const getViewerIdForStorage = () => {
-    if (currentStudent?.id) return currentStudent.id;
-
-    try {
-      const storedUser = localStorage.getItem('user');
-      if (!storedUser) return 'anon';
-      const parsed = JSON.parse(storedUser) as { id?: string; userId?: string; email?: string };
-      return parsed.id || parsed.userId || parsed.email || 'anon';
-    } catch {
-      return 'anon';
+  const coerceNumber = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = Number.parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : null;
     }
+    return null;
   };
 
-  const writeLocalProgressSnapshot = (position: number, totalDuration: number, force = false) => {
-    if (!videoInfo?.id || totalDuration <= 0) return;
+  const extractTranscriptText = (payload: TranscriptPayload | null | undefined): string => {
+    if (!payload) return '';
+    if (typeof payload === 'string') return payload.trim();
+
+    if (Array.isArray(payload)) {
+      return payload.map((item) => extractTranscriptText(item as TranscriptPayload)).filter(Boolean).join('\n');
+    }
+
+    if (typeof payload === 'object') {
+      const data = payload as Record<string, unknown>;
+      const directText = [data.full_text, data.text, data.transcript, data.result].find(
+        (value) => typeof value === 'string',
+      );
+      if (typeof directText === 'string') return directText.trim();
+
+      if (Array.isArray(data.segments)) {
+        return data.segments
+          .map((segment) => {
+            if (!segment || typeof segment !== 'object') return '';
+            const seg = segment as Record<string, unknown>;
+            const textValue = seg.text ?? seg.full_text ?? seg.transcript ?? seg.result;
+            return typeof textValue === 'string' ? textValue.trim() : '';
+          })
+          .filter(Boolean)
+          .join('\n');
+      }
+    }
+
+    return '';
+  };
+
+  const splitTextToCues = (text: string, totalDuration: number): SubtitleCue[] => {
+    const source = (text || '').replace(/\s+/g, ' ').trim();
+    if (!source) return [];
+    const parts = source.split(/(?<=[.!?])\s+/).filter(Boolean);
+    const safeDuration = totalDuration > 0 ? totalDuration : parts.length * 4;
+    const cueDuration = Math.max(2.5, Math.floor(safeDuration / Math.max(1, parts.length)));
+    return parts.map((part, index) => ({
+      id: `cue-${index + 1}`,
+      start: index * cueDuration,
+      end: (index + 1) * cueDuration,
+      text: part,
+    }));
+  };
+
+  const buildCuesFromTranscript = (payload: TranscriptPayload | null | undefined, totalDuration: number): SubtitleCue[] => {
+    if (!payload) return [];
+    if (typeof payload === 'string') return splitTextToCues(payload, totalDuration);
+
+    const safeDuration = totalDuration > 0 ? totalDuration : 0;
+    const rawSegments: Array<{ id: string; start: number | null; end: number | null; text: string }> = [];
+    const tryAddSegment = (segment: Record<string, unknown>, index: number) => {
+      const startRaw = coerceNumber(segment.start ?? segment.start_time ?? segment.startTime);
+      const endRaw = coerceNumber(segment.end ?? segment.end_time ?? segment.endTime);
+      const textValue = segment.text ?? segment.full_text ?? segment.transcript ?? segment.result;
+      const text = typeof textValue === 'string' ? textValue.trim() : '';
+      if (!text) return;
+
+      rawSegments.push({
+        id: `cue-${index + 1}`,
+        start: startRaw,
+        end: endRaw,
+        text,
+      });
+    };
+
+    if (Array.isArray(payload)) {
+      payload.forEach((item, index) => {
+        if (item && typeof item === 'object') {
+          tryAddSegment(item as Record<string, unknown>, index);
+        }
+      });
+    } else if (typeof payload === 'object') {
+      const data = payload as Record<string, unknown>;
+      const nestedTranscript = data.transcript && typeof data.transcript === 'object'
+        ? (data.transcript as Record<string, unknown>)
+        : null;
+      const nestedResult = data.result && typeof data.result === 'object'
+        ? (data.result as Record<string, unknown>)
+        : null;
+      const nestedData = data.data && typeof data.data === 'object'
+        ? (data.data as Record<string, unknown>)
+        : null;
+
+      const candidates = [
+        data.segments,
+        nestedTranscript?.segments,
+        nestedResult?.segments,
+        nestedData?.segments,
+      ].filter(Array.isArray) as unknown[][];
+
+      const segmentsSource = candidates[0] || [];
+      segmentsSource.forEach((segment, index) => {
+        if (segment && typeof segment === 'object') {
+          tryAddSegment(segment as Record<string, unknown>, index);
+        }
+      });
+    }
+
+    if (rawSegments.length > 0) {
+      const maxEnd = rawSegments.reduce((max, segment) => {
+        const value = typeof segment.end === 'number' ? segment.end : 0;
+        return Math.max(max, value);
+      }, 0);
+      const scaleFactor = safeDuration > 0 && maxEnd > safeDuration * 2 ? 0.001 : 1;
+
+      const normalized = rawSegments
+        .map((segment, index) => {
+          const fallbackStart = index * 4;
+          const start = (segment.start ?? fallbackStart) * scaleFactor;
+          const end = typeof segment.end === 'number' ? segment.end * scaleFactor : null;
+          return {
+            id: segment.id,
+            start: Math.max(0, start),
+            end,
+            text: segment.text,
+          };
+        })
+        .sort((a, b) => a.start - b.start);
+
+      const cues: SubtitleCue[] = normalized.map((segment, index) => {
+        const next = normalized[index + 1];
+        const nextStart = next ? next.start : null;
+        let end = segment.end ?? (nextStart !== null ? Math.max(segment.start + 0.5, nextStart) : segment.start + 3);
+        if (end <= segment.start) {
+          end = segment.start + 2.5;
+        }
+        return {
+          id: `cue-${index + 1}`,
+          start: segment.start,
+          end,
+          text: segment.text,
+        };
+      });
+
+      return cues;
+    }
+
+    const fallbackText = extractTranscriptText(payload);
+    return splitTextToCues(fallbackText, totalDuration);
+  };
+
+  const getViewerIdForStorage = () => {
+    if (!isAuthenticated) return null;
+    return currentStudent?.id || parseStoredUserProfile()?.id || null;
+  };
+
+  const getProgressStorageKey = (videoId: string, viewerId: string) =>
+    `${VIDEO_PROGRESS_STORAGE_PREFIX}${viewerId}:${videoId}`;
+
+  const writeLocalProgressSnapshot = (position: number, totalDuration: number) => {
+    if (typeof window === 'undefined' || !videoInfo?.id) return;
 
     const viewerId = getViewerIdForStorage();
-    const key = `streamland:video-progress:${viewerId}:${videoInfo.id}`;
+    if (!viewerId) return;
 
-    // Do not overwrite a later saved position with an earlier one during initial autoplay startup.
+    const safePosition = Math.max(0, Math.floor(position));
+    const safeDuration = Math.max(1, Math.floor(totalDuration));
+    const key = getProgressStorageKey(videoInfo.id, viewerId);
+
+    let nextPosition = safePosition;
     try {
-      const existingRaw = localStorage.getItem(key);
-      if (existingRaw) {
-        const existing = JSON.parse(existingRaw) as LocalVideoProgressSnapshot;
-        if (!force && existing && typeof existing.currentTime === 'number' && existing.currentTime > position + 5) {
-          return;
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const existing = JSON.parse(raw) as LocalVideoProgressSnapshot;
+        if (existing && typeof existing.currentTime === 'number') {
+          nextPosition = Math.max(existing.currentTime, safePosition);
         }
       }
     } catch {
-      // ignore malformed existing snapshots
+      // Ignore malformed cache and overwrite with a fresh snapshot.
     }
 
-    const payload: LocalVideoProgressSnapshot = {
+    const snapshot: LocalVideoProgressSnapshot = {
       videoId: videoInfo.id,
       userId: viewerId,
-      currentTime: Math.max(0, Math.floor(position)),
-      duration: Math.max(1, Math.floor(totalDuration)),
+      currentTime: nextPosition,
+      duration: safeDuration,
       updatedAt: Date.now(),
     };
 
-    try {
-      localStorage.setItem(key, JSON.stringify(payload));
-    } catch (err) {
-      console.error('Failed to write local progress snapshot:', err);
-    }
+    localStorage.setItem(key, JSON.stringify(snapshot));
   };
 
-  const readLocalProgressSnapshot = () => {
-    if (!videoInfo?.id) return null;
+  const readLocalProgressSnapshot = (): LocalVideoProgressSnapshot | null => {
+    if (typeof window === 'undefined' || !videoInfo?.id) return null;
 
-    const candidateViewerIds: string[] = [];
-    if (currentStudent?.id) candidateViewerIds.push(currentStudent.id);
+    const viewerId = getViewerIdForStorage();
+    if (!viewerId) return null;
 
+    const key = getProgressStorageKey(videoInfo.id, viewerId);
     try {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        const parsed = JSON.parse(storedUser) as { id?: string; userId?: string; email?: string };
-        if (parsed.id) candidateViewerIds.push(parsed.id);
-        if (parsed.userId) candidateViewerIds.push(parsed.userId);
-        if (parsed.email) candidateViewerIds.push(parsed.email);
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw) as LocalVideoProgressSnapshot;
+      if (
+        !parsed ||
+        parsed.videoId !== videoInfo.id ||
+        parsed.userId !== viewerId ||
+        typeof parsed.currentTime !== 'number' ||
+        typeof parsed.duration !== 'number'
+      ) {
+        return null;
       }
+
+      return parsed;
     } catch {
-      // ignore invalid storage payloads
+      return null;
     }
-
-    candidateViewerIds.push('anon');
-
-    let best: LocalVideoProgressSnapshot | null = null;
-
-    for (const viewerId of Array.from(new Set(candidateViewerIds))) {
-      const key = `streamland:video-progress:${viewerId}:${videoInfo.id}`;
-      try {
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-        const parsed = JSON.parse(raw) as LocalVideoProgressSnapshot;
-        if (!parsed || typeof parsed.currentTime !== 'number' || typeof parsed.duration !== 'number') continue;
-
-        if (!best || (parsed.updatedAt || 0) > (best.updatedAt || 0)) {
-          best = parsed;
-        }
-      } catch {
-        // ignore malformed snapshots
-      }
-    }
-
-    return best;
   };
 
   const syncProgressToServer = async (position: number, totalDuration: number, force = false) => {
     if (!videoInfo?.id || totalDuration <= 0) return;
 
-    // Always write local immediately so dashboard card reflects progress instantly
-    writeLocalProgressSnapshot(position, totalDuration, force);
+    writeLocalProgressSnapshot(position, totalDuration);
 
     // Wait until at least one restore pass completes to avoid posting near-zero progress too early.
     if (!restoreCompletedRef.current && !force) {
@@ -249,7 +427,7 @@ export default function VideoPlayerPage() {
     }
 
     if (!isAuthenticated) return;
-    const token = localStorage.getItem('accessToken');
+    const token = getStoredToken();
     if (!token) return;
 
     const now = Date.now();
@@ -260,8 +438,15 @@ export default function VideoPlayerPage() {
     lastProgressPostRef.current = now;
 
     try {
-      const completed = position / totalDuration >= 0.95;
-      await fetch(`${API_URL}/student/track-activity`, {
+      // Optimistic UI: notify listeners of current active watch seconds before server acks
+      try {
+        window.dispatchEvent(new CustomEvent(STREAK_UPDATED_EVENT, { detail: { optimisticDaily: { activeWatchSeconds: Math.max(0, Math.floor(activeWatchSecondsRef.current)) } } }));
+      } catch (e) {
+        // ignore
+      }
+      const completed = position / totalDuration >= 0.9;
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const response = await fetch(`${API_URL}/student/track-activity`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -274,8 +459,17 @@ export default function VideoPlayerPage() {
           duration: Math.max(1, Math.floor(totalDuration)),
           progress: (position / totalDuration) * 100,
           completed,
+          timezone,
+          activeWatchSeconds: Math.max(0, Math.floor(activeWatchSecondsRef.current)),
         }),
       });
+
+      if (response.ok) {
+        const payload = await response.json().catch(() => null);
+        if (payload && (payload.updated || payload.todayQualified)) {
+          window.dispatchEvent(new CustomEvent(STREAK_UPDATED_EVENT, { detail: payload }));
+        }
+      }
     } catch (err) {
       console.error('Failed to sync progress to server:', err);
     }
@@ -356,35 +550,10 @@ export default function VideoPlayerPage() {
     fetchVideoData();
   }, [livestreamID]);
 
-  // Generate simple subtitle cues from description
-  const createSubtitleCues = (text: string, totalDuration = 120): SubtitleCue[] => {
-    const source = (text || '').replace(/\s+/g, ' ').trim();
-    if (!source) return [];
-    const parts = source.split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 24);
-    const cueDuration = Math.max(3, Math.floor((totalDuration || 120) / Math.max(1, parts.length)));
-    return parts.map((p, i) => ({ id: `cue-${i+1}`, start: i * cueDuration, end: (i+1) * cueDuration, text: p }));
-  };
-
-  useEffect(() => {
-    if (!videoInfo) return;
-    const cues = createSubtitleCues(videoInfo.description || '', videoInfo.duration || 120);
-    setSubtitleCues(cues);
-    setSelectedCueId(cues[cues.length - 1]?.id || null);
-  }, [videoInfo]);
-
-  useEffect(() => {
-    if (!subtitleCues || subtitleCues.length === 0) { setActiveCueId(null); return; }
-    const cue = subtitleCues.find(c => currentTime >= c.start && currentTime < c.end) || null;
-    setActiveCueId(cue?.id || null);
-    if (subtitleCues.length > 0 && currentTime >= (subtitleCues[subtitleCues.length-1].end || 0)) {
-      setTranscriptionComplete(true);
-    }
-  }, [currentTime, subtitleCues]);
-
   // Load current student profile and comments
   useEffect(() => {
     const loadProfileAndComments = async () => {
-      const token = localStorage.getItem('accessToken');
+      const token = getStoredToken();
       if (token) {
         try {
           const p = await fetch(`${API_URL}/auth/profile`, { headers: { Authorization: `Bearer ${token}` } });
@@ -392,10 +561,18 @@ export default function VideoPlayerPage() {
             const jd = await p.json();
             setCurrentStudent({ id: jd.id || jd.userId || jd.sub || '', fullName: jd.fullName || 'Student', avatar: jd.avatar });
             setIsAuthenticated(true);
+          } else {
+            setCurrentStudent(null);
+            setIsAuthenticated(false);
           }
         } catch (e) {
           console.error('Profile load failed', e);
+          setCurrentStudent(null);
+          setIsAuthenticated(false);
         }
+      } else {
+        setCurrentStudent(null);
+        setIsAuthenticated(false);
       }
 
       if (!videoInfo?.id) return;
@@ -403,16 +580,33 @@ export default function VideoPlayerPage() {
         const r = await fetch(`${API_URL}/livestream/${videoInfo.id}/comments?limit=50`);
         if (r.ok) {
           const data = await r.json();
-          setComments((data || []).map((c: any) => ({
+          const mapped: VideoComment[] = (data || []).map((c: any) => ({
             id: c.id,
             author: c.author || 'Student',
+            authorId: c.studentId || c.student_id || null,
             authorAvatar: c.authorAvatar || undefined,
             content: c.content,
             createdAt: c.createdAt,
             likes: c.likes || 0,
             dislikes: c.dislikes || 0,
             myReaction: null,
-          })));
+            authorStreak: null,
+          }));
+          setComments(mapped);
+          // Enrich with per-author streaks (dedupe)
+          const uniqueIds = Array.from(new Set(mapped.map((m) => m.authorId).filter(Boolean))) as string[];
+          if (uniqueIds.length > 0) {
+            try {
+              const streakMap: Record<string, number> = {};
+              const statsResults = await Promise.all(uniqueIds.map(async (uid) => [uid, await getUserStats(uid)] as const));
+              statsResults.forEach(([uid, stats]) => {
+                if (stats && typeof stats.streak === 'number') streakMap[uid] = stats.streak;
+              });
+              setComments((prev) => prev.map((c) => ({ ...c, authorStreak: c.authorId ? streakMap[c.authorId] ?? 0 : null })));
+            } catch (e) {
+              // ignore enrich failures
+            }
+          }
         }
       } catch (e) {
         console.error('Comments load failed', e);
@@ -424,7 +618,7 @@ export default function VideoPlayerPage() {
   useEffect(() => {
     const refreshProfile = async () => {
       if (showLoginModal || showRegisterModal) return;
-      const token = localStorage.getItem('accessToken');
+      const token = getStoredToken();
       if (!token) return;
       try {
         const resp = await fetch(`${API_URL}/auth/profile`, {
@@ -445,6 +639,75 @@ export default function VideoPlayerPage() {
 
     refreshProfile();
   }, [showLoginModal, showRegisterModal]);
+
+  useEffect(() => {
+    const resetPlayerStateForLoggedOut = () => {
+      const video = videoRef.current;
+      if (video) {
+        video.pause();
+        if (video.currentTime > 0) {
+          video.currentTime = 0;
+        }
+      }
+
+      setIsPlaying(false);
+      setCurrentTime(0);
+      pendingSeekRef.current = null;
+      progressSyncRef.current = false;
+      lastProgressPostRef.current = 0;
+      restoreCompletedRef.current = true;
+      setReportedView(false);
+      activeWatchSecondsRef.current = 0;
+      lastPlaybackPositionRef.current = null;
+    };
+
+    const syncAuthState = () => {
+      const token = getStoredToken();
+      const storedProfile = parseStoredUserProfile();
+      const nextViewer = token && storedProfile?.id ? storedProfile.id : null;
+      const viewerChanged = prevViewerRef.current !== nextViewer;
+
+      if (!token || !storedProfile?.id) {
+        setCurrentStudent(null);
+        setIsAuthenticated(false);
+        if (prevViewerRef.current !== null) {
+          resetPlayerStateForLoggedOut();
+        }
+        prevViewerRef.current = null;
+        return;
+      }
+
+      setCurrentStudent(storedProfile);
+      setIsAuthenticated(true);
+
+      if (viewerChanged) {
+        restoreCompletedRef.current = false;
+        pendingSeekRef.current = null;
+        progressSyncRef.current = false;
+        lastProgressPostRef.current = 0;
+        activeWatchSecondsRef.current = 0;
+        lastPlaybackPositionRef.current = null;
+      }
+
+      prevViewerRef.current = nextViewer;
+    };
+
+    syncAuthState();
+
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || ['accessToken', 'refreshToken', 'user', 'token'].includes(event.key)) {
+        syncAuthState();
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(AUTH_STATE_CHANGED_EVENT, syncAuthState as EventListener);
+
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(AUTH_STATE_CHANGED_EVENT, syncAuthState as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     const fetchVideoReactionData = async () => {
@@ -479,6 +742,61 @@ export default function VideoPlayerPage() {
 
     fetchVideoReactionData();
   }, [videoInfo?.id, isAuthenticated]);
+
+  useEffect(() => {
+    const fetchTranscriptAndSummary = async () => {
+      if (!videoInfo?.id) return;
+
+      try {
+        setSummaryLoading(true);
+        setTranscriptError(null);
+        const analysis = (await getRecordingAiAnalysis(videoInfo.id)) as RecordingAiAnalysisPayload;
+        setTranscriptPayload(analysis?.transcript ?? null);
+        setSummaryText(typeof analysis?.summary === 'string' ? analysis.summary : '');
+      } catch (err) {
+        console.error('Failed to load transcript analysis:', err);
+        setTranscriptError('Transcript is not available yet.');
+        setTranscriptPayload(null);
+        setSummaryText('');
+      } finally {
+        setSummaryLoading(false);
+      }
+    };
+
+    fetchTranscriptAndSummary();
+  }, [videoInfo?.id]);
+
+  useEffect(() => {
+    if (!videoInfo?.id) return;
+    if (!transcriptPayload) {
+      setSubtitleCues([]);
+      return;
+    }
+
+    const effectiveDuration = duration > 0 ? duration : (videoInfo.duration || 0);
+    const cues = buildCuesFromTranscript(transcriptPayload, effectiveDuration);
+    setSubtitleCues(cues);
+  }, [transcriptPayload, duration, videoInfo?.duration, videoInfo?.id]);
+
+  useEffect(() => {
+    if (!subtitleCues.length) {
+      setActiveCueId(null);
+      return;
+    }
+
+    const cue = subtitleCues.find((item) => currentTime >= item.start && currentTime < item.end) || null;
+    setActiveCueId(cue?.id || null);
+  }, [currentTime, subtitleCues]);
+
+  useEffect(() => {
+    if (!showTranscriptPanel || showSummaryPanel) return;
+    if (!transcriptPanelRef.current || !activeCueId) return;
+
+    const activeEl = transcriptPanelRef.current.querySelector(`[data-cue-id="${activeCueId}"]`);
+    if (!activeEl || !(activeEl instanceof HTMLElement)) return;
+
+    activeEl.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [activeCueId, showTranscriptPanel, showSummaryPanel]);
 
   useEffect(() => {
     if (!videoInfo?.recordingUrl) {
@@ -524,6 +842,15 @@ export default function VideoPlayerPage() {
       const updateTime = () => {
         setCurrentTime(video.currentTime);
         console.log('[Video] Time update:', video.currentTime, 'Duration:', video.duration); // Debug
+
+        const previousPlaybackPosition = lastPlaybackPositionRef.current;
+        if (previousPlaybackPosition !== null) {
+          const delta = video.currentTime - previousPlaybackPosition;
+          if (delta > 0 && delta <= 2.5) {
+            activeWatchSecondsRef.current += delta;
+          }
+        }
+        lastPlaybackPositionRef.current = video.currentTime;
 
         if (!progressSyncRef.current) {
           progressSyncRef.current = true;
@@ -601,6 +928,7 @@ export default function VideoPlayerPage() {
       };
       const handlePause = () => {
         setIsPlaying(false);
+        lastPlaybackPositionRef.current = video.currentTime;
         const effectiveDuration = video.duration && isFinite(video.duration) && video.duration > 0
           ? video.duration
           : (videoInfo?.duration || 0);
@@ -610,6 +938,14 @@ export default function VideoPlayerPage() {
       };
       const handleEnded = () => {
         setIsPlaying(false);
+        const previousPlaybackPosition = lastPlaybackPositionRef.current;
+        if (previousPlaybackPosition !== null) {
+          const delta = video.duration - previousPlaybackPosition;
+          if (delta > 0 && delta <= 2.5) {
+            activeWatchSecondsRef.current += delta;
+          }
+        }
+        lastPlaybackPositionRef.current = video.duration;
         const effectiveDuration = video.duration && isFinite(video.duration) && video.duration > 0
           ? video.duration
           : (videoInfo?.duration || 0);
@@ -640,6 +976,7 @@ export default function VideoPlayerPage() {
       };
 
       console.log('[Video] Setting up event listeners for:', videoInfo.recordingUrl);
+      lastPlaybackPositionRef.current = video.currentTime;
       video.addEventListener("timeupdate", updateTime);
       video.addEventListener("loadedmetadata", updateDuration);
       video.addEventListener("durationchange", updateDuration);
@@ -680,10 +1017,26 @@ export default function VideoPlayerPage() {
 
   useEffect(() => {
     const syncWatchProgress = async () => {
-      if (!videoInfo?.id || !isAuthenticated) return;
+      if (!videoInfo?.id) return;
 
-      const token = localStorage.getItem('accessToken');
-      if (!token) return;
+      if (!isAuthenticated) {
+        restoreCompletedRef.current = true;
+        pendingSeekRef.current = null;
+        activeWatchSecondsRef.current = 0;
+        lastPlaybackPositionRef.current = null;
+        const video = videoRef.current;
+        if (video) {
+          video.currentTime = 0;
+        }
+        setCurrentTime(0);
+        return;
+      }
+
+      const token = getStoredToken();
+      if (!token) {
+        restoreCompletedRef.current = true;
+        return;
+      }
 
       try {
         const resp = await fetch(`${API_URL}/student/watch-progress/${videoInfo.id}`, {
@@ -692,7 +1045,9 @@ export default function VideoPlayerPage() {
 
         if (!resp.ok) return;
 
-        const progress = (await resp.json()) as WatchProgressResponse | null;
+        const raw = await resp.text();
+        if (!raw) return;
+        const progress = JSON.parse(raw) as WatchProgressResponse | null;
         if (!progress || typeof progress.lastPosition !== 'number' || progress.lastPosition <= 0) return;
 
         const video = videoRef.current;
@@ -703,6 +1058,8 @@ export default function VideoPlayerPage() {
 
         const target = Math.max(0, Math.min(progress.lastPosition, (progress.duration || video.duration || 0) - 1));
         pendingSeekRef.current = target;
+        activeWatchSecondsRef.current = Math.max(0, progress.lastPosition || 0);
+        lastPlaybackPositionRef.current = target;
         if ((progress.duration || 0) > 0) {
           writeLocalProgressSnapshot(target, progress.duration);
         }
@@ -719,7 +1076,7 @@ export default function VideoPlayerPage() {
     };
 
     syncWatchProgress();
-  }, [videoInfo?.id, isAuthenticated]);
+  }, [videoInfo?.id, isAuthenticated, currentStudent?.id]);
 
   // Restore local progress immediately so resume works even before auth/profile round-trip finishes
   useEffect(() => {
@@ -736,6 +1093,8 @@ export default function VideoPlayerPage() {
 
     const target = Math.max(0, Math.min(snapshot.currentTime, (snapshot.duration || video.duration || 0) - 1));
     pendingSeekRef.current = target;
+    activeWatchSecondsRef.current = Math.max(0, snapshot.currentTime || 0);
+    lastPlaybackPositionRef.current = target;
 
     if (video.readyState >= 1 && video.currentTime < target - 1) {
       video.currentTime = target;
@@ -956,7 +1315,31 @@ export default function VideoPlayerPage() {
       });
       if (!res.ok) return;
       const created = await res.json();
-      setComments(prev => [created, ...prev]);
+      // Normalize created comment shape
+      const createdNormalized: VideoComment = {
+        id: created.id,
+        author: created.author || (currentStudent?.fullName || 'Student'),
+        authorId: created.studentId || created.student_id || currentStudent?.id || null,
+        authorAvatar: created.authorAvatar || currentStudent?.avatar || undefined,
+        content: created.content,
+        createdAt: created.createdAt,
+        likes: created.likes || 0,
+        dislikes: created.dislikes || 0,
+        myReaction: null,
+        authorStreak: null,
+      };
+      setComments(prev => [createdNormalized, ...prev]);
+
+      // Fetch streak for the author we just added (best-effort)
+      const authorId = createdNormalized.authorId;
+      if (authorId) {
+        try {
+          const stats = await getUserStats(authorId);
+          setComments((prev) => prev.map((c) => (c.id === createdNormalized.id ? { ...c, authorStreak: typeof stats?.streak === 'number' ? stats.streak : 0 } : c)));
+        } catch (e) {
+          // ignore
+        }
+      }
       setNewComment('');
     } catch (e) { console.error(e); }
   };
@@ -974,11 +1357,6 @@ export default function VideoPlayerPage() {
       const updated = await res.json();
       setComments(prev => prev.map(c => c.id === commentId ? { ...c, likes: updated.likes || c.likes, dislikes: updated.dislikes || c.dislikes, myReaction: updated.myReaction || null } : c));
     } catch (e) { console.error(e); }
-  };
-
-  const handleSubscribe = async () => {
-    // Toggle locally; backend integration optional
-    setIsSubscribed(prev => !prev);
   };
 
   if (loading) {
@@ -1069,19 +1447,23 @@ export default function VideoPlayerPage() {
                   </button>
                 )}
 
-                {/* Subtitle Overlay (inside video) */}
                 {showSubs && activeCueId && (
-                  <div className="absolute left-0 right-0 bottom-14 md:bottom-16 flex items-center justify-center px-4">
+                  <div
+                    className={`absolute left-0 right-0 flex items-center justify-center px-4 transition-all duration-300 ${
+                      showControls ? 'bottom-14 md:bottom-16' : 'bottom-3 md:bottom-4'
+                    }`}
+                  >
                     <button
                       type="button"
                       onClick={() => {
                         setSelectedCueId(activeCueId);
                         setShowTranscriptPanel(true);
+                        setShowSummaryPanel(false);
                       }}
                       className="bg-black/70 hover:bg-black/80 text-white text-sm px-4 py-2 rounded-md max-w-[90%] text-center transition"
                       title="Open transcript review"
                     >
-                      {subtitleCues.find(c => c.id === activeCueId)?.text}
+                      {subtitleCues.find((cue) => cue.id === activeCueId)?.text}
                     </button>
                   </div>
                 )}
@@ -1146,7 +1528,11 @@ export default function VideoPlayerPage() {
                     </div>
 
                     <div className="flex items-center gap-1 md:gap-2">
-                      <button onClick={() => setShowSubs(prev => !prev)} className="hover:scale-110 transition-transform duration-200 w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-full hover:bg-white/10">
+                      <button
+                        onClick={() => setShowSubs((prev) => !prev)}
+                        className="hover:scale-110 transition-transform duration-200 w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-full hover:bg-white/10"
+                        title={showSubs ? 'Hide captions' : 'Show captions'}
+                      >
                         <Captions size={16} />
                       </button>
                       <button className="hover:scale-110 transition-transform duration-200 w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-full hover:bg-white/10">
@@ -1255,8 +1641,6 @@ export default function VideoPlayerPage() {
                   </div>
                 )}
 
-                {/* Subtitles are displayed as an in-video overlay via the captions button in the player controls. */}
-
                 {/* Comments Section */}
                 <div className="mt-6 bg-white rounded-2xl p-4 border border-gray-100">
                   <h4 className="text-sm font-bold text-gray-900 mb-3 uppercase tracking-wide">Comments ({comments.length})</h4>
@@ -1312,7 +1696,12 @@ export default function VideoPlayerPage() {
                               )}
                             </div>
                             <div>
-                              <div className="text-sm font-semibold text-gray-900">{c.author}</div>
+                              <div className="text-sm font-semibold text-gray-900">
+                                {c.author}
+                                {typeof c.authorStreak === 'number' && c.authorStreak > 0 && (
+                                  <span className="ml-2 inline-flex items-center gap-1 text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded">🔥 {c.authorStreak}</span>
+                                )}
+                              </div>
                               <div className="text-sm text-gray-700 mt-1">{c.content}</div>
                             </div>
                           </div>
@@ -1332,32 +1721,90 @@ export default function VideoPlayerPage() {
           {/* Sidebar - Related Videos */}
           <div className="xl:col-span-1">
             <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-100/50 sticky top-8 overflow-hidden">
-              {/* Transcript Panel */}
               <div className="p-4 border-b border-gray-100">
                 <h4 className="text-sm font-bold text-gray-900 mb-2">Transcript Preview</h4>
                 {showTranscriptPanel && selectedCueId ? (
                   (() => {
-                    const cue = subtitleCues.find(c => c.id === selectedCueId);
+                    const cue = subtitleCues.find((item) => item.id === selectedCueId);
                     return (
                       <div className="space-y-3">
-                        <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-800">{cue?.text}</div>
+                        {!showSummaryPanel && (
+                          <div className="space-y-3">
+                            <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-800">{cue?.text}</div>
+                            <input
+                              type="range"
+                              min="0"
+                              max={duration > 0 ? duration : (videoInfo?.duration || 100)}
+                              value={currentTime}
+                              onChange={handleSeek}
+                              className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-slate-200 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-indigo-600 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-indigo-600 [&::-moz-range-thumb]:border-0"
+                            />
+                            <div
+                              ref={transcriptPanelRef}
+                              className="max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white/80 p-3 text-sm text-slate-700"
+                            >
+                              {subtitleCues.length === 0 && (
+                                <p className="text-slate-400">Transcript is not available yet.</p>
+                              )}
+                              {subtitleCues.map((item) => (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  data-cue-id={item.id}
+                                  onClick={() => {
+                                    const video = videoRef.current;
+                                    if (!video) return;
+                                    video.currentTime = item.start;
+                                    setCurrentTime(item.start);
+                                  }}
+                                  className={`mb-2 w-full text-left leading-relaxed transition ${
+                                    item.id === activeCueId
+                                      ? "text-indigo-700 font-semibold"
+                                      : "text-slate-600 hover:text-slate-900"
+                                  }`}
+                                >
+                                  {item.text}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={async () => {
-                              setIsSummarizing(true);
-                              // simple summary: first 20 words of selected cue + note
-                              await new Promise(r => setTimeout(r, 700));
-                              setSummary((cue?.text || '').split(' ').slice(0,20).join(' ') + (cue && cue.text.split(' ').length>20 ? '...' : ''));
-                              setIsSummarizing(false);
-                            }}
+                            onClick={() => setShowSummaryPanel(true)}
                             className="px-3 py-2 bg-indigo-600 text-white rounded-lg flex items-center gap-2 text-sm"
                           >
-                            <Sparkles className="w-4 h-4" />
-                            {isSummarizing ? 'Summarizing...' : 'Summarize'}
+                            Summarize
                           </button>
-                          <button onClick={() => { setShowTranscriptPanel(false); setSelectedCueId(null); }} className="px-3 py-2 bg-gray-100 rounded-lg text-sm">Close</button>
+                          {showSummaryPanel && (
+                            <button
+                              onClick={() => setShowSummaryPanel(false)}
+                              className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm"
+                            >
+                              View Transcript
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              setShowTranscriptPanel(false);
+                              setSelectedCueId(null);
+                              setShowSummaryPanel(false);
+                            }}
+                            className="px-3 py-2 bg-gray-100 rounded-lg text-sm"
+                          >
+                            Close
+                          </button>
                         </div>
-                        {summary && <div className="mt-3 p-3 bg-white rounded-lg border text-sm text-gray-700">{summary}</div>}
+                        {showSummaryPanel && (
+                          <div className="mt-3 p-3 bg-white rounded-lg border text-sm text-gray-700">
+                            {summaryLoading && 'Loading summary...'}
+                            {!summaryLoading && summaryText && summaryText}
+                            {!summaryLoading && !summaryText && 'Summary is not available yet.'}
+                          </div>
+                        )}
+                        {!summaryLoading && transcriptError && (
+                          <p className="text-xs font-medium text-amber-600">{transcriptError}</p>
+                        )}
                       </div>
                     );
                   })()

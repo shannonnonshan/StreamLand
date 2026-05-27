@@ -69,7 +69,7 @@ export default function Header() {
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
 
-  const searchApiBaseUrl = process.env.NEXT_PUBLIC_SEARCH_API_URL || 'http://127.0.0.1:8000';
+  const searchApiBaseUrl = `${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(/\/$/, '')}/ai`;
 
   const getHistoryStorageKey = () => `streamland:search-history:${user?.id || 'guest'}`;
 

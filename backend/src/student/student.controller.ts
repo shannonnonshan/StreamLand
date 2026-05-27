@@ -186,6 +186,9 @@ export class StudentController {
       duration?: number;
       progress?: number;
       completed?: boolean;
+      timezone?: string;
+      activityType?: 'VIDEO' | 'QUIZ' | 'EXERCISE';
+      activeWatchSeconds?: number;
     },
   ) {
     return this.studentService.trackWatchActivity(
@@ -197,8 +200,68 @@ export class StudentController {
         duration: body.duration,
         progress: body.progress,
         completed: body.completed,
+        timezone: body.timezone,
+        activityType: body.activityType,
+        activeWatchSeconds: body.activeWatchSeconds,
       },
     );
+  }
+
+  @Get('streak')
+  async getLearningStreak(
+    @Request() req: { user: { sub: string } },
+    @Query('timezone') timezone?: string,
+  ) {
+    return this.studentService.getLearningStreak(req.user.sub, timezone);
+  }
+
+  @Post('streak/activity')
+  async submitStreakActivity(
+    @Request() req: { user: { sub: string } },
+    @Body() body: {
+      activityType?: 'VIDEO' | 'QUIZ' | 'EXERCISE';
+      videoId?: string;
+      watchTimeSeconds?: number;
+      completionPercentage?: number;
+      completed?: boolean;
+      timezone?: string;
+    },
+  ) {
+    return this.studentService.recordLearningActivity(req.user.sub, {
+      activityType: body.activityType,
+      videoId: body.videoId,
+      watchTimeSeconds: body.watchTimeSeconds,
+      completionPercentage: body.completionPercentage,
+      completed: body.completed,
+      timezone: body.timezone,
+    });
+  }
+
+  @Get('streak/daily-progress')
+  async getDailyStreakProgress(
+    @Request() req: { user: { sub: string } },
+    @Query('timezone') timezone?: string,
+  ) {
+    return this.studentService.getDailyStreakProgress(req.user.sub, timezone);
+  }
+
+  @Get('streak/calendar')
+  async getStreakCalendar(
+    @Request() req: { user: { sub: string } },
+    @Query('days') days?: string,
+    @Query('timezone') timezone?: string,
+  ) {
+    const daysNum = days ? parseInt(days, 10) : 90;
+    return this.studentService.getStreakCalendar(req.user.sub, daysNum, timezone);
+  }
+
+  @Get('streak/leaderboard')
+  async getStreakLeaderboard(
+    @Request() req: { user: { sub: string } },
+    @Query('limit') limit?: string,
+  ) {
+    const limitNum = limit ? parseInt(limit, 10) : 20;
+    return this.studentService.getStreakLeaderboard(req.user.sub, limitNum);
   }
 
   // Get watch progress for a video or livestream recording
@@ -208,6 +271,15 @@ export class StudentController {
     @Param('contentId') contentId: string,
   ) {
     return this.studentService.getWatchProgress(req.user.sub, contentId);
+  }
+
+  // Get watch progress in batch for multiple videos (scoped to current user)
+  @Post('watch-progress/batch')
+  async getWatchProgressBatch(
+    @Request() req: { user: { sub: string } },
+    @Body() body: { contentIds?: string[] },
+  ) {
+    return this.studentService.getWatchProgressBatch(req.user.sub, body?.contentIds || []);
   }
 
   // Get student statistics
@@ -220,6 +292,53 @@ export class StudentController {
   @Get('stats/:userId')
   async getStudentStatsByUserId(@Param('userId') userId: string) {
     return this.studentService.getStudentStats(userId);
+  }
+
+  @Post('profile-activity')
+  async createProfileActivity(
+    @Request() req: { user: { sub: string } },
+    @Body() body: { content?: string; visibility?: 'public' | 'followers' | 'private' },
+  ) {
+    return this.studentService.createProfileActivity(req.user.sub, body?.content || '', body?.visibility || 'followers');
+  }
+
+  @Public()
+  @Get('profile-activity/:userId')
+  async getProfileActivities(
+    @Request() req: any,
+    @Param('userId') userId: string,
+    @Query('limit') limit?: string,
+  ) {
+    const limitNum = limit ? parseInt(limit, 10) : 20;
+    const viewerId = req?.user?.sub ?? null;
+    return this.studentService.getProfileActivities(viewerId, userId, limitNum);
+  }
+
+  @Patch('profile-activity/:activityId/pin')
+  async pinProfileActivity(
+    @Request() req: { user: { sub: string } },
+    @Param('activityId') activityId: string,
+    @Body() body: { pinned?: boolean },
+  ) {
+    return this.studentService.pinProfileActivity(req.user.sub, activityId, body?.pinned !== false);
+  }
+
+  @Post('profile-activity/:activityId/reactions')
+  async toggleProfileReaction(
+    @Request() req: { user: { sub: string } },
+    @Param('activityId') activityId: string,
+    @Body() body: { type?: 'like' | 'clap' | 'insight' },
+  ) {
+    return this.studentService.toggleProfileReaction(req.user.sub, activityId, body?.type || 'like');
+  }
+
+  @Post('profile-activity/:activityId/comments')
+  async addProfileComment(
+    @Request() req: { user: { sub: string } },
+    @Param('activityId') activityId: string,
+    @Body() body: { content?: string },
+  ) {
+    return this.studentService.addProfileComment(req.user.sub, activityId, body?.content || '');
   }
 
   // Student help chatbot

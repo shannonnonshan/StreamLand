@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bull';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
+import { AiController } from './ai/ai.controller';
 import { AppService } from './app.service';
 import { StreamModule } from './stream/stream.module';
 import { AuthModule } from './auth/auth.module';
@@ -43,7 +44,7 @@ import { createRedisConnectionOptions } from './redis/redis.config';
     DocumentModule,
     ProcessingModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, AiController],
   providers: [AppService],
 })
 export class AppModule {}

@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthContext } from '@/contexts/AuthContext';
+import { clearAuthStorage, clearWatchProgressForUser, dispatchAuthStateChanged } from '@/lib/authStorage';
 
 interface User {
   id: string;
@@ -42,8 +43,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 export function useAuth() {
   const router = useRouter();
   const { user, isAuthenticated, setUser, setIsAuthenticated } = useAuthContext();
-  // Keep auth in a loading state until the initial localStorage/token check finishes.
-  const [loading, setLoading] = useState(true);
+  const currentUserId = user?.id;
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Helper function to check if token is expired or about to expire
@@ -62,10 +63,9 @@ export function useAuth() {
     }
   };
 
-  // Refresh access token using refresh token
   const refreshAccessToken = useCallback(async () => {
     const refreshToken = localStorage.getItem('refreshToken');
-    
+
     if (!refreshToken) {
       return false;
     }
@@ -86,18 +86,18 @@ export function useAuth() {
         return true;
       } else {
         // If refresh fails, logout
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('user');
+        clearWatchProgressForUser(currentUserId);
+        clearAuthStorage();
         setUser(null);
         setIsAuthenticated(false);
+        dispatchAuthStateChanged();
         return false;
       }
     } catch (error) {
       console.error('Error refreshing token:', error);
       return false;
     }
-  }, [setUser, setIsAuthenticated]);
+  }, [currentUserId, setUser, setIsAuthenticated]);
 
   // Check token on mount and refresh if needed
   useEffect(() => {
@@ -218,6 +218,7 @@ export function useAuth() {
       }
 
       setIsAuthenticated(true);
+        dispatchAuthStateChanged();
       setLoading(false);
       return { success: true, user: finalUser };
     } catch (err: unknown) {
@@ -271,6 +272,7 @@ export function useAuth() {
       }
 
       setIsAuthenticated(true);
+        dispatchAuthStateChanged();
       setLoading(false);
       return { success: true, user: finalUser };
     } catch (err: unknown) {
@@ -341,6 +343,7 @@ export function useAuth() {
       }
 
       setIsAuthenticated(true);
+      dispatchAuthStateChanged();
       setLoading(false);
 
       return { success: true, user: finalUser, bannedUntil: undefined };
@@ -416,29 +419,31 @@ export function useAuth() {
         });
       }
 
+      clearWatchProgressForUser(currentUserId);
+
       // Clear local storage
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('user');
+      clearAuthStorage();
 
       setUser(null);
       setIsAuthenticated(false);
+      dispatchAuthStateChanged();
       setLoading(false);
 
       router.push('/');
     } catch {
+      clearWatchProgressForUser(currentUserId);
+
       // Still clear local data even if API call fails
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('user');
+      clearAuthStorage();
       
       setUser(null);
       setIsAuthenticated(false);
+      dispatchAuthStateChanged();
       setLoading(false);
       
       router.push('/');
     }
-  }, [router, setUser, setIsAuthenticated]);
+  }, [currentUserId, router, setUser, setIsAuthenticated]);
 
   // Get user profile
   const getProfile = useCallback(async () => {
@@ -534,6 +539,7 @@ export function useAuth() {
       
       setUser(result.user);
       setIsAuthenticated(true);
+      dispatchAuthStateChanged();
       setLoading(false);
 
       return { success: true, user: result.user };

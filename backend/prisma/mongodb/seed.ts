@@ -11,6 +11,7 @@ async function main() {
   console.log('🗑️  Clearing existing MongoDB data...');
   await mongo.chatMessage.deleteMany({});
   await mongo.notification.deleteMany({});
+  await mongo.activityLog.deleteMany({});
   await mongo.userPresence.deleteMany({});
   console.log('✅ Cleared existing data');
 
@@ -275,6 +276,78 @@ async function main() {
   });
 
   console.log('✅ Created user presence data');
+
+  // Create sample profile activity logs (used by the student profile journal)
+  console.log('\n📝 Creating profile activity logs for each student...');
+
+  const students = [student1, student2, student3, student4];
+  let created = 0;
+  let commentIdx = 1;
+  const baseDate = new Date('2024-11-20T08:00:00').getTime();
+
+  for (let i = 0; i < students.length; i++) {
+    const s = students[i];
+
+    // Latest activity: note (pinned)
+    await mongo.activityLog.create({
+      data: {
+        userId: s.id,
+        action: 'PROFILE_NOTE_POSTED',
+        resource: 'profile-note',
+        metadata: {
+          content: `Ghi chú của ${s.fullName}: hoàn thành buổi học hôm nay và ôn lại bài tập.`,
+          visibility: i % 3 === 0 ? 'followers' : 'public',
+          pinned: true,
+          reactions: [
+            { userId: students[(i + 1) % students.length].id, type: 'like', createdAt: new Date().toISOString() },
+          ],
+          comments: [
+            { id: `c-${commentIdx++}`, userId: students[(i + 2) % students.length].id, content: 'Cố lên nhé!', createdAt: new Date().toISOString() },
+          ],
+        },
+        createdAt: new Date(baseDate + i * 1000 * 60 * 60 * 24),
+      },
+    });
+    created++;
+
+    // Check-in activity
+    await mongo.activityLog.create({
+      data: {
+        userId: s.id,
+        action: 'PROFILE_NOTE_POSTED',
+        resource: 'profile-note',
+        metadata: {
+          content: `Check-in: Hôm nay ${s.fullName} đã học 30 phút.`,
+          visibility: 'public',
+          pinned: false,
+          reactions: [],
+          comments: [],
+        },
+        createdAt: new Date(baseDate + i * 1000 * 60 * 60 * 24 - 1000 * 60 * 60),
+      },
+    });
+    created++;
+
+    // Private note
+    await mongo.activityLog.create({
+      data: {
+        userId: s.id,
+        action: 'PROFILE_NOTE_POSTED',
+        resource: 'profile-note',
+        metadata: {
+          content: `Private note for ${s.fullName}: công thức, mẹo giải nhanh.`,
+          visibility: 'private',
+          pinned: false,
+          reactions: [],
+          comments: [],
+        },
+        createdAt: new Date(baseDate + i * 1000 * 60 * 60 * 24 - 2000 * 60 * 60),
+      },
+    });
+    created++;
+  }
+
+  console.log(`✅ Created ${created} profile activities`);
   console.log('\n🎉 MongoDB seeding completed!');
 }
 

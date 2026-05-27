@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, BadGatewayException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { FriendStatus } from '@prisma/client';
+import { FriendStatus, Prisma } from '@prisma/client';
 import { SendFriendRequestDto, UpdateFriendRequestDto, FollowTeacherDto, UnfollowTeacherDto } from './dto';
 import { NotificationService } from '../notification/notification.service';
 
@@ -23,12 +23,128 @@ type RecommendationCandidate = {
 
 type PartProgressMap = Map<string, number>;
 
+type LearningActivityType = 'VIDEO' | 'QUIZ' | 'EXERCISE';
+
+type RecordLearningActivityInput = {
+  activityType?: LearningActivityType;
+  videoId?: string;
+  watchTimeSeconds?: number;
+  completionPercentage?: number;
+  completed?: boolean;
+  timezone?: string;
+};
+
+type JournalVisibility = 'public' | 'followers' | 'private';
+type JournalReactionType = 'like' | 'clap' | 'insight';
+
+type JournalReaction = {
+  userId: string;
+  type: JournalReactionType;
+  createdAt: string;
+};
+
+type JournalComment = {
+  id: string;
+  userId: string;
+  content: string;
+  createdAt: string;
+};
+
+type JournalMetadata = {
+  content?: string;
+  visibility?: JournalVisibility;
+  pinned?: boolean;
+  reactions?: JournalReaction[];
+  comments?: JournalComment[];
+};
+
+const MIN_QUALIFIED_WATCH_SECONDS = 5 * 60;
+const MIN_QUALIFIED_COMPLETION_PERCENT = 25;
+const DEFAULT_DAILY_GOAL_SECONDS = 15 * 60;
+
 @Injectable()
 export class StudentService {
   constructor(
     private prisma: PrismaService,
     private notificationService: NotificationService,
   ) {}
+
+  private normalizeJournalMetadata(metadata: Prisma.JsonValue | null | undefined): JournalMetadata {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+      return {};
+    }
+
+    return metadata as JournalMetadata;
+  }
+
+  private async canViewProfileJournal(viewerId: string | null | undefined, ownerId: string) {
+    if (!viewerId) return false;
+    if (viewerId === ownerId) {
+      return true;
+    }
+
+    const friendship = await this.prisma.postgres.friendList.findFirst({
+      where: {
+        OR: [
+          { requestId: viewerId, receiverId: ownerId },
+          { requestId: ownerId, receiverId: viewerId },
+        ],
+        status: FriendStatus.ACCEPTED,
+      },
+      select: { id: true },
+    });
+
+    return !!friendship;
+  }
+
+  private async getJournalUserMap(userIds: string[]) {
+    const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
+    if (!uniqueIds.length) {
+      return new Map<string, { id: string; fullName: string; avatar: string | null }>();
+    }
+
+    const users = await this.prisma.postgres.user.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true, fullName: true, avatar: true },
+    });
+
+    return new Map(users.map((user) => [user.id, user]));
+  }
+
+  private async loadJournalEntry(row: {
+    id: string;
+    userId: string;
+    createdAt: Date;
+    metadata: Prisma.JsonValue | null;
+  }) {
+    const metadata = this.normalizeJournalMetadata(row.metadata);
+    const reactions = Array.isArray(metadata.reactions) ? metadata.reactions : [];
+    const comments = Array.isArray(metadata.comments) ? metadata.comments : [];
+
+    const users = await this.getJournalUserMap([
+      ...reactions.map((reaction) => reaction.userId),
+      ...comments.map((comment) => comment.userId),
+    ]);
+
+    return {
+      id: row.id,
+      userId: row.userId,
+      content: typeof metadata.content === 'string' ? metadata.content : '',
+      visibility: metadata.visibility || 'followers',
+      pinned: !!metadata.pinned,
+      reactions: reactions.map((reaction) => ({
+        ...reaction,
+        user: users.get(reaction.userId) || null,
+      })),
+      comments: comments
+        .map((comment) => ({
+          ...comment,
+          user: users.get(comment.userId) || null,
+        }))
+        .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()),
+      createdAt: row.createdAt,
+    };
+  }
 
   // Send friend request
   async sendFriendRequest(requesterId: string, dto: SendFriendRequestDto) {
@@ -1203,6 +1319,9 @@ export class StudentService {
       duration?: number;
       progress?: number;
       completed?: boolean;
+      timezone?: string;
+      activityType?: LearningActivityType;
+      activeWatchSeconds?: number;
     },
   ) {
     // Get student profile
@@ -1216,59 +1335,34 @@ export class StudentService {
     }
 
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const lastActivity = student.studentProfile.lastActivityDate;
 
-    let newStreak = student.studentProfile.studyStreak;
-    let shouldUpdate = false;
-
-    if (!lastActivity) {
-      // First activity ever
-      newStreak = 1;
-      shouldUpdate = true;
-    } else {
-      const lastActivityAsDate = new Date(lastActivity);
-      const lastActivityDate = new Date(
-        lastActivityAsDate.getFullYear(),
-        lastActivityAsDate.getMonth(),
-        lastActivityAsDate.getDate()
-      );
-      
-      const diffTime = today.getTime() - lastActivityDate.getTime();
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-      if (diffDays === 0) {
-        // Same day, no update needed
-        shouldUpdate = false;
-      } else if (diffDays === 1) {
-        // Next day, increment streak
-        newStreak = student.studentProfile.studyStreak + 1;
-        shouldUpdate = true;
-      } else if (diffDays > 1) {
-        // Streak broken, reset to 1
-        newStreak = 1;
-        shouldUpdate = true;
-      }
-    }
-
-    if (shouldUpdate) {
-      await this.prisma.postgres.studentProfile.update({
-        where: { id: student.studentProfile.id },
-        data: {
-          studyStreak: newStreak,
-          lastActivityDate: now,
-        },
-      });
-    }
-
-    const lastPosition = Math.max(0, Math.floor(progressData?.lastPosition || 0));
-    const duration = Math.max(0, Math.floor(progressData?.duration || 0));
-    const progress = typeof progressData?.progress === 'number'
+    const incomingLastPosition = Math.max(0, Math.floor(progressData?.lastPosition || 0));
+    const incomingDuration = Math.max(0, Math.floor(progressData?.duration || 0));
+    const incomingProgress = typeof progressData?.progress === 'number'
       ? Math.max(0, Math.min(100, progressData.progress))
-      : duration > 0
-        ? Math.max(0, Math.min(100, (lastPosition / duration) * 100))
+      : incomingDuration > 0
+        ? Math.max(0, Math.min(100, (incomingLastPosition / incomingDuration) * 100))
         : 0;
-    const completed = progressData?.completed ?? progress >= 66.67;
+
+    const existingProgress = await this.prisma.mongo.watchHistory.findUnique({
+      where: {
+        userId_livestreamId: {
+          userId,
+          livestreamId: contentId,
+        },
+      },
+    });
+
+    const lastPosition = Math.max(existingProgress?.lastPosition || 0, incomingLastPosition);
+    const duration = Math.max(existingProgress?.duration || 0, incomingDuration);
+    const computedProgress = duration > 0
+      ? Math.max(0, Math.min(100, (lastPosition / duration) * 100))
+      : 0;
+    const progress = Math.max(existingProgress?.progress || 0, incomingProgress, computedProgress);
+    const completed =
+      !!existingProgress?.completed ||
+      !!progressData?.completed ||
+      progress >= 90;
 
     // Record watch history in MongoDB using a stable per-user/per-video record
     await this.prisma.mongo.watchHistory.upsert({
@@ -1289,16 +1383,37 @@ export class StudentService {
       },
       update: {
         watchedAt: now,
-        duration: duration || undefined,
+        duration,
         completed,
         progress,
         lastPosition,
       },
     });
 
+    const streakResult = await this.recordLearningActivity(userId, {
+      activityType: progressData?.activityType || (contentType === 'video' ? 'VIDEO' : 'EXERCISE'),
+      videoId: contentId,
+      watchTimeSeconds: Math.max(0, progressData?.activeWatchSeconds || incomingLastPosition),
+      completionPercentage: progress,
+      completed,
+      timezone: progressData?.timezone,
+    });
+
+    if (streakResult.streakUpdated || streakResult.todayQualified) {
+      await this.prisma.postgres.studentProfile.update({
+        where: { id: student.studentProfile.id },
+        data: {
+          studyStreak: streakResult.currentStreak,
+          lastActivityDate: now,
+        },
+      });
+    }
+
     return {
-      streak: newStreak,
-      updated: shouldUpdate,
+      streak: streakResult.currentStreak,
+      updated: streakResult.streakUpdated,
+      longestStreak: streakResult.longestStreak,
+      todayQualified: streakResult.todayQualified,
     };
   }
 
@@ -1313,6 +1428,490 @@ export class StudentService {
     });
 
     return progress || null;
+  }
+
+  async getWatchProgressBatch(userId: string, contentIds: string[]) {
+    const uniqueContentIds = Array.from(
+      new Set((contentIds || []).map((id) => (id || '').trim()).filter(Boolean)),
+    ).slice(0, 500);
+
+    if (uniqueContentIds.length === 0) {
+      return { items: [] };
+    }
+
+    const items = await this.prisma.mongo.watchHistory.findMany({
+      where: {
+        userId,
+        livestreamId: {
+          in: uniqueContentIds,
+        },
+      },
+      select: {
+        livestreamId: true,
+        watchedAt: true,
+        duration: true,
+        completed: true,
+        progress: true,
+        lastPosition: true,
+      },
+      orderBy: {
+        watchedAt: 'desc',
+      },
+    });
+
+    return {
+      items: items.map((item) => ({
+        contentId: item.livestreamId,
+        watchedAt: item.watchedAt,
+        duration: item.duration,
+        completed: item.completed,
+        progress: item.progress,
+        lastPosition: item.lastPosition,
+      })),
+    };
+  }
+
+  async getLearningStreak(userId: string, timezone?: string) {
+    const tz = this.normalizeTimezone(timezone);
+    const streak = await this.ensureLearningStreak(userId, tz);
+    const dateKey = this.getDateKeyInTimezone(new Date(), streak.timezone);
+
+    const hasAwardedToday = await this.prisma.mongo.learningStreakDay.findUnique({
+      where: {
+        userId_dateKey: {
+          userId,
+          dateKey,
+        },
+      },
+    });
+
+    return {
+      userId,
+      timezone: streak.timezone,
+      currentStreak: streak.currentStreak,
+      longestStreak: streak.longestStreak,
+      totalLearningDays: streak.totalLearningDays,
+      streakFreezes: streak.streakFreezes,
+      lastLearningDate: streak.lastLearningDate,
+      todayQualified: !!hasAwardedToday,
+    };
+  }
+
+  async recordLearningActivity(userId: string, input: RecordLearningActivityInput) {
+    const activityType: LearningActivityType = input.activityType || 'VIDEO';
+    const timezone = this.normalizeTimezone(input.timezone);
+    const now = new Date();
+
+    const streak = await this.ensureLearningStreak(userId, timezone);
+    const sessionDateKey = this.getDateKeyInTimezone(now, streak.timezone);
+
+    const watchTimeSeconds = Math.max(0, Math.floor(input.watchTimeSeconds || 0));
+    const completionPercentage = Math.max(0, Math.min(100, Number(input.completionPercentage || 0)));
+    const completed = !!input.completed;
+
+    const qualifies =
+      activityType !== 'VIDEO'
+        ? completed || watchTimeSeconds >= 60
+        : completed ||
+          watchTimeSeconds >= MIN_QUALIFIED_WATCH_SECONDS ||
+          completionPercentage >= MIN_QUALIFIED_COMPLETION_PERCENT;
+
+    const sessionVideoId = (input.videoId || '').trim() || '__no_video__';
+    const existingSession = await this.prisma.mongo.learningSession.findUnique({
+      where: {
+        userId_sessionDateKey_videoId: {
+          userId,
+          sessionDateKey,
+          videoId: sessionVideoId,
+        },
+      },
+    });
+
+    const activeWatchSeconds = this.computeSafeWatchTimeIncrement(
+      existingSession?.activeWatchSeconds || 0,
+      watchTimeSeconds,
+    );
+    const nextCompletion = Math.max(existingSession?.completionPercentage || 0, completionPercentage);
+    const nextQualified = !!existingSession?.qualifiedForStreak || qualifies;
+
+    const session = await this.prisma.mongo.learningSession.upsert({
+      where: {
+        userId_sessionDateKey_videoId: {
+          userId,
+          sessionDateKey,
+          videoId: sessionVideoId,
+        },
+      },
+      create: {
+        userId,
+        videoId: sessionVideoId,
+        activityType: activityType as any,
+        activeWatchSeconds,
+        completionPercentage: nextCompletion,
+        qualifiedForStreak: nextQualified,
+        sessionDateKey,
+        createdAt: now,
+      },
+      update: {
+        activeWatchSeconds,
+        completionPercentage: nextCompletion,
+        qualifiedForStreak: nextQualified,
+      },
+    });
+
+    const daySessions = await this.prisma.mongo.learningSession.findMany({
+      where: {
+        userId,
+        sessionDateKey,
+      },
+      select: {
+        activeWatchSeconds: true,
+        completionPercentage: true,
+        qualifiedForStreak: true,
+      },
+    });
+
+    const dayWatchSeconds = daySessions.reduce((sum, item) => sum + (item.activeWatchSeconds || 0), 0);
+    const dayHasQualifiedSession = daySessions.some((item) => item.qualifiedForStreak);
+    const dayCompletionMax = daySessions.reduce((max, item) => Math.max(max, item.completionPercentage || 0), 0);
+
+    const dayQualified =
+      dayHasQualifiedSession ||
+      dayWatchSeconds >= MIN_QUALIFIED_WATCH_SECONDS ||
+      dayCompletionMax >= MIN_QUALIFIED_COMPLETION_PERCENT;
+
+    let streakUpdated = false;
+    let currentStreak = streak.currentStreak;
+    let longestStreak = streak.longestStreak;
+
+    if (dayQualified) {
+      const existingAward = await this.prisma.mongo.learningStreakDay.findUnique({
+        where: {
+          userId_dateKey: {
+            userId,
+            dateKey: sessionDateKey,
+          },
+        },
+      });
+
+      if (!existingAward) {
+        let createdAward = false;
+        try {
+          await this.prisma.mongo.learningStreakDay.create({
+            data: {
+              userId,
+              dateKey: sessionDateKey,
+              sourceSessionId: session.id,
+              awarded: true,
+              freezeConsumed: false,
+              createdAt: now,
+            },
+          });
+          createdAward = true;
+        } catch (error) {
+          const isDuplicateAward =
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2002';
+          if (!isDuplicateAward) {
+            throw error;
+          }
+        }
+
+        if (createdAward) {
+          const prevDate = streak.lastLearningDate;
+          if (!prevDate) {
+            currentStreak = 1;
+          } else {
+            const gapDays = this.diffDateKeys(prevDate, sessionDateKey, streak.timezone);
+            if (gapDays <= 0) {
+              currentStreak = Math.max(1, streak.currentStreak);
+            } else if (gapDays === 1) {
+              currentStreak = streak.currentStreak + 1;
+            } else {
+              currentStreak = 1;
+            }
+          }
+
+          longestStreak = Math.max(streak.longestStreak, currentStreak);
+          streakUpdated = true;
+
+          await this.prisma.mongo.learningStreak.update({
+            where: { id: streak.id },
+            data: {
+              currentStreak,
+              longestStreak,
+              lastLearningDate: sessionDateKey,
+              totalLearningDays: streak.totalLearningDays + 1,
+              timezone: streak.timezone,
+              updatedAt: now,
+            },
+          });
+
+          // Increment student's aggregate study time in minutes in Postgres (best-effort).
+          try {
+            const minutesToAdd = Math.floor(dayWatchSeconds / 60);
+            if (minutesToAdd > 0) {
+              await this.prisma.postgres.studentProfile.update({
+                where: { userId },
+                data: { studyHours: { increment: minutesToAdd } as any },
+              });
+            }
+          } catch (err) {
+            // Do not fail streak awarding if updating studyHours fails
+            console.error('Failed to increment studyHours for user', userId, err);
+          }
+        }
+      }
+    }
+
+    const latestStreak = await this.prisma.mongo.learningStreak.findUnique({
+      where: { id: streak.id },
+      select: {
+        currentStreak: true,
+        longestStreak: true,
+      },
+    });
+
+    currentStreak = latestStreak?.currentStreak ?? currentStreak;
+    longestStreak = latestStreak?.longestStreak ?? longestStreak;
+
+    return {
+      sessionDateKey,
+      timezone: streak.timezone,
+      currentStreak,
+      longestStreak,
+      streakUpdated,
+      todayQualified: dayQualified,
+      dailyProgress: {
+        activeWatchSeconds: dayWatchSeconds,
+        completionPercentage: dayCompletionMax,
+        goalSeconds: DEFAULT_DAILY_GOAL_SECONDS,
+        remainingSeconds: Math.max(0, DEFAULT_DAILY_GOAL_SECONDS - dayWatchSeconds),
+      },
+    };
+  }
+
+  async getDailyStreakProgress(userId: string, timezone?: string) {
+    const streak = await this.ensureLearningStreak(userId, this.normalizeTimezone(timezone));
+    const dateKey = this.getDateKeyInTimezone(new Date(), streak.timezone);
+
+    const daySessions = await this.prisma.mongo.learningSession.findMany({
+      where: {
+        userId,
+        sessionDateKey: dateKey,
+      },
+      select: {
+        activeWatchSeconds: true,
+        completionPercentage: true,
+        qualifiedForStreak: true,
+      },
+    });
+
+    const activeWatchSeconds = daySessions.reduce((sum, item) => sum + (item.activeWatchSeconds || 0), 0);
+    const completionPercentage = daySessions.reduce((max, item) => Math.max(max, item.completionPercentage || 0), 0);
+    const qualified =
+      daySessions.some((item) => item.qualifiedForStreak) ||
+      activeWatchSeconds >= MIN_QUALIFIED_WATCH_SECONDS ||
+      completionPercentage >= MIN_QUALIFIED_COMPLETION_PERCENT;
+
+    return {
+      dateKey,
+      timezone: streak.timezone,
+      activeWatchSeconds,
+      completionPercentage,
+      qualified,
+      goalSeconds: DEFAULT_DAILY_GOAL_SECONDS,
+      remainingSeconds: Math.max(0, DEFAULT_DAILY_GOAL_SECONDS - activeWatchSeconds),
+    };
+  }
+
+  async getStreakCalendar(userId: string, days = 90, timezone?: string) {
+    const streak = await this.ensureLearningStreak(userId, this.normalizeTimezone(timezone));
+    const safeDays = Math.min(Math.max(days || 90, 7), 365);
+    const endDateKey = this.getDateKeyInTimezone(new Date(), streak.timezone);
+    const startDate = this.addDaysToDateKey(endDateKey, -(safeDays - 1), streak.timezone);
+
+    const dayEntries = await this.prisma.mongo.learningStreakDay.findMany({
+      where: {
+        userId,
+        dateKey: {
+          gte: startDate,
+          lte: endDateKey,
+        },
+      },
+      select: {
+        dateKey: true,
+        awarded: true,
+        freezeConsumed: true,
+      },
+      orderBy: {
+        dateKey: 'asc',
+      },
+    });
+
+    return {
+      timezone: streak.timezone,
+      startDate,
+      endDate: endDateKey,
+      days: dayEntries.map((item) => ({
+        date: item.dateKey,
+        status: item.freezeConsumed ? 'freeze' : item.awarded ? 'learned' : 'missed',
+        awarded: item.awarded,
+        freezeConsumed: item.freezeConsumed,
+      })),
+    };
+  }
+
+  async getStreakLeaderboard(currentUserId: string, limit = 20) {
+    const safeLimit = Math.min(Math.max(limit || 20, 5), 100);
+    const rows = await this.prisma.mongo.learningStreak.findMany({
+      orderBy: [{ currentStreak: 'desc' }, { longestStreak: 'desc' }, { updatedAt: 'asc' }],
+      take: safeLimit,
+      select: {
+        userId: true,
+        currentStreak: true,
+        longestStreak: true,
+        updatedAt: true,
+      },
+    });
+
+    const userIds = rows.map((item) => item.userId);
+    const users = userIds.length
+      ? await this.prisma.postgres.user.findMany({
+          where: { id: { in: userIds } },
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true,
+          },
+        })
+      : [];
+    const userMap = new Map(users.map((item) => [item.id, item]));
+
+    return {
+      leaderboard: rows.map((item, index) => ({
+        rank: index + 1,
+        userId: item.userId,
+        fullName: userMap.get(item.userId)?.fullName || 'Unknown user',
+        avatar: userMap.get(item.userId)?.avatar || null,
+        currentStreak: item.currentStreak,
+        longestStreak: item.longestStreak,
+        isCurrentUser: item.userId === currentUserId,
+      })),
+    };
+  }
+
+  private async ensureLearningStreak(userId: string, timezone: string) {
+    const now = new Date();
+    const existing = await this.prisma.mongo.learningStreak.findUnique({ where: { userId } });
+    if (existing) {
+      if (!existing.timezone || existing.timezone !== timezone) {
+        return this.prisma.mongo.learningStreak.update({
+          where: { id: existing.id },
+          data: {
+            timezone,
+            updatedAt: now,
+          },
+        });
+      }
+      return existing;
+    }
+
+    try {
+      return await this.prisma.mongo.learningStreak.create({
+        data: {
+          userId,
+          timezone,
+          currentStreak: 0,
+          longestStreak: 0,
+          totalLearningDays: 0,
+          streakFreezes: 0,
+          createdAt: now,
+        },
+      });
+    } catch (error) {
+      const isDuplicateCreate =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002';
+
+      if (!isDuplicateCreate) {
+        throw error;
+      }
+
+      // Another concurrent request already created this streak row.
+      const concurrent = await this.prisma.mongo.learningStreak.findUnique({ where: { userId } });
+      if (!concurrent) {
+        throw error;
+      }
+
+      if (!concurrent.timezone || concurrent.timezone !== timezone) {
+        return this.prisma.mongo.learningStreak.update({
+          where: { id: concurrent.id },
+          data: {
+            timezone,
+            updatedAt: now,
+          },
+        });
+      }
+
+      return concurrent;
+    }
+  }
+
+  private normalizeTimezone(value?: string) {
+    const fallback = 'UTC';
+    if (!value || typeof value !== 'string') return fallback;
+    const normalized = value.trim();
+    if (!normalized) return fallback;
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: normalized }).format(new Date());
+      return normalized;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private getDateKeyInTimezone(date: Date, timezone: string) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const day = parts.find((part) => part.type === 'day')?.value;
+
+    return `${year}-${month}-${day}`;
+  }
+
+  private dateKeyToUtcDate(dateKey: string) {
+    const [year, month, day] = dateKey.split('-').map((part) => Number(part));
+    return new Date(Date.UTC(year, month - 1, day));
+  }
+
+  private diffDateKeys(startDateKey: string, endDateKey: string, _timezone: string) {
+    const start = this.dateKeyToUtcDate(startDateKey);
+    const end = this.dateKeyToUtcDate(endDateKey);
+    return Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  }
+
+  private addDaysToDateKey(dateKey: string, days: number, _timezone: string) {
+    const date = this.dateKeyToUtcDate(dateKey);
+    date.setUTCDate(date.getUTCDate() + days);
+    const year = date.getUTCFullYear();
+    const month = `${date.getUTCMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getUTCDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private computeSafeWatchTimeIncrement(existingWatchSeconds: number, incomingWatchSeconds: number) {
+    const safeIncoming = Math.max(0, Math.floor(incomingWatchSeconds || 0));
+    const safeExisting = Math.max(0, Math.floor(existingWatchSeconds || 0));
+    const delta = Math.max(0, safeIncoming - safeExisting);
+    const cappedDelta = Math.min(delta, 120);
+    return safeExisting + cappedDelta;
   }
 
   // Get student stats
@@ -1343,24 +1942,243 @@ export class StudentService {
       student.studentProfile.sentFriendRequests.length +
       student.studentProfile.receivedFriendRequests.length;
 
-    // Count watch history and documents from MongoDB
-    const [watchHistory, documents] = await Promise.all([
-      this.prisma.mongo.watchHistory.count({
-        where: { userId },
-      }),
+    // Count documents and learning streak from MongoDB
+    const [documents, learningStreak] = await Promise.all([
       this.prisma.mongo.notebook.count({
         where: { userId },
+      }),
+      this.prisma.mongo.learningStreak.findUnique({
+        where: { userId },
+        select: { currentStreak: true },
       }),
     ]);
 
     return {
       following: student.studentProfile.followedTeachers.length,
       friends: friendsCount,
-      courses: watchHistory, // Using watch history as course count
+      courses: student.studentProfile.followedTeachers.length,
       documents: documents,
       studyHours: student.studentProfile.studyHours,
-      streak: student.studentProfile.studyStreak,
+      streak: learningStreak?.currentStreak ?? student.studentProfile.studyStreak,
     };
+  }
+
+  async createProfileActivity(userId: string, content: string, visibility: JournalVisibility = 'followers') {
+    const trimmedContent = (content || '').trim();
+    if (!trimmedContent) {
+      throw new BadRequestException('Activity content cannot be empty');
+    }
+
+    if (trimmedContent.length > 280) {
+      throw new BadRequestException('Activity content must be 280 characters or fewer');
+    }
+
+    const created = await this.prisma.mongo.activityLog.create({
+      data: {
+        userId,
+        action: 'PROFILE_NOTE_POSTED',
+        resource: 'profile-note',
+        metadata: {
+          content: trimmedContent,
+          visibility,
+          pinned: false,
+          reactions: [],
+          comments: [],
+        },
+      },
+    });
+
+    // Also record as a lightweight learning activity so it can qualify for streaks
+    try {
+      // Best-effort: award the day with minimal watch seconds (e.g., 60s)
+      await this.recordLearningActivity(userId, {
+        activityType: 'EXERCISE',
+        watchTimeSeconds: 60,
+        completionPercentage: 100,
+        completed: true,
+        timezone: undefined,
+      });
+    } catch (err) {
+      // Do not block note creation if streak recording fails
+      console.error('Failed to record learning activity for profile note:', err);
+    }
+
+    // Return a full journal entry object for frontend compatibility
+    return await this.loadJournalEntry(created);
+  }
+
+  async getProfileActivities(viewerId: string | null | undefined, userId: string, limit = 20) {
+    const safeLimit = Math.min(Math.max(limit || 20, 1), 50);
+    const rows = await this.prisma.mongo.activityLog.findMany({
+      where: {
+        userId,
+        action: 'PROFILE_NOTE_POSTED',
+        resource: 'profile-note',
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: safeLimit,
+    });
+
+    const canViewFollowers = await this.canViewProfileJournal(viewerId, userId);
+
+    const items = await Promise.all(rows
+      .map(async (row) => {
+        const entry = await this.loadJournalEntry(row);
+
+        const canViewEntry =
+          entry.visibility === 'public' ||
+          entry.userId === viewerId ||
+          (entry.visibility === 'followers' && canViewFollowers);
+
+        if (!canViewEntry) {
+          return null;
+        }
+
+        return entry;
+      }));
+
+    const orderedItems = items
+      .filter((item): item is NonNullable<typeof item> => !!item)
+      .sort((left, right) => {
+        if (left.pinned !== right.pinned) {
+          return left.pinned ? -1 : 1;
+        }
+        return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+      });
+
+    return { items: orderedItems };
+  }
+
+  async pinProfileActivity(userId: string, activityId: string, pinned = true) {
+    const activity = await this.prisma.mongo.activityLog.findFirst({
+      where: {
+        id: activityId,
+        userId,
+        action: 'PROFILE_NOTE_POSTED',
+        resource: 'profile-note',
+      },
+    });
+
+    if (!activity) {
+      throw new NotFoundException('Activity not found');
+    }
+
+    const existing = this.normalizeJournalMetadata(activity.metadata);
+
+    if (pinned) {
+      const others = await this.prisma.mongo.activityLog.findMany({
+        where: {
+          userId,
+          action: 'PROFILE_NOTE_POSTED',
+          resource: 'profile-note',
+          id: { not: activityId },
+        },
+      });
+
+      await Promise.all(others.map((row) => {
+        const metadata = this.normalizeJournalMetadata(row.metadata);
+        return this.prisma.mongo.activityLog.update({
+          where: { id: row.id },
+          data: {
+            metadata: {
+              ...metadata,
+              pinned: false,
+            },
+          },
+        });
+      }));
+    }
+
+    const updated = await this.prisma.mongo.activityLog.update({
+      where: { id: activityId },
+      data: {
+        metadata: {
+          ...existing,
+          pinned,
+        },
+      },
+    });
+
+    return this.loadJournalEntry(updated);
+  }
+
+  async toggleProfileReaction(userId: string, activityId: string, type: JournalReactionType) {
+    const activity = await this.prisma.mongo.activityLog.findFirst({
+      where: {
+        id: activityId,
+        action: 'PROFILE_NOTE_POSTED',
+        resource: 'profile-note',
+      },
+    });
+
+    if (!activity) {
+      throw new NotFoundException('Activity not found');
+    }
+
+    const metadata = this.normalizeJournalMetadata(activity.metadata);
+    const reactions = Array.isArray(metadata.reactions) ? metadata.reactions : [];
+
+    const existingIndex = reactions.findIndex((reaction) => reaction.userId === userId && reaction.type === type);
+    const nextReactions = existingIndex >= 0
+      ? reactions.filter((_, index) => index !== existingIndex)
+      : [
+          ...reactions.filter((reaction) => reaction.userId !== userId),
+          { userId, type, createdAt: new Date().toISOString() },
+        ];
+
+    const updated = await this.prisma.mongo.activityLog.update({
+      where: { id: activityId },
+      data: {
+        metadata: {
+          ...metadata,
+          reactions: nextReactions,
+        },
+      },
+    });
+
+    return this.loadJournalEntry(updated);
+  }
+
+  async addProfileComment(userId: string, activityId: string, content: string) {
+    const trimmedContent = (content || '').trim();
+    if (!trimmedContent) {
+      throw new BadRequestException('Comment cannot be empty');
+    }
+
+    const activity = await this.prisma.mongo.activityLog.findFirst({
+      where: {
+        id: activityId,
+        action: 'PROFILE_NOTE_POSTED',
+        resource: 'profile-note',
+      },
+    });
+
+    if (!activity) {
+      throw new NotFoundException('Activity not found');
+    }
+
+    const metadata = this.normalizeJournalMetadata(activity.metadata);
+    const comments = Array.isArray(metadata.comments) ? metadata.comments : [];
+    const nextComment: JournalComment = {
+      id: `comment_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+      userId,
+      content: trimmedContent,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated = await this.prisma.mongo.activityLog.update({
+      where: { id: activityId },
+      data: {
+        metadata: {
+          ...metadata,
+          comments: [...comments, nextComment],
+        },
+      },
+    });
+
+    return this.loadJournalEntry(updated);
   }
 
   // Send student help/chat message to ai-service

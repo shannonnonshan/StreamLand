@@ -11,16 +11,6 @@ import { Readable } from 'stream';
 import { createWriteStream, promises as fs } from 'fs';
 import ffmpegPath from 'ffmpeg-static';
 import { spawn } from 'child_process';
-// Try to use ffmpeg-static when available to avoid ENOENT if ffmpeg not installed on system
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const ffmpegStaticPath: string | null = (() => {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('ffmpeg-static');
-  } catch (err) {
-    return null;
-  }
-})();
 import { pipeline } from 'stream/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -35,6 +25,7 @@ interface AiTranscriptSummaryDocument {
   transcriptError?: string | null;
   transcript?: Prisma.JsonValue;
   summary?: string;
+  audioUrl?: string | null;
   moderationResult?: Prisma.JsonValue;
   moderationCheckedAt?: Date;
   transcriptGeneratedAt?: Date;
@@ -64,7 +55,7 @@ export class LivestreamService {
   private readonly logger = new Logger(LivestreamService.name);
   private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
   private readonly aiServiceUrl = (process.env.AI_SERVICE_URL || '').replace(/\/$/, '');
-  
+
   constructor(
     private prisma: PrismaService,
     private r2StorageService: R2StorageService,
@@ -76,29 +67,24 @@ export class LivestreamService {
     if (!this.aiServiceUrl) {
       throw new BadRequestException('AI_SERVICE_URL is not configured');
     }
-
     return this.aiServiceUrl;
   }
 
   async createLivestream(createLivestreamDto: CreateLivestreamDto) {
     const { id, teacherId, title, description, isPublic, allowComments } = createLivestreamDto;
 
-    // Optimize: Single query to check teacher and active livestream
     const [existingLivestream, teacher, activeLivestream] = await Promise.all([
       this.prisma.postgres.liveStream.findUnique({
         where: { id },
-        select: { id: true }, // Only need ID for existence check
+        select: { id: true },
       }),
       this.prisma.postgres.user.findUnique({
         where: { id: teacherId },
-        select: { id: true, role: true, avatar: true }, // Include avatar for thumbnail
+        select: { id: true, role: true, avatar: true },
       }),
       this.prisma.postgres.liveStream.findFirst({
-        where: {
-          teacherId,
-          status: LiveStreamStatus.LIVE,
-        },
-        select: { id: true }, // Only need ID for existence check
+        where: { teacherId, status: LiveStreamStatus.LIVE },
+        select: { id: true },
       }),
     ]);
 
@@ -118,10 +104,8 @@ export class LivestreamService {
       throw new ConflictException('Teacher already has an active livestream');
     }
 
-    // Use teacher avatar as thumbnail, fallback to logo.png
     const thumbnail = teacher.avatar || '/logo.png';
 
-    // Create the livestream with SCHEDULED status
     const livestream = await this.prisma.postgres.liveStream.create({
       data: {
         id,
@@ -148,7 +132,6 @@ export class LivestreamService {
         isPublic: true,
         allowComments: true,
         createdAt: true,
-        // Don't return unnecessary fields to reduce response size
       },
     });
 
@@ -161,17 +144,13 @@ export class LivestreamService {
   }
 
   private normalizeModerationStatus(status: unknown): string | undefined {
-    if (typeof status !== 'string') {
-      return undefined;
-    }
-
+    if (typeof status !== 'string') return undefined;
     const normalized = status.trim().toUpperCase();
     return ['SAFE', 'REVIEW', 'BLOCK'].includes(normalized) ? normalized : undefined;
   }
 
   private getModerationSnapshot(moderationResult: Prisma.JsonValue | null | undefined): ModerationSnapshot {
     const moderation = this.sanitizeModerationResult(moderationResult) || null;
-
     return {
       toxicWords: moderation?.toxic_word || [],
       validationRate: typeof moderation?.score === 'number' ? moderation.score : 0,
@@ -182,15 +161,8 @@ export class LivestreamService {
 
   private isWordLevelToxicCandidate(value: string): boolean {
     const trimmed = value.trim();
-
-    if (!trimmed) {
-      return false;
-    }
-
-    if (/\s{2,}/.test(trimmed)) {
-      return false;
-    }
-
+    if (!trimmed) return false;
+    if (/\s{2,}/.test(trimmed)) return false;
     return trimmed.split(/\s+/).filter(Boolean).length <= 2;
   }
 
@@ -236,7 +208,6 @@ export class LivestreamService {
     ];
 
     const candidates = sources.flatMap((source) => this.collectModerationStrings(source));
-
     const filtered = candidates
       .map((value) => value.trim())
       .filter((value) => this.isWordLevelToxicCandidate(value));
@@ -245,9 +216,7 @@ export class LivestreamService {
   }
 
   private sanitizeModerationResult(payload: unknown): ModerationApiResult | null {
-    if (!payload || typeof payload !== 'object') {
-      return null;
-    }
+    if (!payload || typeof payload !== 'object') return null;
 
     const data = payload as Record<string, unknown>;
     const moderation = data.moderation && typeof data.moderation === 'object'
@@ -261,146 +230,74 @@ export class LivestreamService {
       : undefined;
     const toxicWord = this.extractToxicWords(moderation);
 
-    if (!status && score === undefined && !categories && toxicWord.length === 0) {
-      return null;
-    }
+    if (!status && score === undefined && !categories && toxicWord.length === 0) return null;
 
-    return {
-      status,
-      score,
-      categories,
-      toxic_word: toxicWord,
-    };
+    return { status, score, categories, toxic_word: toxicWord };
   }
-  private async callModerationApi(
-    transcript: unknown,
-  ): Promise<ModerationApiResult | null> {
-    const api = `${this.localAiBaseUrl}/moderation/text`;
+
+  private async callModerationApi(transcript: unknown): Promise<ModerationApiResult | null> {
+    const api = `${this.requireAiServiceUrl()}/moderation/text`;
 
     try {
-      // DEBUG RAW INPUT
-      this.logger.debug(
-        `[Moderation] Raw transcript type=${typeof transcript}`,
-      );
+      this.logger.debug(`[Moderation] Raw transcript type=${typeof transcript}`);
 
       if (typeof transcript === 'string') {
-        const rawPreview =
-          transcript.length > 300
-            ? `${transcript.slice(0, 300)}...`
-            : transcript;
-
-        this.logger.debug(
-          `[Moderation] Raw transcript preview=${rawPreview}`,
-        );
+        const rawPreview = transcript.length > 300 ? `${transcript.slice(0, 300)}...` : transcript;
+        this.logger.debug(`[Moderation] Raw transcript preview=${rawPreview}`);
       }
 
-      // NORMALIZE
       const normalizedText = await this.normalizeTranscriptContent(transcript);
+      this.logger.log(`[Moderation] Normalized text length=${normalizedText.length}`);
 
-      this.logger.log(
-        `[Moderation] Normalized text length=${normalizedText.length}`,
-      );
+      const normalizedPreview = normalizedText.length > 500 ? `${normalizedText.slice(0, 500)}...` : normalizedText;
+      this.logger.debug(`[Moderation] Normalized text preview=${normalizedPreview}`);
 
-      const normalizedPreview =
-        normalizedText.length > 500
-          ? `${normalizedText.slice(0, 500)}...`
-          : normalizedText;
-
-      this.logger.debug(
-        `[Moderation] Normalized text preview=${normalizedPreview}`,
-      );
-
-      // EMPTY CHECK
       if (!normalizedText.trim()) {
-        this.logger.warn(
-          '[Moderation] Empty normalized text, skipping moderation',
-        );
-
+        this.logger.warn('[Moderation] Empty normalized text, skipping moderation');
         return null;
       }
 
-      // PAYLOAD
-      const payload = {
-        text: normalizedText,
-      };
+      const payload = { text: normalizedText };
+      this.logger.debug(`[Moderation] Outgoing payload=${JSON.stringify(payload)}`);
+      this.logger.log(`[Moderation] POST ${api} | payloadLen=${payload.text.length}`);
 
-      this.logger.debug(
-        `[Moderation] Outgoing payload=${JSON.stringify(payload)}`,
-      );
-
-      this.logger.log(
-        `[Moderation] POST ${api} | payloadLen=${payload.text.length}`,
-      );
-
-      // REQUEST
       const res = await fetch(api, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
       const respText = await res.text();
-
-      this.logger.log(
-        `[Moderation] Response status=${res.status}`,
-      );
+      this.logger.log(`[Moderation] Response status=${res.status}`);
 
       if (respText) {
-        const responsePreview =
-          respText.length > 1000
-            ? `${respText.slice(0, 1000)}...`
-            : respText;
-
-        this.logger.debug(
-          `[Moderation] Response body preview=${responsePreview}`,
-        );
+        const responsePreview = respText.length > 1000 ? `${respText.slice(0, 1000)}...` : respText;
+        this.logger.debug(`[Moderation] Response body preview=${responsePreview}`);
       }
 
       if (!res.ok) {
-        this.logger.warn(
-          `[Moderation] Non-ok response from AI moderation: ${res.status}`,
-        );
-
+        this.logger.warn(`[Moderation] Non-ok response from AI moderation: ${res.status}`);
         return null;
       }
 
-      // PARSE JSON
       let data: any = null;
-
       try {
         data = respText ? JSON.parse(respText) : null;
       } catch (parseErr) {
-        this.logger.error(
-          '[Moderation] Failed to parse JSON response',
-          parseErr as any,
-        );
-
+        this.logger.error('[Moderation] Failed to parse JSON response', parseErr as any);
         return null;
       }
 
       const moderation = this.sanitizeModerationResult(data);
-
-      this.logger.debug(
-        `[Moderation] toxic_word output=${JSON.stringify(moderation?.toxic_word || [])}`,
-      );
-
-      this.logger.debug(
-        `[Moderation] Parsed moderation=${JSON.stringify(moderation)}`,
-      );
+      this.logger.debug(`[Moderation] toxic_word output=${JSON.stringify(moderation?.toxic_word || [])}`);
+      this.logger.debug(`[Moderation] Parsed moderation=${JSON.stringify(moderation)}`);
 
       return moderation;
     } catch (err) {
-      this.logger.error(
-        '[Moderation] call failed',
-        err as any,
-      );
-
+      this.logger.error('[Moderation] call failed', err as any);
       return null;
     }
   }
-
 
   private async replaceRecordingAiAnalysisWithModeration(
     recordingId: string,
@@ -410,12 +307,7 @@ export class LivestreamService {
 
     await this.prisma.mongo.$runCommandRaw({
       delete: this.aiTranscriptSummaryCollection,
-      deletes: [
-        {
-          q: { type: 'LIVESTREAM', recordingId },
-          limit: 0,
-        },
-      ],
+      deletes: [{ q: { type: 'LIVESTREAM', recordingId }, limit: 0 }],
     });
 
     await this.prisma.mongo.$runCommandRaw({
@@ -443,49 +335,28 @@ export class LivestreamService {
   }
 
   async startLivestream(id: string) {
-    const livestream = await this.prisma.postgres.liveStream.findUnique({
+    const livestream = await this.prisma.postgres.liveStream.findUnique({ where: { id } });
+
+    if (!livestream) throw new NotFoundException('Livestream not found');
+    if (livestream.status === LiveStreamStatus.LIVE) throw new BadRequestException('Livestream is already live');
+    if (livestream.status === LiveStreamStatus.ENDED) throw new BadRequestException('Cannot start an ended livestream');
+
+    return await this.prisma.postgres.liveStream.update({
       where: { id },
+      data: { status: LiveStreamStatus.LIVE, startedAt: new Date() },
     });
-
-    if (!livestream) {
-      throw new NotFoundException('Livestream not found');
-    }
-
-    if (livestream.status === LiveStreamStatus.LIVE) {
-      throw new BadRequestException('Livestream is already live');
-    }
-
-    if (livestream.status === LiveStreamStatus.ENDED) {
-      throw new BadRequestException('Cannot start an ended livestream');
-    }
-
-    // Update status to LIVE and set start time
-    const updatedLivestream = await this.prisma.postgres.liveStream.update({
-      where: { id },
-      data: {
-        status: LiveStreamStatus.LIVE,
-        startedAt: new Date(),
-      },
-    });
-
-    return updatedLivestream;
   }
 
   async createAndStartLivestreamEarly(teacherId: string, title: string, category?: string) {
-    // Fetch teacher avatar for thumbnail
     const teacher = await this.prisma.postgres.user.findUnique({
       where: { id: teacherId },
       select: { avatar: true },
     });
 
-    if (!teacher) {
-      throw new NotFoundException('Teacher not found');
-    }
+    if (!teacher) throw new NotFoundException('Teacher not found');
 
-    // Use teacher avatar as thumbnail, fallback to logo.png
     const thumbnail = teacher.avatar || '/logo.png';
 
-    // Create a new livestream to start immediately
     const newLivestream = await this.prisma.postgres.liveStream.create({
       data: {
         teacherId,
@@ -532,124 +403,83 @@ export class LivestreamService {
       },
     });
 
-    if (!livestream) {
-      throw new NotFoundException('Livestream not found');
-    }
+    if (!livestream) throw new NotFoundException('Livestream not found');
 
-    // Get followers count separately
     const followersCount = livestream.teacherId
-      ? await this.prisma.postgres.followedTeacher.count({
-          where: { teacherId: livestream.teacherId },
-        })
+      ? await this.prisma.postgres.followedTeacher.count({ where: { teacherId: livestream.teacherId } })
       : 0;
 
     return {
       ...livestream,
-      teacher: livestream.teacher ? {
-        ...livestream.teacher,
-        followersCount,
-      } : null,
+      teacher: livestream.teacher ? { ...livestream.teacher, followersCount } : null,
     };
   }
 
   async getLivestreamDocuments(id: string) {
-    // Check if livestream exists
     const livestream = await this.prisma.postgres.liveStream.findUnique({
       where: { id },
-      select: { 
-        id: true,
-        teacherId: true,
-      },
+      select: { id: true, teacherId: true },
     });
 
-    if (!livestream) {
-      throw new NotFoundException('Livestream not found');
-    }
+    if (!livestream) throw new NotFoundException('Livestream not found');
 
-    // Get livestream documents from MongoDB
     const livestreamDocs = await this.prisma.mongo.liveStreamDocuments.findUnique({
       where: { livestreamId: id },
     });
 
-    // If no documents shared for this livestream, return empty array
     if (!livestreamDocs || !livestreamDocs.documentIds || livestreamDocs.documentIds.length === 0) {
       return [];
     }
 
-    // Get full document details from PostgreSQL
-    const documents = await this.prisma.postgres.document.findMany({
-      where: { 
+    return await this.prisma.postgres.document.findMany({
+      where: {
         id: { in: livestreamDocs.documentIds },
-        teacherId: livestream.teacherId, // Extra safety check
+        teacherId: livestream.teacherId,
         isApprove: 'TRUE',
       },
       orderBy: { uploadedAt: 'desc' },
     });
-
-    return documents;
   }
 
   async updateLivestreamStatus(id: string, status: LiveStreamStatus) {
-    const livestream = await this.prisma.postgres.liveStream.findUnique({
-      where: { id },
-    });
+    const livestream = await this.prisma.postgres.liveStream.findUnique({ where: { id } });
 
-    if (!livestream) {
-      throw new NotFoundException('Livestream not found');
-    }
+    if (!livestream) throw new NotFoundException('Livestream not found');
 
     const updateData: any = { status };
 
-    // Set timestamps based on status
     if (status === LiveStreamStatus.LIVE && !livestream.startedAt) {
       updateData.startedAt = new Date();
     } else if (status === LiveStreamStatus.ENDED && !livestream.endedAt) {
       updateData.endedAt = new Date();
-      
-      // Calculate duration if we have startedAt
       if (livestream.startedAt) {
         const durationMs = new Date().getTime() - livestream.startedAt.getTime();
-        updateData.duration = Math.floor(durationMs / 1000); // duration in seconds
+        updateData.duration = Math.floor(durationMs / 1000);
       }
     }
 
-    return await this.prisma.postgres.liveStream.update({
-      where: { id },
-      data: updateData,
-    });
+    return await this.prisma.postgres.liveStream.update({ where: { id }, data: updateData });
   }
 
   async getTeacherLivestreams(teacherId: string, status?: string) {
     const where: any = { teacherId };
-    
+
     if (status && ['SCHEDULED', 'LIVE', 'ENDED', 'CANCELLED'].includes(status)) {
       where.status = status;
     }
-    
+
     return await this.prisma.postgres.liveStream.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      include: {
-        schedule: true,
-      },
+      include: { schedule: true },
     });
   }
 
   async getActiveLivestreams() {
     const livestreams = await this.prisma.postgres.liveStream.findMany({
-      where: {
-        status: LiveStreamStatus.LIVE,
-        isPublic: true,
-        isApprove: 'TRUE',
-      },
+      where: { status: LiveStreamStatus.LIVE, isPublic: true, isApprove: 'TRUE' },
       include: {
-        teacher: {
-          select: {
-            id: true,
-            fullName: true,
-            avatar: true,
-          },
-        },
+        teacher: { select: { id: true, fullName: true, avatar: true } },
       },
       orderBy: { currentViewers: 'desc' },
     });
@@ -659,11 +489,7 @@ export class LivestreamService {
       title: stream.title,
       description: stream.description,
       teacherId: stream.teacherId,
-      teacher: {
-        id: stream.teacher.id,
-        fullName: stream.teacher.fullName,
-        avatar: stream.teacher.avatar,
-      },
+      teacher: { id: stream.teacher.id, fullName: stream.teacher.fullName, avatar: stream.teacher.avatar },
       totalViews: stream.totalViews,
       currentViewers: stream.currentViewers,
       thumbnailUrl: stream.thumbnail,
@@ -677,70 +503,54 @@ export class LivestreamService {
   }
 
   async endLivestream(id: string, saveRecording: boolean) {
-      this.logger.log(`Ending livestream ${id}, saveRecording: ${saveRecording}`);
-      
-      const livestream = await this.prisma.postgres.liveStream.findUnique({
-        where: { id },
-      });
+    this.logger.log(`Ending livestream ${id}, saveRecording: ${saveRecording}`);
 
-      if (!livestream) {
-        throw new Error('Livestream not found');
-      }
+    const livestream = await this.prisma.postgres.liveStream.findUnique({ where: { id } });
 
-      // Calculate duration
-      const startedAt = livestream.startedAt || livestream.createdAt;
-      const endedAt = new Date();
-      const durationMs = endedAt.getTime() - startedAt.getTime();
-      const duration = Math.floor(durationMs / 1000); // duration in seconds
+    if (!livestream) throw new Error('Livestream not found');
 
-      // --- Update peakViewers and totalViews ---
-      // Giả sử bạn đang track current viewers ở server:
-      const currentViewers = livestream.currentViewers || 0; // hoặc lấy từ cache/Socket.IO
-      const peakViewers = Math.max(livestream.peakViewers || 0, currentViewers);
-      const totalViews = (livestream.totalViews || 0) + currentViewers;
+    const startedAt = livestream.startedAt || livestream.createdAt;
+    const endedAt = new Date();
+    const durationMs = endedAt.getTime() - startedAt.getTime();
+    const duration = Math.floor(durationMs / 1000);
 
-      // Update livestream status
-      const updateData: any = {
-        status: LiveStreamStatus.ENDED,
-        endedAt,
-        duration,
-        isRecorded: saveRecording,
-        peakViewers,
-        totalViews,
-      };
+    const currentViewers = livestream.currentViewers || 0;
+    const peakViewers = Math.max(livestream.peakViewers || 0, currentViewers);
+    const totalViews = (livestream.totalViews || 0) + currentViewers;
 
-      if (saveRecording) {
-        this.logger.log(`Recording will be saved to R2 for livestream ${id}`);
-      }
+    const updateData: any = {
+      status: LiveStreamStatus.ENDED,
+      endedAt,
+      duration,
+      isRecorded: saveRecording,
+      peakViewers,
+      totalViews,
+    };
 
-      const updatedLivestream = await this.prisma.postgres.liveStream.update({
-        where: { id },
-        data: updateData,
-      });
-
-      this.logger.log(`Livestream ${id} ended successfully. Duration: ${duration}s, Recorded: ${saveRecording}, PeakViewers: ${peakViewers}, TotalViews: ${totalViews}`);
-      return updatedLivestream;
+    if (saveRecording) {
+      this.logger.log(`Recording will be saved to R2 for livestream ${id}`);
     }
+
+    const updatedLivestream = await this.prisma.postgres.liveStream.update({
+      where: { id },
+      data: updateData,
+    });
+
+    this.logger.log(`Livestream ${id} ended successfully. Duration: ${duration}s, Recorded: ${saveRecording}, PeakViewers: ${peakViewers}, TotalViews: ${totalViews}`);
+    return updatedLivestream;
+  }
 
   async updateTotalViewers(id: string, totalViewers: number) {
     try {
-      const livestream = await this.prisma.postgres.liveStream.findUnique({
-        where: { id },
-      });
+      const livestream = await this.prisma.postgres.liveStream.findUnique({ where: { id } });
 
-      if (!livestream) {
-        throw new NotFoundException('Livestream not found');
-      }
+      if (!livestream) throw new NotFoundException('Livestream not found');
 
-      // Update currentViewers and peakViewers if current is higher
       const peakViewers = Math.max(livestream.peakViewers || 0, totalViewers);
-      
+
       const updatedLivestream = await this.prisma.postgres.liveStream.update({
         where: { id },
-        data: {
-          currentViewers: totalViewers,
-          peakViewers: peakViewers,
-        },
+        data: { currentViewers: totalViewers, peakViewers },
       });
 
       this.logger.log(`Updated livestream ${id} viewers. Current: ${totalViewers}, Peak: ${peakViewers}`);
@@ -753,8 +563,6 @@ export class LivestreamService {
 
   async saveRecordingChunk(livestreamId: string, chunk: string, chunkIndex: number, totalSize: number) {
     try {
-      // For now, just acknowledge - chunks are assembled when recording ends
-      // In production, you might want to save these to temporary storage
       return { success: true, chunkIndex, totalSize };
     } catch (error) {
       this.logger.error(`Failed to save recording chunk:`, error);
@@ -764,15 +572,9 @@ export class LivestreamService {
 
   async uploadRecordingChunk(livestreamId: string, chunk: string, chunkIndex: number, totalChunks: number, chunkSize: number) {
     try {
-      // Decode base64 chunk
-      const chunkBuffer = Buffer.from(chunk, 'base64');
-      
-      // If this is the last chunk, upload to R2
       if (chunkIndex === totalChunks - 1) {
-        // For now, acknowledge - full assembly happens in uploadRecording
         return { success: true, chunkIndex, totalChunks, message: 'Chunk received, will be assembled with others' };
       }
-      
       return { success: true, chunkIndex, totalChunks };
     } catch (error) {
       this.logger.error(`Failed to upload recording chunk:`, error);
@@ -785,14 +587,13 @@ export class LivestreamService {
       console.log(`[Service] uploadRecording START: livestreamId=${livestreamId}`);
       console.log(`[Service] videoBase64 length: ${videoBase64?.length || 0} chars`);
       console.log(`[Service] duration: ${duration}s`);
-      
+
       if (!videoBase64 || videoBase64.length === 0) {
         throw new Error('No video data received - base64 is empty');
       }
-      
+
       console.log(`[Service] Base64 sample: ${videoBase64.substring(0, 50)}...`);
-      
-      // Decode base64 video
+
       let videoBuffer: Buffer;
       try {
         videoBuffer = Buffer.from(videoBase64, 'base64');
@@ -801,29 +602,25 @@ export class LivestreamService {
         const decodeMessage = decodeError instanceof Error ? decodeError.message : String(decodeError);
         throw new Error(`Invalid base64 data: ${decodeMessage}`);
       }
-      
+
       console.log(`[Service] Video buffer decoded: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB (${videoBuffer.length} bytes)`);
-      
+
       if (videoBuffer.length === 0) {
         throw new Error('Decoded video buffer is empty');
       }
-      
-      // Check WebM magic bytes
+
       const magicBytes = videoBuffer.slice(0, 4).toString('hex');
       console.log(`[Service] File magic bytes: ${magicBytes} (should be 1a45dfa3 for WebM)`);
-      
-      // Convert buffer to stream for upload
+
       const videoStream = Readable.from(videoBuffer);
-      
-      // Upload to R2 with duration metadata
+
       console.log(`[Service] Uploading to R2...`);
       const videoUrl = await this.r2StorageService.uploadVideo(livestreamId, videoStream, {
         uploadedAt: new Date().toISOString(),
         duration: duration?.toString() || 'unknown',
       });
       console.log(`[Service] R2 upload complete: ${videoUrl}`);
-      
-      // Update livestream with recording URL and duration
+
       console.log(`[Service] Updating livestream record with duration=${duration}s...`);
       const updatedLivestream = await this.prisma.postgres.liveStream.update({
         where: { id: livestreamId },
@@ -843,7 +640,7 @@ export class LivestreamService {
         fileUrl: videoUrl,
         title: updatedLivestream.title,
       });
-      
+
       this.logger.log(`Recording uploaded: ${videoUrl}`);
       return { success: true, url: videoUrl };
     } catch (error) {
@@ -856,35 +653,22 @@ export class LivestreamService {
   private async deleteRecordingAiAnalysis(recordingId: string): Promise<void> {
     await this.prisma.mongo.$runCommandRaw({
       delete: this.aiTranscriptSummaryCollection,
-      deletes: [
-        {
-          q: {
-            type: 'LIVESTREAM',
-            recordingId,
-          },
-          limit: 0,
-        },
-      ],
+      deletes: [{ q: { type: 'LIVESTREAM', recordingId }, limit: 0 }],
     });
   }
 
   async deleteRecording(recordingId: string) {
     const livestream = await this.prisma.postgres.liveStream.findUnique({
       where: { id: recordingId },
-      select: {
-        id: true,
-        recordingUrl: true,
-      },
+      select: { id: true, recordingUrl: true },
     });
 
-    if (!livestream) {
-      throw new NotFoundException('Livestream not found');
-    }
+    if (!livestream) throw new NotFoundException('Livestream not found');
 
     if (livestream.recordingUrl) {
       try {
         await this.r2StorageService.deleteVideo(recordingId);
-      } catch (error) {
+      } catch {
         this.logger.warn(`Failed to delete recording file from R2 for livestream ${recordingId}`);
       }
     }
@@ -893,40 +677,26 @@ export class LivestreamService {
 
     await this.prisma.postgres.liveStream.update({
       where: { id: recordingId },
-      data: {
-        recordingUrl: null,
-        isRecorded: false,
-        processingStatus: 'PENDING',
-      },
+      data: { recordingUrl: null, isRecorded: false, processingStatus: 'PENDING' },
     });
 
-    return {
-      success: true,
-      message: 'Recording deleted',
-      livestreamId: recordingId,
-    };
+    return { success: true, message: 'Recording deleted', livestreamId: recordingId };
   }
 
   async updateRecordingDuration(livestreamId: string, duration: number) {
     try {
       await this.prisma.postgres.liveStream.update({
         where: { id: livestreamId },
-        data: {
-          duration: duration,
-        },
+        data: { duration },
       });
     } catch (error) {
       this.logger.error(`Failed to update recording duration:`, error);
-      // Don't throw - duration update is non-critical
     }
   }
-
-  // Schedule Management Methods
 
   async createSchedule(createScheduleDto: CreateScheduleDto) {
     const { teacherId, title, startTime, endTime, livestreamId, isPublic, category, ...rest } = createScheduleDto;
 
-    // Verify teacher exists and get avatar
     const teacher = await this.prisma.postgres.user.findUnique({
       where: { id: teacherId },
       select: { id: true, role: true, avatar: true },
@@ -938,22 +708,12 @@ export class LivestreamService {
 
     let finalLivestreamId = livestreamId;
 
-    // If livestreamId provided, verify it exists and belongs to teacher
     if (livestreamId) {
-      const livestream = await this.prisma.postgres.liveStream.findUnique({
-        where: { id: livestreamId },
-      });
+      const livestream = await this.prisma.postgres.liveStream.findUnique({ where: { id: livestreamId } });
 
-      if (!livestream) {
-        throw new NotFoundException('Livestream not found');
-      }
-
-      if (livestream.teacherId !== teacherId) {
-        throw new BadRequestException('Livestream does not belong to this teacher');
-      }
+      if (!livestream) throw new NotFoundException('Livestream not found');
+      if (livestream.teacherId !== teacherId) throw new BadRequestException('Livestream does not belong to this teacher');
     } else {
-      // Auto-create livestream if not provided
-      // Use teacher avatar as thumbnail, fallback to logo.png
       const thumbnail = teacher.avatar || '/logo.png';
 
       const newLivestream = await this.prisma.postgres.liveStream.create({
@@ -961,7 +721,7 @@ export class LivestreamService {
           teacherId,
           title,
           description: '',
-          category: category || null, // Set category from schedule
+          category: category || null,
           thumbnail,
           status: LiveStreamStatus.SCHEDULED,
           scheduledAt: new Date(startTime),
@@ -975,7 +735,6 @@ export class LivestreamService {
       this.logger.log(`Auto-created livestream ${finalLivestreamId} for schedule`);
     }
 
-    // Create schedule
     const scheduleData: any = {
       teacherId,
       title,
@@ -989,11 +748,8 @@ export class LivestreamService {
       livestreamId: finalLivestreamId,
     };
 
-    const schedule = await this.prisma.postgres.schedule.create({
-      data: scheduleData,
-    });
+    const schedule = await this.prisma.postgres.schedule.create({ data: scheduleData });
 
-    // Create MongoDB notification tracking
     await this.prisma.mongo.scheduleNotification.create({
       data: {
         scheduleId: schedule.id,
@@ -1015,83 +771,49 @@ export class LivestreamService {
       include: {
         liveStream: {
           include: {
-            teacher: {
-              select: {
-                id: true,
-                fullName: true,
-                avatar: true,
-              },
-            },
+            teacher: { select: { id: true, fullName: true, avatar: true } },
           },
         },
       },
     });
 
-    if (!schedule) {
-      throw new NotFoundException('Schedule not found');
-    }
+    if (!schedule) throw new NotFoundException('Schedule not found');
 
-    // Get notification data from MongoDB
     const notification = await this.prisma.mongo.scheduleNotification.findUnique({
       where: { scheduleId: id },
     });
 
-    return {
-      ...schedule,
-      analytics: notification || null,
-    };
+    return { ...schedule, analytics: notification || null };
   }
 
-  async getTeacherSchedules(
-    teacherId: string, 
-    includeCompleted = false,
-    startDate?: string,
-    endDate?: string
-  ) {
+  async getTeacherSchedules(teacherId: string, includeCompleted = false, startDate?: string, endDate?: string) {
     const whereClause: any = { teacherId };
 
     if (!includeCompleted) {
-      whereClause.status = {
-        in: [ScheduleStatus.SCHEDULED, ScheduleStatus.IN_PROGRESS],
-      };
+      whereClause.status = { in: [ScheduleStatus.SCHEDULED, ScheduleStatus.IN_PROGRESS] };
     }
 
-    // Add date filtering if provided
     if (startDate || endDate) {
       whereClause.startTime = {};
-      if (startDate) {
-        whereClause.startTime.gte = new Date(startDate);
-      }
-      if (endDate) {
-        whereClause.startTime.lte = new Date(endDate);
-      }
+      if (startDate) whereClause.startTime.gte = new Date(startDate);
+      if (endDate) whereClause.startTime.lte = new Date(endDate);
     }
 
-    const schedules = await this.prisma.postgres.schedule.findMany({
+    return await this.prisma.postgres.schedule.findMany({
       where: whereClause,
-      include: {
-        liveStream: true,
-      },
-      orderBy: {
-        startTime: 'asc',
-      },
+      include: { liveStream: true },
+      orderBy: { startTime: 'asc' },
     });
-
-    return schedules;
   }
 
   async getUpcomingSchedules(limit = 10, userId?: string) {
     const now = new Date();
-    
-    // Base query for public schedules
+
     const whereClause: any = {
-      startTime: {
-        gte: now,
-      },
+      startTime: { gte: now },
       status: ScheduleStatus.SCHEDULED,
     };
 
-    // If no user provided, only show public schedules
     if (!userId) {
       whereClause.isPublic = true;
     }
@@ -1106,46 +828,30 @@ export class LivestreamService {
                 id: true,
                 fullName: true,
                 avatar: true,
-                teacherProfile: {
-                  select: {
-                    subjects: true,
-                    rating: true,
-                  },
-                },
+                teacherProfile: { select: { subjects: true, rating: true } },
               },
             },
           },
         },
       },
-      orderBy: {
-        startTime: 'asc',
-      },
+      orderBy: { startTime: 'asc' },
       take: limit,
     });
 
-    // If user is logged in, filter subscriber-only schedules
     if (userId) {
-      // Get user's followed teachers
       const student = await this.prisma.postgres.user.findUnique({
         where: { id: userId },
         include: {
           studentProfile: {
-            include: {
-              followedTeachers: {
-                select: {
-                  teacherId: true,
-                },
-              },
-            },
+            include: { followedTeachers: { select: { teacherId: true } } },
           },
         },
       });
 
-      const followedTeacherIds = student?.studentProfile?.followedTeachers.map(f => f.teacherId) || [];
+      const followedTeacherIds = student?.studentProfile?.followedTeachers.map((f) => f.teacherId) || [];
 
-      // Filter schedules: show public OR (subscriber-only AND user follows teacher)
-      return schedules.filter(schedule => 
-        schedule.isPublic || followedTeacherIds.includes(schedule.teacherId)
+      return schedules.filter(
+        (schedule) => schedule.isPublic || followedTeacherIds.includes(schedule.teacherId),
       );
     }
 
@@ -1153,99 +859,54 @@ export class LivestreamService {
   }
 
   async updateSchedule(id: string, updateScheduleDto: UpdateScheduleDto) {
-    const schedule = await this.prisma.postgres.schedule.findUnique({
-      where: { id },
-    });
+    const schedule = await this.prisma.postgres.schedule.findUnique({ where: { id } });
 
-    if (!schedule) {
-      throw new NotFoundException('Schedule not found');
-    }
+    if (!schedule) throw new NotFoundException('Schedule not found');
 
-    // If status is being changed to CANCELLED, set cancelledAt
     const updateData: any = { ...updateScheduleDto };
-    
+
     if (updateScheduleDto.status === ScheduleStatus.CANCELLED) {
       updateData.cancelledAt = new Date();
     }
 
-    if (updateScheduleDto.startTime) {
-      updateData.startTime = new Date(updateScheduleDto.startTime);
-    }
+    if (updateScheduleDto.startTime) updateData.startTime = new Date(updateScheduleDto.startTime);
+    if (updateScheduleDto.endTime) updateData.endTime = new Date(updateScheduleDto.endTime);
 
-    if (updateScheduleDto.endTime) {
-      updateData.endTime = new Date(updateScheduleDto.endTime);
-    }
-
-    const updatedSchedule = await this.prisma.postgres.schedule.update({
-      where: { id },
-      data: updateData,
-    });
+    const updatedSchedule = await this.prisma.postgres.schedule.update({ where: { id }, data: updateData });
 
     this.logger.log(`Schedule ${id} updated`);
     return updatedSchedule;
   }
 
   async deleteSchedule(id: string) {
-    const schedule = await this.prisma.postgres.schedule.findUnique({
-      where: { id },
-    });
+    const schedule = await this.prisma.postgres.schedule.findUnique({ where: { id } });
 
-    if (!schedule) {
-      throw new NotFoundException('Schedule not found');
-    }
+    if (!schedule) throw new NotFoundException('Schedule not found');
 
-    // Delete MongoDB notification data
-    await this.prisma.mongo.scheduleNotification.deleteMany({
-      where: { scheduleId: id },
-    });
-
-    // Delete schedule
-    await this.prisma.postgres.schedule.delete({
-      where: { id },
-    });
+    await this.prisma.mongo.scheduleNotification.deleteMany({ where: { scheduleId: id } });
+    await this.prisma.postgres.schedule.delete({ where: { id } });
 
     this.logger.log(`Schedule ${id} deleted`);
     return { success: true };
   }
 
   async registerAttendee(scheduleId: string, userId: string) {
-    const schedule = await this.prisma.postgres.schedule.findUnique({
-      where: { id: scheduleId },
-    });
+    const schedule = await this.prisma.postgres.schedule.findUnique({ where: { id: scheduleId } });
 
-    if (!schedule) {
-      throw new NotFoundException('Schedule not found');
-    }
+    if (!schedule) throw new NotFoundException('Schedule not found');
+    if (schedule.status !== ScheduleStatus.SCHEDULED) throw new BadRequestException('Cannot register for this schedule');
 
-    if (schedule.status !== ScheduleStatus.SCHEDULED) {
-      throw new BadRequestException('Cannot register for this schedule');
-    }
-
-    // Update MongoDB notification
-    const notification = await this.prisma.mongo.scheduleNotification.findUnique({
-      where: { scheduleId },
-    });
+    const notification = await this.prisma.mongo.scheduleNotification.findUnique({ where: { scheduleId } });
 
     if (notification) {
-      // Check if already registered
-      const alreadyRegistered = notification.attendees.some(
-        (attendee: any) => attendee.userId === userId
-      );
+      const alreadyRegistered = notification.attendees.some((attendee: any) => attendee.userId === userId);
 
-      if (alreadyRegistered) {
-        throw new BadRequestException('Already registered for this schedule');
-      }
+      if (alreadyRegistered) throw new BadRequestException('Already registered for this schedule');
 
       await this.prisma.mongo.scheduleNotification.update({
         where: { scheduleId },
         data: {
-          attendees: {
-            push: {
-              userId,
-              registeredAt: new Date(),
-              attended: false,
-            },
-          },
+          attendees: { push: { userId, registeredAt: new Date(), attended: false } },
           registeredCount: { increment: 1 },
         },
       });
@@ -1255,30 +916,15 @@ export class LivestreamService {
     return { success: true };
   }
 
-  // Get top livestreams by view count (for dashboard)
   async getTopLivestreams(limit: number = 10) {
     const livestreams = await this.prisma.postgres.liveStream.findMany({
       where: {
         isPublic: true,
         isApprove: 'TRUE',
-        OR: [
-          { status: LiveStreamStatus.LIVE },
-          { status: LiveStreamStatus.ENDED },
-        ],
+        OR: [{ status: LiveStreamStatus.LIVE }, { status: LiveStreamStatus.ENDED }],
       },
-      include: {
-        teacher: {
-          select: {
-            id: true,
-            fullName: true,
-            avatar: true,
-          },
-        },
-      },
-      orderBy: [
-        { status: 'asc' }, // LIVE streams first (LIVE comes before ENDED alphabetically)
-        { totalViews: 'desc' }, // Then by view count
-      ],
+      include: { teacher: { select: { id: true, fullName: true, avatar: true } } },
+      orderBy: [{ status: 'asc' }, { totalViews: 'desc' }],
       take: limit,
     });
 
@@ -1286,11 +932,7 @@ export class LivestreamService {
       id: stream.id,
       title: stream.title,
       description: stream.description,
-      teacher: {
-        id: stream.teacher.id,
-        fullName: stream.teacher.fullName,
-        avatar: stream.teacher.avatar,
-      },
+      teacher: { id: stream.teacher.id, fullName: stream.teacher.fullName, avatar: stream.teacher.avatar },
       viewCount: stream.totalViews,
       currentViewers: stream.currentViewers,
       thumbnailUrl: stream.thumbnail,
@@ -1301,28 +943,11 @@ export class LivestreamService {
     }));
   }
 
-  // Get trending videos (recently ended with high views)
   async getTrendingVideos(limit: number = 10) {
     const videos = await this.prisma.postgres.liveStream.findMany({
-      where: {
-        status: LiveStreamStatus.ENDED,
-        isPublic: true,
-        isApprove: 'TRUE',
-        recordingUrl: { not: null },
-      },
-      include: {
-        teacher: {
-          select: {
-            id: true,
-            fullName: true,
-            avatar: true,
-          },
-        },
-      },
-      orderBy: [
-        { endedAt: 'desc' }, // Most recent first
-        { totalViews: 'desc' }, // Then by popularity
-      ],
+      where: { status: LiveStreamStatus.ENDED, isPublic: true, isApprove: 'TRUE', recordingUrl: { not: null } },
+      include: { teacher: { select: { id: true, fullName: true, avatar: true } } },
+      orderBy: [{ endedAt: 'desc' }, { totalViews: 'desc' }],
       take: limit,
     });
 
@@ -1330,11 +955,7 @@ export class LivestreamService {
       id: video.id,
       title: video.title,
       description: video.description,
-      teacher: {
-        id: video.teacher.id,
-        fullName: video.teacher.fullName,
-        avatar: video.teacher.avatar,
-      },
+      teacher: { id: video.teacher.id, fullName: video.teacher.fullName, avatar: video.teacher.avatar },
       viewCount: video.totalViews,
       thumbnailUrl: video.thumbnail,
       duration: video.duration,
@@ -1344,7 +965,6 @@ export class LivestreamService {
     }));
   }
 
-  // Get recorded livestreams (ENDED with recordingUrl) - public
   async getRecordedLivestreams(limit: number = 20, category?: string) {
     const normalizedCategory = category?.trim();
 
@@ -1357,35 +977,14 @@ export class LivestreamService {
         ...(normalizedCategory
           ? {
               OR: [
-                {
-                  category: {
-                    equals: normalizedCategory,
-                    mode: 'insensitive',
-                  },
-                },
-                {
-                  category: {
-                    contains: normalizedCategory,
-                    mode: 'insensitive',
-                  },
-                },
+                { category: { equals: normalizedCategory, mode: 'insensitive' } },
+                { category: { contains: normalizedCategory, mode: 'insensitive' } },
               ],
             }
           : {}),
       },
-      include: {
-        teacher: {
-          select: {
-            id: true,
-            fullName: true,
-            avatar: true,
-          },
-        },
-      },
-      orderBy: [
-        { endedAt: 'desc' },
-        { totalViews: 'desc' },
-      ],
+      include: { teacher: { select: { id: true, fullName: true, avatar: true } } },
+      orderBy: [{ endedAt: 'desc' }, { totalViews: 'desc' }],
       take: limit,
     });
 
@@ -1394,11 +993,7 @@ export class LivestreamService {
       title: video.title,
       description: video.description,
       teacherId: video.teacherId,
-      teacher: {
-        id: video.teacher.id,
-        fullName: video.teacher.fullName,
-        avatar: video.teacher.avatar,
-      },
+      teacher: { id: video.teacher.id, fullName: video.teacher.fullName, avatar: video.teacher.avatar },
       totalViews: video.totalViews,
       thumbnailUrl: video.thumbnail,
       duration: video.duration,
@@ -1410,102 +1005,41 @@ export class LivestreamService {
     }));
   }
 
-  // Get teacher's recorded livestreams (ENDED with recordingUrl)
   async getTeacherRecordedLivestreams(teacherId: string, limit: number = 50) {
-    const recordings = await this.prisma.postgres.liveStream.findMany({
-      where: {
-        teacherId,
-        status: LiveStreamStatus.ENDED,
-        recordingUrl: { not: null }, // Only include livestreams with saved recordings
-      },
+    return await this.prisma.postgres.liveStream.findMany({
+      where: { teacherId, status: LiveStreamStatus.ENDED, recordingUrl: { not: null } },
       select: {
-        id: true,
-        title: true,
-        description: true,
-        category: true,
-        thumbnail: true,
-        recordingUrl: true,
-        status: true,
-        totalViews: true,
-        duration: true,
-        createdAt: true,
-        startedAt: true,
-        endedAt: true,
-        currentViewers: true,
-        peakViewers: true,
-        isRecorded: true,
-        isApprove: true,
-        isPublic: true,
+        id: true, title: true, description: true, category: true, thumbnail: true,
+        recordingUrl: true, status: true, totalViews: true, duration: true,
+        createdAt: true, startedAt: true, endedAt: true, currentViewers: true,
+        peakViewers: true, isRecorded: true, isApprove: true, isPublic: true,
       },
-      orderBy: [
-        { endedAt: 'desc' },
-      ],
+      orderBy: [{ endedAt: 'desc' }],
       take: limit,
     });
-
-    return recordings;
   }
 
-  // Get all ENDED livestreams for a teacher (including those without recordings)
   async getTeacherEndedLivestreams(teacherId: string, limit: number = 50) {
-    const livestreams = await this.prisma.postgres.liveStream.findMany({
-      where: {
-        teacherId,
-        status: LiveStreamStatus.ENDED,
-        // No recordingUrl filter - show all ENDED livestreams
-      },
+    return await this.prisma.postgres.liveStream.findMany({
+      where: { teacherId, status: LiveStreamStatus.ENDED },
       select: {
-        id: true,
-        title: true,
-        description: true,
-        category: true,
-        thumbnail: true,
-        recordingUrl: true,
-        status: true,
-        totalViews: true,
-        duration: true,
-        createdAt: true,
-        startedAt: true,
-        endedAt: true,
-        currentViewers: true,
-        peakViewers: true,
-        isRecorded: true,
-        isApprove: true,
-        isPublic: true,
+        id: true, title: true, description: true, category: true, thumbnail: true,
+        recordingUrl: true, status: true, totalViews: true, duration: true,
+        createdAt: true, startedAt: true, endedAt: true, currentViewers: true,
+        peakViewers: true, isRecorded: true, isApprove: true, isPublic: true,
       },
-      orderBy: [
-        { endedAt: 'desc' },
-      ],
+      orderBy: [{ endedAt: 'desc' }],
       take: limit,
     });
-
-    return livestreams;
   }
 
-  // Get upcoming scheduled livestreams
   async getUpcomingScheduledStreams(limit: number = 20) {
     const now = new Date();
-    
+
     const scheduled = await this.prisma.postgres.liveStream.findMany({
-      where: {
-        status: LiveStreamStatus.SCHEDULED,
-        isPublic: true,
-        scheduledAt: {
-          gte: now, // Only future streams
-        },
-      },
-      include: {
-        teacher: {
-          select: {
-            id: true,
-            fullName: true,
-            avatar: true,
-          },
-        },
-      },
-      orderBy: {
-        scheduledAt: 'asc', // Earliest first
-      },
+      where: { status: LiveStreamStatus.SCHEDULED, isPublic: true, scheduledAt: { gte: now } },
+      include: { teacher: { select: { id: true, fullName: true, avatar: true } } },
+      orderBy: { scheduledAt: 'asc' },
       take: limit,
     });
 
@@ -1514,11 +1048,7 @@ export class LivestreamService {
       title: stream.title,
       description: stream.description,
       teacherId: stream.teacherId,
-      teacher: {
-        id: stream.teacher.id,
-        fullName: stream.teacher.fullName,
-        avatar: stream.teacher.avatar,
-      },
+      teacher: { id: stream.teacher.id, fullName: stream.teacher.fullName, avatar: stream.teacher.avatar },
       totalViews: stream.totalViews,
       thumbnailUrl: stream.thumbnail,
       status: stream.status,
@@ -1527,48 +1057,31 @@ export class LivestreamService {
     }));
   }
 
-  // Increment view count for a livestream
   async incrementViewCount(id: string) {
     return await this.prisma.postgres.liveStream.update({
       where: { id },
-      data: {
-        totalViews: { increment: 1 },
-      },
+      data: { totalViews: { increment: 1 } },
     });
   }
 
-  // Count a recorded-video view only when watched strictly more than 2/3 and dedupe by viewer
   async reportWatch(id: string, viewerId?: string, watchedSeconds?: number, duration?: number) {
     const watched = typeof watchedSeconds === 'number' ? watchedSeconds : 0;
     const total = typeof duration === 'number' ? duration : 0;
 
-    if (total <= 0) {
-      return { counted: false, reason: 'invalid_duration' };
-    }
+    if (total <= 0) return { counted: false, reason: 'invalid_duration' };
 
     const ratio = watched / total;
-    // Business rule: only count when watched strictly greater than 2/3
-    if (ratio <= 2 / 3) {
-      return { counted: false, reason: 'below_threshold', ratio };
-    }
+    if (ratio <= 2 / 3) return { counted: false, reason: 'below_threshold', ratio };
 
-    // If viewer id exists, dedupe in Redis to avoid multiple increments
     if (viewerId) {
       const alreadyCounted = await this.redisService.hasCountedView('video', id, viewerId);
-      if (alreadyCounted) {
-        return { counted: false, reason: 'already_counted' };
-      }
+      if (alreadyCounted) return { counted: false, reason: 'already_counted' };
     }
 
     const updated = await this.prisma.postgres.liveStream.update({
       where: { id },
-      data: {
-        totalViews: { increment: 1 },
-      },
-      select: {
-        id: true,
-        totalViews: true,
-      },
+      data: { totalViews: { increment: 1 } },
+      select: { id: true, totalViews: true },
     });
 
     if (viewerId) {
@@ -1578,52 +1091,32 @@ export class LivestreamService {
     return { counted: true, totalViews: updated.totalViews, ratio };
   }
 
-  // Update current viewers count
   async updateCurrentViewers(id: string, count: number) {
-    const livestream = await this.prisma.postgres.liveStream.findUnique({
-      where: { id },
-    });
+    const livestream = await this.prisma.postgres.liveStream.findUnique({ where: { id } });
 
-    if (!livestream) {
-      throw new NotFoundException('Livestream not found');
-    }
+    if (!livestream) throw new NotFoundException('Livestream not found');
 
     const peakViewers = Math.max(livestream.peakViewers || 0, count);
 
     return await this.prisma.postgres.liveStream.update({
       where: { id },
-      data: {
-        currentViewers: count,
-        peakViewers: peakViewers,
-      },
+      data: { currentViewers: count, peakViewers },
     });
   }
 
-  // Auto-cancel scheduled livestreams that have passed their scheduled date
   async autoCheckAndCancelExpiredLivestreams(teacherId: string) {
     const now = new Date();
 
-    // Find all scheduled livestreams for this teacher that are past their scheduled date
     const expiredLivestreams = await this.prisma.postgres.liveStream.findMany({
-      where: {
-        teacherId,
-        status: LiveStreamStatus.SCHEDULED,
-        scheduledAt: {
-          lt: now, // Scheduled date is in the past
-        },
-      },
+      where: { teacherId, status: LiveStreamStatus.SCHEDULED, scheduledAt: { lt: now } },
     });
 
-    // Update them to CANCELLED status
     for (const livestream of expiredLivestreams) {
       await this.prisma.postgres.liveStream.update({
         where: { id: livestream.id },
-        data: {
-          status: LiveStreamStatus.CANCELLED,
-        },
+        data: { status: LiveStreamStatus.CANCELLED },
       });
 
-      // Also update associated schedule status
       const schedule = await this.prisma.postgres.schedule.findUnique({
         where: { livestreamId: livestream.id },
       });
@@ -1645,7 +1138,6 @@ export class LivestreamService {
     return expiredLivestreams;
   }
 
-  // Chat service methods
   async saveChatMessage(
     livestreamId: string,
     userId: string,
@@ -1656,16 +1148,8 @@ export class LivestreamService {
   ) {
     try {
       const chatMessage = await this.prisma.mongo.liveStreamChat.create({
-        data: {
-          livestreamId,
-          userId,
-          username,
-          userAvatar: userAvatar || null,
-          message,
-          type: type as any, // ChatType enum value
-        },
+        data: { livestreamId, userId, username, userAvatar: userAvatar || null, message, type: type as any },
       });
-      
       this.logger.log(`Chat message saved for livestream ${livestreamId}`);
       return chatMessage;
     } catch (error) {
@@ -1676,13 +1160,11 @@ export class LivestreamService {
 
   async getChatMessages(livestreamId: string, limit: number = 100) {
     try {
-      const messages = await this.prisma.mongo.liveStreamChat.findMany({
+      return await this.prisma.mongo.liveStreamChat.findMany({
         where: { livestreamId },
         orderBy: { createdAt: 'asc' },
         take: limit,
       });
-      
-      return messages;
     } catch (error) {
       this.logger.error(`Failed to fetch chat messages: ${error}`);
       throw new BadRequestException('Failed to fetch chat messages');
@@ -1690,127 +1172,68 @@ export class LivestreamService {
   }
 
   async updateLivestream(id: string, updateData: { description?: string; isPublic?: boolean }) {
-    const livestream = await this.prisma.postgres.liveStream.findUnique({
-      where: { id },
-    });
+    const livestream = await this.prisma.postgres.liveStream.findUnique({ where: { id } });
 
-    if (!livestream) {
-      throw new NotFoundException('Livestream not found');
-    }
+    if (!livestream) throw new NotFoundException('Livestream not found');
 
-    const updatedLivestream = await this.prisma.postgres.liveStream.update({
-      where: { id },
-      data: updateData,
-    });
+    const updatedLivestream = await this.prisma.postgres.liveStream.update({ where: { id }, data: updateData });
 
     this.logger.log(`Livestream ${id} updated`);
     return updatedLivestream;
   }
 
   async getRelatedVideos(videoId: string, limit: number = 10) {
-    // Get current video details
     const currentVideo = await this.prisma.postgres.liveStream.findUnique({
       where: { id: videoId },
-      select: {
-        teacherId: true,
-        category: true,
-        endedAt: true,
-      },
+      select: { teacherId: true, category: true, endedAt: true },
     });
 
-    if (!currentVideo || !currentVideo.endedAt) {
-      return [];
-    }
+    if (!currentVideo || !currentVideo.endedAt) return [];
 
-    // Get all ended livestreams with recording (exclude current video)
     const allVideos = await this.prisma.postgres.liveStream.findMany({
-      where: {
-        id: { not: videoId },
-        status: LiveStreamStatus.ENDED,
-        recordingUrl: { not: null },
-        isPublic: true,
-      },
+      where: { id: { not: videoId }, status: LiveStreamStatus.ENDED, recordingUrl: { not: null }, isPublic: true },
       select: {
-        id: true,
-        title: true,
-        thumbnail: true,
-        category: true,
-        teacherId: true,
-        totalViews: true,
-        duration: true,
-        endedAt: true,
-        teacher: {
-          select: {
-            id: true,
-            fullName: true,
-            avatar: true,
-          },
-        },
+        id: true, title: true, thumbnail: true, category: true, teacherId: true,
+        totalViews: true, duration: true, endedAt: true,
+        teacher: { select: { id: true, fullName: true, avatar: true } },
       },
-      take: 200, // Get more videos for better filtering
+      take: 200,
     });
 
-    // Score and sort videos based on relevance (YouTube-like algorithm)
-    const scoredVideos = allVideos.map(video => {
+    const scoredVideos = allVideos.map((video) => {
       let score = 0;
 
-      // 1. Same teacher (highest priority) - +50 points
-      if (video.teacherId === currentVideo.teacherId) {
-        score += 50;
-      }
+      if (video.teacherId === currentVideo.teacherId) score += 50;
+      if (video.category === currentVideo.category) score += 30;
 
-      // 2. Same category - +30 points
-      if (video.category === currentVideo.category) {
-        score += 30;
-      }
-
-      // 3. Time proximity for same teacher videos - up to +20 points
       if (video.teacherId === currentVideo.teacherId && video.endedAt && currentVideo.endedAt) {
-        const timeDiff = Math.abs(
-          new Date(video.endedAt).getTime() - new Date(currentVideo.endedAt).getTime()
-        );
+        const timeDiff = Math.abs(new Date(video.endedAt).getTime() - new Date(currentVideo.endedAt).getTime());
         const daysDiff = timeDiff / (1000 * 60 * 60 * 24);
-        
-        // Closer in time = higher score (max 20 points for videos within same week)
-        if (daysDiff <= 7) {
-          score += 20 - (daysDiff * 2);
-        } else if (daysDiff <= 30) {
-          score += 10 - (daysDiff / 3);
-        }
+
+        if (daysDiff <= 7) score += 20 - daysDiff * 2;
+        else if (daysDiff <= 30) score += 10 - daysDiff / 3;
       }
 
-      // 4. Popularity bonus (views) - up to +10 points
-      const viewsScore = Math.min(10, (video.totalViews || 0) / 1000);
-      score += viewsScore;
+      score += Math.min(10, (video.totalViews || 0) / 1000);
 
-      return {
-        ...video,
-        score,
-      };
+      return { ...video, score };
     });
 
-    // Sort by score (descending)
     const sortedVideos = scoredVideos.sort((a, b) => b.score - a.score);
-
-    // Get top related videos
     let relatedVideos = sortedVideos.slice(0, limit);
 
-    // If not enough related videos (score > 0), fill with random videos
     if (relatedVideos.length < limit) {
-      const relatedIds = new Set(relatedVideos.map(v => v.id));
+      const relatedIds = new Set(relatedVideos.map((v) => v.id));
       const remainingVideos = sortedVideos
-        .filter(v => !relatedIds.has(v.id))
-        .sort(() => Math.random() - 0.5) // Random shuffle
+        .filter((v) => !relatedIds.has(v.id))
+        .sort(() => Math.random() - 0.5)
         .slice(0, limit - relatedVideos.length);
-      
       relatedVideos = [...relatedVideos, ...remainingVideos];
     }
 
-    // Remove score from final result
     return relatedVideos.map(({ score, ...video }) => video);
   }
 
-  // Video Comment service methods
   async saveVideoComment(
     livestreamId: string,
     studentId: string,
@@ -1821,18 +1244,11 @@ export class LivestreamService {
     try {
       const comment = await this.prisma.mongo.videoComment.create({
         data: {
-          livestreamId,
-          studentId,
-          author,
+          livestreamId, studentId, author,
           authorAvatar: authorAvatar || null,
-          content,
-          likes: 0,
-          dislikes: 0,
-          likedBy: [],
-          dislikedBy: [],
+          content, likes: 0, dislikes: 0, likedBy: [], dislikedBy: [],
         },
       });
-
       this.logger.log(`Comment saved for livestream ${livestreamId} by student ${studentId}`);
       return comment;
     } catch (error) {
@@ -1843,32 +1259,22 @@ export class LivestreamService {
 
   async getVideoComments(livestreamId: string, limit: number = 50) {
     try {
-      const comments = await this.prisma.mongo.videoComment.findMany({
+      return await this.prisma.mongo.videoComment.findMany({
         where: { livestreamId },
         orderBy: { createdAt: 'desc' },
         take: limit,
       });
-
-      return comments;
     } catch (error) {
       this.logger.error(`Failed to fetch video comments: ${error}`);
       throw new BadRequestException('Failed to fetch video comments');
     }
   }
 
-  async addCommentReaction(
-    commentId: string,
-    studentId: string,
-    reactionType: 'like' | 'dislike',
-  ) {
+  async addCommentReaction(commentId: string, studentId: string, reactionType: 'like' | 'dislike') {
     try {
-      const comment = await this.prisma.mongo.videoComment.findUnique({
-        where: { id: commentId },
-      });
+      const comment = await this.prisma.mongo.videoComment.findUnique({ where: { id: commentId } });
 
-      if (!comment) {
-        throw new NotFoundException('Comment not found');
-      }
+      if (!comment) throw new NotFoundException('Comment not found');
 
       let likedBy = [...(comment.likedBy || [])];
       let dislikedBy = [...(comment.dislikedBy || [])];
@@ -1876,30 +1282,24 @@ export class LivestreamService {
       let dislikes = comment.dislikes;
 
       if (reactionType === 'like') {
-        // If already liked, remove like
         if (likedBy.includes(studentId)) {
           likedBy = likedBy.filter((id) => id !== studentId);
           likes = Math.max(0, likes - 1);
         } else {
-          // Add like and remove dislike if exists
           likedBy.push(studentId);
           likes += 1;
-
           if (dislikedBy.includes(studentId)) {
             dislikedBy = dislikedBy.filter((id) => id !== studentId);
             dislikes = Math.max(0, dislikes - 1);
           }
         }
       } else if (reactionType === 'dislike') {
-        // If already disliked, remove dislike
         if (dislikedBy.includes(studentId)) {
           dislikedBy = dislikedBy.filter((id) => id !== studentId);
           dislikes = Math.max(0, dislikes - 1);
         } else {
-          // Add dislike and remove like if exists
           dislikedBy.push(studentId);
           dislikes += 1;
-
           if (likedBy.includes(studentId)) {
             likedBy = likedBy.filter((id) => id !== studentId);
             likes = Math.max(0, likes - 1);
@@ -1909,12 +1309,7 @@ export class LivestreamService {
 
       const updatedComment = await this.prisma.mongo.videoComment.update({
         where: { id: commentId },
-        data: {
-          likes,
-          dislikes,
-          likedBy,
-          dislikedBy,
-        },
+        data: { likes, dislikes, likedBy, dislikedBy },
       });
 
       this.logger.log(`Reaction ${reactionType} added to comment ${commentId} by student ${studentId}`);
@@ -1927,22 +1322,12 @@ export class LivestreamService {
 
   async deleteVideoComment(commentId: string, studentId: string) {
     try {
-      const comment = await this.prisma.mongo.videoComment.findUnique({
-        where: { id: commentId },
-      });
+      const comment = await this.prisma.mongo.videoComment.findUnique({ where: { id: commentId } });
 
-      if (!comment) {
-        throw new NotFoundException('Comment not found');
-      }
+      if (!comment) throw new NotFoundException('Comment not found');
+      if (comment.studentId !== studentId) throw new UnauthorizedException('You can only delete your own comments');
 
-      // Only the comment author or admin can delete
-      if (comment.studentId !== studentId) {
-        throw new UnauthorizedException('You can only delete your own comments');
-      }
-
-      await this.prisma.mongo.videoComment.delete({
-        where: { id: commentId },
-      });
+      await this.prisma.mongo.videoComment.delete({ where: { id: commentId } });
 
       this.logger.log(`Comment ${commentId} deleted by student ${studentId}`);
       return { message: 'Comment deleted successfully' };
@@ -1952,33 +1337,18 @@ export class LivestreamService {
     }
   }
 
-  // Video Reaction (Like/Dislike) service methods
-  async saveVideoReaction(
-    livestreamId: string,
-    studentId: string,
-    reactionType: 'like' | 'dislike',
-  ) {
+  async saveVideoReaction(livestreamId: string, studentId: string, reactionType: 'like' | 'dislike') {
     try {
-      // Check if reaction already exists
       const existingReaction = await this.prisma.mongo.videoReaction.findUnique({
-        where: {
-          livestreamId_studentId: {
-            livestreamId,
-            studentId,
-          },
-        },
+        where: { livestreamId_studentId: { livestreamId, studentId } },
       });
 
       if (existingReaction) {
-        // If same reaction, remove it; if different, update it
         if (existingReaction.reactionType === reactionType) {
-          await this.prisma.mongo.videoReaction.delete({
-            where: { id: existingReaction.id },
-          });
+          await this.prisma.mongo.videoReaction.delete({ where: { id: existingReaction.id } });
           this.logger.log(`Reaction removed for video ${livestreamId} by student ${studentId}`);
           return { reactionType: null };
         } else {
-          // Update to new reaction type
           const updated = await this.prisma.mongo.videoReaction.update({
             where: { id: existingReaction.id },
             data: { reactionType },
@@ -1988,13 +1358,8 @@ export class LivestreamService {
         }
       }
 
-      // Create new reaction
       const newReaction = await this.prisma.mongo.videoReaction.create({
-        data: {
-          livestreamId,
-          studentId,
-          reactionType,
-        },
+        data: { livestreamId, studentId, reactionType },
       });
 
       this.logger.log(`Reaction saved for video ${livestreamId} by student ${studentId}`);
@@ -2008,14 +1373,8 @@ export class LivestreamService {
   async getVideoReaction(livestreamId: string, studentId: string) {
     try {
       const reaction = await this.prisma.mongo.videoReaction.findUnique({
-        where: {
-          livestreamId_studentId: {
-            livestreamId,
-            studentId,
-          },
-        },
+        where: { livestreamId_studentId: { livestreamId, studentId } },
       });
-
       return reaction ? { reactionType: reaction.reactionType } : { reactionType: null };
     } catch (error) {
       this.logger.error(`Failed to fetch video reaction: ${error}`);
@@ -2025,13 +1384,9 @@ export class LivestreamService {
 
   async getVideoReactionStats(livestreamId: string) {
     try {
-      const reactions = await this.prisma.mongo.videoReaction.findMany({
-        where: { livestreamId },
-      });
-
-      const likes = reactions.filter((reaction: { reactionType?: string }) => reaction.reactionType === 'like').length;
-      const dislikes = reactions.filter((reaction: { reactionType?: string }) => reaction.reactionType === 'dislike').length;
-
+      const reactions = await this.prisma.mongo.videoReaction.findMany({ where: { livestreamId } });
+      const likes = reactions.filter((r: { reactionType?: string }) => r.reactionType === 'like').length;
+      const dislikes = reactions.filter((r: { reactionType?: string }) => r.reactionType === 'dislike').length;
       return { likes, dislikes };
     } catch (error) {
       this.logger.error(`Failed to fetch video reaction stats: ${error}`);
@@ -2105,88 +1460,60 @@ export class LivestreamService {
   }
 
   private extractTranscriptFromPayload(payload: unknown): Prisma.JsonValue | null {
-    if (typeof payload === 'string') {
-      return payload.trim() || null;
-    }
-
-    if (!payload || typeof payload !== 'object') {
-      return null;
-    }
+    if (typeof payload === 'string') return payload.trim() || null;
+    if (!payload || typeof payload !== 'object') return null;
 
     const data = payload as Record<string, unknown>;
     const nestedData = data.data && typeof data.data === 'object' ? (data.data as Record<string, unknown>) : null;
     const nestedCandidate = nestedData?.result ?? nestedData?.text ?? nestedData?.transcript;
     const transcriptCandidate = data.text ?? data.transcript ?? data.result ?? nestedCandidate;
 
-    if (typeof transcriptCandidate === 'string') {
-      return transcriptCandidate.trim() || null;
-    }
-
-    if (transcriptCandidate && typeof transcriptCandidate === 'object') {
-      return transcriptCandidate as Prisma.JsonValue;
-    }
+    if (typeof transcriptCandidate === 'string') return transcriptCandidate.trim() || null;
+    if (transcriptCandidate && typeof transcriptCandidate === 'object') return transcriptCandidate as Prisma.JsonValue;
 
     return null;
   }
 
   private getTranscriptText(transcript: Prisma.JsonValue | null | undefined): string | null {
-    if (typeof transcript === 'string') {
-      return transcript.trim() || null;
-    }
-
-    if (!transcript) {
-      return null;
-    }
+    if (typeof transcript === 'string') return transcript.trim() || null;
+    if (!transcript) return null;
 
     if (typeof transcript === 'object') {
       const data = transcript as Record<string, unknown>;
       const directTextCandidate = data.full_text ?? data.text;
-      if (typeof directTextCandidate === 'string') {
-        return directTextCandidate.trim() || null;
-      }
+      if (typeof directTextCandidate === 'string') return directTextCandidate.trim() || null;
 
       const resultCandidate = data.result;
       if (resultCandidate && typeof resultCandidate === 'object') {
         const resultData = resultCandidate as Record<string, unknown>;
         const resultText = resultData.full_text ?? resultData.text;
-        if (typeof resultText === 'string') {
-          return resultText.trim() || null;
-        }
+        if (typeof resultText === 'string') return resultText.trim() || null;
       }
 
       if (Array.isArray(data.timestamps)) {
-        const timestampJoined = data.timestamps
+        const joined = data.timestamps
           .map((segment) => {
-            if (!segment || typeof segment !== 'object') {
-              return '';
-            }
-
-            const segmentData = segment as Record<string, unknown>;
-            return typeof segmentData.text === 'string' ? segmentData.text.trim() : '';
+            if (!segment || typeof segment !== 'object') return '';
+            const s = segment as Record<string, unknown>;
+            return typeof s.text === 'string' ? s.text.trim() : '';
           })
           .filter(Boolean)
           .join('\n')
           .trim();
-
-        if (timestampJoined) {
-          return timestampJoined;
-        }
+        if (joined) return joined;
       }
 
       if (Array.isArray(data.segments)) {
-        const segments = data.segments
+        const joined = data.segments
           .map((segment) => {
-            if (!segment || typeof segment !== 'object') {
-              return '';
-            }
-
-            const segmentData = segment as Record<string, unknown>;
-            return typeof segmentData.text === 'string' ? segmentData.text.trim() : '';
+            if (!segment || typeof segment !== 'object') return '';
+            const s = segment as Record<string, unknown>;
+            return typeof s.text === 'string' ? s.text.trim() : '';
           })
-          .filter(Boolean);
-
-        const joined = segments.join('\n').trim();
-        return joined || null;
+          .filter(Boolean)
+          .join('\n')
+          .trim();
+        if (joined) return joined;
       }
     }
 
@@ -2194,45 +1521,30 @@ export class LivestreamService {
   }
 
   private extractAiErrorFromPayload(payload: unknown): string | null {
-    if (!payload || typeof payload !== 'object') {
-      return null;
-    }
+    if (!payload || typeof payload !== 'object') return null;
 
     const data = payload as Record<string, unknown>;
-    if (data.status !== 'error') {
-      return null;
-    }
+    if (data.status !== 'error') return null;
 
     const errorValue = data.error;
-    if (typeof errorValue === 'string') {
-      return errorValue.trim() || null;
-    }
+    if (typeof errorValue === 'string') return errorValue.trim() || null;
 
     if (errorValue && typeof errorValue === 'object') {
       const errorData = errorValue as Record<string, unknown>;
       const message = errorData.message ?? errorData.detail ?? errorData.error;
-      if (typeof message === 'string') {
-        return message.trim() || null;
-      }
+      if (typeof message === 'string') return message.trim() || null;
     }
 
     return 'Unknown error from transcribe service';
   }
 
   private extractSummaryFromPayload(payload: unknown): string | null {
-    if (typeof payload === 'string') {
-      return payload.trim() || null;
-    }
-
-    if (!payload || typeof payload !== 'object') {
-      return null;
-    }
+    if (typeof payload === 'string') return payload.trim() || null;
+    if (!payload || typeof payload !== 'object') return null;
 
     const data = payload as Record<string, unknown>;
     const summaryCandidate = data.summary || data.result || data.text;
-    if (typeof summaryCandidate === 'string') {
-      return summaryCandidate.trim() || null;
-    }
+    if (typeof summaryCandidate === 'string') return summaryCandidate.trim() || null;
 
     return null;
   }
@@ -2246,12 +1558,11 @@ export class LivestreamService {
       summary: analysis?.summary || undefined,
       audioUrl: analysis?.audioUrl || null,
       moderationResult: analysis?.moderationResult || null,
-        ...this.getModerationSnapshot(analysis?.moderationResult),
+      ...this.getModerationSnapshot(analysis?.moderationResult),
       transcriptStatus: analysis?.transcriptStatus || 'idle',
       transcriptError: analysis?.transcriptError || null,
       transcriptGeneratedAt: analysis?.transcriptGeneratedAt || null,
       summaryGeneratedAt: analysis?.summaryGeneratedAt || null,
-      processingStage: analysis?.processingStage || null,
       processingProgress: analysis?.processingProgress ?? 0,
       processingError: analysis?.processingError || null,
     };
@@ -2260,9 +1571,11 @@ export class LivestreamService {
   async getRecordingModeration(recordingId: string) {
     const analysis = await this.getRecordingAiAnalysis(recordingId);
     const transcriptText = this.getTranscriptText(analysis.transcript);
+
     if (transcriptText) {
       this.logger.log(`[Moderation] Recording ${recordingId} - invoking moderation API; textLen=${transcriptText.length}`);
     }
+
     const moderationResult = transcriptText ? await this.callModerationApi(transcriptText) : null;
 
     if (moderationResult) {
@@ -2285,7 +1598,6 @@ export class LivestreamService {
         status: moderationStatus,
         label: moderationStatus,
         categories: moderationSnapshot.moderationCategories,
-        processingStage: analysis.processingStage || null,
         processingProgress: analysis.processingProgress ?? 0,
         processingError: analysis.processingError || null,
       };
@@ -2301,7 +1613,6 @@ export class LivestreamService {
       label: moderationSnapshot.moderationLabel,
       categories: moderationSnapshot.moderationCategories,
       moderationResult: null,
-      processingStage: analysis.processingStage || null,
       processingProgress: analysis.processingProgress ?? 0,
       processingError: analysis.processingError || null,
     };
@@ -2309,34 +1620,24 @@ export class LivestreamService {
 
   private async downloadToBuffer(url: string): Promise<Buffer> {
     const response = await fetch(url);
-    if (!response.ok) {
-      throw new BadRequestException(`Cannot download file: ${response.status}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    if (!response.ok) throw new BadRequestException(`Cannot download file: ${response.status}`);
+    return Buffer.from(await response.arrayBuffer());
   }
 
   async generateRecordingTranscript(recordingId: string, force = false) {
     this.logger.log(`[Transcribe] generateRecordingTranscript start recordingId=${recordingId} force=${force}`);
+
     const livestream = await this.prisma.postgres.liveStream.findUnique({
       where: { id: recordingId },
-      select: {
-        id: true,
-        recordingUrl: true,
-      },
+      select: { id: true, recordingUrl: true },
     });
 
-    if (!livestream) {
-      throw new NotFoundException('Recording not found');
-    }
-
-    if (!livestream.recordingUrl) {
-      throw new BadRequestException('Recording URL is missing, cannot transcribe');
-    }
+    if (!livestream) throw new NotFoundException('Recording not found');
+    if (!livestream.recordingUrl) throw new BadRequestException('Recording URL is missing, cannot transcribe');
 
     const existing = await this.getRecordingAiAnalysisDocument(recordingId);
     this.logger.debug(`[Transcribe] existing transcript present=${!!existing?.transcript} status=${existing?.transcriptStatus}`);
+
     if (!force && existing?.transcript) {
       try {
         await this.generateRecordingSummary(recordingId, false);
@@ -2357,17 +1658,11 @@ export class LivestreamService {
         this.logger.warn('Moderation failed for recording', String(err));
       }
 
-      return {
-        ...(await this.getRecordingAiAnalysis(recordingId)),
-        cached: true,
-      };
+      return { ...(await this.getRecordingAiAnalysis(recordingId)), cached: true };
     }
 
     if (!force && existing?.transcriptStatus === 'processing') {
-      return {
-        ...(await this.getRecordingAiAnalysis(recordingId)),
-        cached: true,
-      };
+      return { ...(await this.getRecordingAiAnalysis(recordingId)), cached: true };
     }
 
     try {
@@ -2375,7 +1670,6 @@ export class LivestreamService {
       await this.upsertRecordingAiAnalysis(recordingId, {
         transcriptStatus: 'processing',
         transcriptError: null,
-        processingStage: 'preparing',
         processingProgress: PROCESSING_STAGE_PROGRESS.preparing,
         processingError: null,
       });
@@ -2408,43 +1702,20 @@ export class LivestreamService {
             this.logger.log(`Using FFmpeg binary: ${ffmpegPath}`);
 
             const ffmpeg = spawn(ffmpegPath as string, [
-              '-y',
-              '-i',
-              inputPath,
-              '-vn',
-              '-ac',
-              '1',
-              '-ar',
-              '16000',
-              '-f',
-              'wav',
-              outputPath,
+              '-y', '-i', inputPath, '-vn', '-ac', '1', '-ar', '16000', '-f', 'wav', outputPath,
             ]);
 
             let stderr = '';
-
             ffmpeg.stderr.on('data', (chunk) => {
               const message = chunk.toString();
               stderr += message;
-
               this.logger.debug(`[FFmpeg] ${message}`);
             });
-
-            ffmpeg.on('error', (err) => {
-              this.logger.error('FFmpeg spawn error', err);
-              reject(err);
-            });
-
+            ffmpeg.on('error', (err) => { this.logger.error('FFmpeg spawn error', err); reject(err); });
             ffmpeg.on('close', (code) => {
               this.logger.log(`FFmpeg exited with code ${code}`);
-
-              if (code === 0) {
-                resolve();
-              } else {
-                reject(
-                  new Error(`FFmpeg failed (${code}): ${stderr}`),
-                );
-              }
+              if (code === 0) resolve();
+              else reject(new Error(`FFmpeg failed (${code}): ${stderr}`));
             });
           });
 
@@ -2458,34 +1729,28 @@ export class LivestreamService {
         }
       }
 
-      if (!audioBuffer) {
-        throw new BadRequestException('Audio export failed, cannot transcribe');
-      }
+      if (!audioBuffer) throw new BadRequestException('Audio export failed, cannot transcribe');
 
       const formData = new FormData();
       const audioBytes = new Uint8Array(audioBuffer);
-      // Explicitly set audio/wav type for AI server to correctly process audio
       formData.append('file', new Blob([audioBytes], { type: 'audio/wav' }), `${recordingId}.wav`);
 
-      // Stream transcribe response (handles heartbeats and long processing time)
       const aiResponse = await (await import('../utils/aiFetch')).logStreamingTranscribe(
-        `${this.localAiBaseUrl}/transcribe`,
+        `${this.requireAiServiceUrl()}/transcribe`,
         {
           method: 'POST',
           body: formData,
-          timeoutMs: 30 * 60 * 1000, // 30 minutes
+          timeoutMs: 30 * 60 * 1000,
         },
         this.logger as any,
       );
 
-      // Extract transcript from the streaming response
       const transcript = this.extractTranscriptFromPayload(aiResponse.data);
 
       if (!transcript) {
         await this.upsertRecordingAiAnalysis(recordingId, {
           transcriptStatus: 'error',
           transcriptError: 'Transcribe service returned empty transcript',
-          processingStage: 'error',
           processingProgress: PROCESSING_STAGE_PROGRESS.transcribing,
           processingError: 'Transcribe service returned empty transcript',
         });
@@ -2498,7 +1763,6 @@ export class LivestreamService {
         transcript,
         audioUrl: audioUrl || undefined,
         transcriptGeneratedAt: new Date(),
-        processingStage: 'summarizing',
         processingProgress: PROCESSING_STAGE_PROGRESS.summarizing,
         processingError: null,
       });
@@ -2509,7 +1773,6 @@ export class LivestreamService {
         this.logger.warn('Summary failed for recording', String(summaryErr));
       }
 
-      // Log transcription success with data
       const analysis = await this.getRecordingAiAnalysis(recordingId);
       const transcriptText = this.getTranscriptText(transcript);
       const transcriptLength = transcriptText ? transcriptText.length : 0;
@@ -2525,20 +1788,16 @@ export class LivestreamService {
         status: 'success',
       });
 
-      return {
-        ...analysis,
-        cached: false,
-      };
+      return { ...analysis, cached: false };
     } catch (err: unknown) {
       await this.upsertRecordingAiAnalysis(recordingId, {
         transcriptStatus: 'error',
         transcriptError: err instanceof Error ? err.message : String(err),
-        processingStage: 'error',
         processingProgress: PROCESSING_STAGE_PROGRESS.error,
         processingError: err instanceof Error ? err.message : String(err),
       }).catch(() => undefined);
       await this.updateRecordingProcessingStatus(recordingId, 'FAILED').catch(() => undefined);
-      
+
       this.logger.error(`[TRANSCRIPT ERROR] RecordingID: ${recordingId}, Error: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     }
@@ -2547,13 +1806,9 @@ export class LivestreamService {
   async generateRecordingSummary(recordingId: string, force = false) {
     const existing = await this.getRecordingAiAnalysisDocument(recordingId);
 
-    let transcript = existing?.transcript || null;
+    const transcript = existing?.transcript || null;
     if (!transcript) {
       return await this.generateRecordingTranscript(recordingId, false);
-    }
-
-    if (!transcript) {
-      throw new BadRequestException('Transcript is required before summarizing');
     }
 
     const transcriptText = this.getTranscriptText(transcript);
@@ -2562,16 +1817,13 @@ export class LivestreamService {
     }
 
     await this.updateRecordingProcessingState(recordingId, {
-      processingStage: 'summarizing',
       processingProgress: PROCESSING_STAGE_PROGRESS.summarizing,
       processingError: null,
     });
 
-    const aiResponse = await fetch(`${this.localAiBaseUrl}/summarize`, {
+    const aiResponse = await fetch(`${this.requireAiServiceUrl()}/summarize`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: transcriptText }),
     });
 
@@ -2583,14 +1835,11 @@ export class LivestreamService {
     const aiPayload = await aiResponse.json();
     const summary = this.extractSummaryFromPayload(aiPayload);
 
-    if (!summary) {
-      throw new BadRequestException('Summarize service returned empty summary');
-    }
+    if (!summary) throw new BadRequestException('Summarize service returned empty summary');
 
     await this.upsertRecordingAiAnalysis(recordingId, {
       summary,
       summaryGeneratedAt: new Date(),
-      processingStage: 'moderating',
       processingProgress: PROCESSING_STAGE_PROGRESS.moderating,
       processingError: null,
     });
@@ -2601,6 +1850,7 @@ export class LivestreamService {
         this.logger.log(`[Moderation] Recording ${recordingId} - invoking moderation API after summarization; textLen=${text.length}`);
       }
       const moderation = await this.callModerationApi(text || '');
+
       if (moderation) {
         await this.replaceRecordingAiAnalysisWithModeration(recordingId, moderation);
 
@@ -2614,7 +1864,6 @@ export class LivestreamService {
         }
 
         await this.updateRecordingProcessingState(recordingId, {
-          processingStage: 'done',
           processingProgress: PROCESSING_STAGE_PROGRESS.done,
           processingError: null,
         });
@@ -2624,17 +1873,12 @@ export class LivestreamService {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn('Moderation failed for recording', message);
       await this.updateRecordingProcessingState(recordingId, {
-        processingStage: 'error',
         processingProgress: PROCESSING_STAGE_PROGRESS.moderating,
         processingError: message,
       }).catch(() => undefined);
       await this.updateRecordingProcessingStatus(recordingId, 'FAILED').catch(() => undefined);
     }
 
-    return {
-      ...(await this.getRecordingAiAnalysis(recordingId)),
-      cached: false,
-    };
+    return { ...(await this.getRecordingAiAnalysis(recordingId)), cached: false };
   }
 }
-

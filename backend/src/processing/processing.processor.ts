@@ -692,7 +692,7 @@ export class ProcessingProcessor {
       headers: {
         'Content-Type': 'application/json',
       },
-    );
+     });
 
     if (!response.ok) {
       throw new BadRequestException(

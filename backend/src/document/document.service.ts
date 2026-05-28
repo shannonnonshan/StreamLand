@@ -2,8 +2,8 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
-  NotFoundException,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -11,19 +11,29 @@ import { R2StorageService } from '../r2-storage/r2-storage.service';
 import { ProcessingService } from '../processing/processing.service';
 import { createWriteStream, promises as fs } from 'fs';
 import { spawn } from 'child_process';
+import ffmpegPath from 'ffmpeg-static';
+
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
+
 import * as os from 'os';
 import * as path from 'path';
-import { PROCESSING_STAGE_PROGRESS, ProcessingStage } from '../processing/processing.types';
+
+import {
+  PROCESSING_STAGE_PROGRESS,
+  ProcessingStage,
+} from '../processing/processing.types';
 
 interface AiTranscriptSummaryDocument {
   id?: string;
   type: 'LIVESTREAM' | 'DOCUMENT';
-  recordingId?: string;
-  documentId?: string;
+
+  recordingId?: string | null;
+  documentId?: string | null;
+
   transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
   transcriptError?: string | null;
+
   transcript?: Prisma.JsonValue;
   summary?: string;
   moderationResult?: Prisma.JsonValue;
@@ -32,6 +42,7 @@ interface AiTranscriptSummaryDocument {
   summaryGeneratedAt?: Date;
   processingProgress?: number;
   processingError?: string | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -52,21 +63,28 @@ type ModerationSnapshot = {
 
 export interface DocumentAiAnalysisResponse {
   documentId: string;
+
   transcript: Prisma.JsonValue | null;
   summary: string | null;
   audioUrl: string | null;
+
   moderationResult: Prisma.JsonValue | null;
+
   toxicWords: string[];
   validationRate: number;
   moderationLabel: string | null;
   moderationCategories: string[];
+
   transcriptStatus: 'idle' | 'processing' | 'success' | 'error';
   transcriptError: string | null;
+
   transcriptGeneratedAt: Date | null;
   summaryGeneratedAt: Date | null;
+
   processingStage: ProcessingStage | null;
   processingProgress: number;
   processingError: string | null;
+
   cached?: boolean;
 }
 
@@ -84,7 +102,9 @@ type MulterFile = {
 
 @Injectable()
 export class DocumentService {
-  private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
+  private readonly aiTranscriptSummaryCollection =
+    'ai_transcript_summary';
+
   private readonly logger = new Logger(DocumentService.name);
   private readonly aiServiceUrl = (process.env.AI_SERVICE_URL || '').replace(/\/$/, '');
 
@@ -261,13 +281,140 @@ export class DocumentService {
   private async getDocumentAiAnalysisDocument(documentId: string): Promise<AiTranscriptSummaryDocument | null> {
     const result = await this.prisma.mongo.$runCommandRaw({
       find: this.aiTranscriptSummaryCollection,
-      filter: { type: 'DOCUMENT', documentId },
+      filter: {
+        type: 'DOCUMENT',
+        documentId,
+      },
       limit: 1,
     });
 
-    const firstBatch = (result as { cursor?: { firstBatch?: AiTranscriptSummaryDocument[] } }).cursor?.firstBatch || [];
+    const firstBatch =
+      (
+        result as {
+          cursor?: {
+            firstBatch?: AiTranscriptSummaryDocument[];
+          };
+        }
+      ).cursor?.firstBatch || [];
+
     return firstBatch[0] || null;
   }
+  async getDocumentModeration(
+    documentId: string,
+    user: { sub: string; role?: string },
+  ) {
+    const analysis = await this.getDocumentAiAnalysis(
+      documentId,
+      user,
+      false,
+    );
+
+    const transcriptText = this.getTranscriptText(
+      analysis.transcript,
+    );
+
+    if (!transcriptText) {
+      return {
+        ...analysis,
+        moderationResult: null,
+        score: 0,
+        toxicWords: [],
+        status: null,
+        label: null,
+        categories: [],
+      };
+    }
+
+    const response = await fetch(
+      `${this.localAiBaseUrl}/moderation/text`,
+      {
+        method: 'POST',
+
+        headers: {
+          'Content-Type': 'application/json',
+        },
+
+        body: JSON.stringify({
+          text: transcriptText,
+        }),
+      },
+    );
+
+    const rawText = await response.text();
+
+    if (!response.ok) {
+      throw new BadRequestException(
+        `Moderation service error (${response.status}): ${rawText}`,
+      );
+    }
+
+    let payload: any = {};
+
+    try {
+      payload = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      throw new BadRequestException(
+        `Invalid moderation JSON response: ${rawText}`,
+      );
+    }
+
+    const moderation = {
+      status:
+        typeof payload.status === 'string'
+          ? payload.status
+          : null,
+
+      score:
+        typeof payload.score === 'number'
+          ? payload.score
+          : 0,
+
+      categories: Array.isArray(payload.categories)
+        ? payload.categories
+        : [],
+
+      toxic_word: Array.isArray(payload.toxic_word)
+        ? payload.toxic_word
+        : [],
+    };
+
+    await this.updateDocumentProcessingState(
+      documentId,
+      {
+        moderationResult:
+          moderation as Prisma.JsonValue,
+
+        moderationCheckedAt: new Date(),
+
+        toxicWords: moderation.toxic_word,
+
+        validationRate: moderation.score,
+
+        moderationLabel: moderation.status,
+
+        moderationCategories:
+          moderation.categories,
+      },
+    );
+
+    return {
+      ...analysis,
+
+      moderationResult:
+        moderation as Prisma.JsonValue,
+
+      score: moderation.score,
+
+      toxicWords: moderation.toxic_word,
+
+      status: moderation.status,
+
+      label: moderation.status,
+
+      categories: moderation.categories,
+    };
+  }
+
 
   private async upsertDocumentAiAnalysis(
     documentId: string,
@@ -285,7 +432,11 @@ export class DocumentService {
       update: this.aiTranscriptSummaryCollection,
       updates: [
         {
-          q: { type: 'DOCUMENT', documentId },
+          q: {
+            type: 'DOCUMENT',
+            documentId,
+          },
+
           u: {
             $set: {
               id: documentId,
@@ -295,14 +446,17 @@ export class DocumentService {
               ...mongoPayload,
               updatedAt: new Date(),
             },
+
             $setOnInsert: {
               id: documentId,
               type: 'DOCUMENT',
               documentId,
               recordingId: null,
+
               createdAt: new Date(),
             },
           },
+
           upsert: true,
         },
       ],
@@ -316,10 +470,15 @@ export class DocumentService {
     await this.upsertDocumentAiAnalysis(documentId, payload);
   }
 
-  private async updateDocumentProcessingStatus(documentId: string, status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED'): Promise<void> {
+  private async updateDocumentProcessingStatus(
+    documentId: string,
+    status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED',
+  ): Promise<void> {
     await this.prisma.postgres.document.update({
       where: { id: documentId },
-      data: { processingStatus: status },
+      data: {
+        processingStatus: status,
+      },
     });
   }
 
@@ -362,27 +521,11 @@ export class DocumentService {
       return [value.trim()];
     }
 
-    if (!Array.isArray(value)) {
-      return [];
-    }
-
-    return value.flatMap((item) => {
-      if (typeof item === 'string') {
-        return [item.trim()];
-      }
-
-      if (!item || typeof item !== 'object') {
-        return [];
-      }
-
-      const candidate = item as Record<string, unknown>;
-      const keys = ['word', 'token', 'term', 'lexeme', 'value', 'label', 'name', 'category'];
-
-      for (const key of keys) {
-        const raw = candidate[key];
-        if (typeof raw === 'string') {
-          return [raw.trim()];
-        }
+    if (user.role === 'TEACHER') {
+      if (document.teacherId !== user.sub) {
+        throw new ForbiddenException(
+          'You can only access your own documents',
+        );
       }
 
       return [];
@@ -452,8 +595,7 @@ export class DocumentService {
       throw new BadRequestException(`Cannot download file: ${response.status}`);
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    return document;
   }
 
   private async ensureDocumentAudioUrl(
@@ -622,12 +764,20 @@ export class DocumentService {
     const document = await this.assertDocumentAccess(documentId, user);
     const analysis = await this.getDocumentAiAnalysisDocument(documentId);
 
-    if (autoTranscribe && (!analysis || !analysis.transcript)) {
-      return await this.generateDocumentTranscript(documentId, false, user);
+    if (
+      autoTranscribe &&
+      (!analysis || !analysis.transcript)
+    ) {
+      return await this.generateDocumentTranscript(
+        documentId,
+        false,
+        user,
+      );
     }
 
     return {
       documentId,
+
       transcript: analysis?.transcript || null,
       summary: analysis?.summary || null,
       audioUrl: document.audioUrl || null,
@@ -699,11 +849,22 @@ export class DocumentService {
     force: boolean,
     user: { sub: string; role?: string },
   ): Promise<DocumentAiAnalysisResponse> {
-    this.logger.log(`[Transcribe] generateDocumentTranscript start documentId=${documentId} force=${force}`);
-    const document = await this.assertDocumentAccess(documentId, user);
+    this.logger.log(
+      `[Transcribe] start documentId=${documentId}`,
+    );
 
-    if (!this.isTranscribable(document.mimeType, document.fileType)) {
-      throw new BadRequestException('Document type is not supported for transcription');
+    const document =
+      await this.assertDocumentAccess(documentId, user);
+
+    if (
+      !this.isTranscribable(
+        document.mimeType,
+        document.fileType,
+      )
+    ) {
+      throw new BadRequestException(
+        'Document type is not supported for transcription',
+      );
     }
 
     const existing = await this.getDocumentAiAnalysisDocument(documentId);
@@ -730,26 +891,29 @@ export class DocumentService {
       }
 
       return {
-        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
+        ...(await this.getDocumentAiAnalysis(
+          documentId,
+          user,
+          false,
+        )),
         cached: true,
       };
     }
 
-    if (!force && existing?.transcriptStatus === 'processing') {
-      return {
-        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
-        cached: true,
-      };
-    }
+    await this.updateDocumentProcessingStatus(
+      documentId,
+      'PROCESSING',
+    );
 
-    try {
-      await this.updateDocumentProcessingStatus(documentId, 'PROCESSING');
-      await this.upsertDocumentAiAnalysis(documentId, {
+    await this.updateDocumentProcessingState(
+      documentId,
+      {
         transcriptStatus: 'processing',
         transcriptError: null,
         processingProgress: PROCESSING_STAGE_PROGRESS.preparing,
         processingError: null,
-      });
+      },
+    );
 
       const audioUrl = document.audioUrl || await this.ensureDocumentAudioUrl(documentId, document.fileUrl, document.mimeType);
 
@@ -793,10 +957,18 @@ export class DocumentService {
         processingError: null,
       });
 
-      await this.generateDocumentSummary(documentId, false, user);
+      await this.generateDocumentSummary(
+        documentId,
+        false,
+        user,
+      );
 
       return {
-        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
+        ...(await this.getDocumentAiAnalysis(
+          documentId,
+          user,
+          false,
+        )),
         cached: false,
       };
     } catch (err: unknown) {
@@ -816,23 +988,39 @@ export class DocumentService {
     force: boolean,
     user: { sub: string; role?: string },
   ): Promise<DocumentAiAnalysisResponse> {
-    const document = await this.assertDocumentAccess(documentId, user);
+    await this.assertDocumentAccess(documentId, user);
 
-    if (!this.isTranscribable(document.mimeType, document.fileType)) {
-      throw new BadRequestException('Document type is not supported for summarization');
+    const existing =
+      await this.getDocumentAiAnalysisDocument(
+        documentId,
+      );
+
+    if (!existing?.transcript) {
+      return await this.generateDocumentTranscript(
+        documentId,
+        false,
+        user,
+      );
     }
 
-    const existing = await this.getDocumentAiAnalysisDocument(documentId);
-    const shouldModerate = true;
-
-    let transcript = existing?.transcript || null;
-    if (!transcript) {
-      return await this.generateDocumentTranscript(documentId, false, user);
+    if (!force && existing.summary) {
+      return {
+        ...(await this.getDocumentAiAnalysis(
+          documentId,
+          user,
+          false,
+        )),
+        cached: true,
+      };
     }
 
-    const transcriptText = this.getTranscriptText(transcript);
+    const transcriptText =
+      this.getTranscriptText(existing.transcript);
+
     if (!transcriptText) {
-      throw new BadRequestException('Transcript is required before summarizing');
+      throw new BadRequestException(
+        'Transcript text is empty',
+      );
     }
 
     await this.updateDocumentProcessingState(documentId, {
@@ -911,12 +1099,18 @@ export class DocumentService {
     }
 
     return {
-      ...(await this.getDocumentAiAnalysis(documentId, user, false)),
+      ...(await this.getDocumentAiAnalysis(
+        documentId,
+        user,
+        false,
+      )),
       cached: false,
     };
   }
 
-  private extractTranscriptFromPayload(payload: unknown): Prisma.JsonValue | null {
+  private extractTranscriptFromPayload(
+    payload: unknown,
+  ): Prisma.JsonValue | null {
     if (typeof payload === 'string') {
       return payload.trim() || null;
     }
@@ -926,22 +1120,30 @@ export class DocumentService {
     }
 
     const data = payload as Record<string, unknown>;
-    const nestedData = data.data && typeof data.data === 'object' ? (data.data as Record<string, unknown>) : null;
-    const nestedCandidate = nestedData?.result ?? nestedData?.text ?? nestedData?.transcript;
-    const transcriptCandidate = data.text ?? data.transcript ?? data.result ?? nestedCandidate;
+
+    const transcriptCandidate =
+      data.text ??
+      data.transcript ??
+      data.result ??
+      data.data;
 
     if (typeof transcriptCandidate === 'string') {
       return transcriptCandidate.trim() || null;
     }
 
-    if (transcriptCandidate && typeof transcriptCandidate === 'object') {
+    if (
+      transcriptCandidate &&
+      typeof transcriptCandidate === 'object'
+    ) {
       return transcriptCandidate as Prisma.JsonValue;
     }
 
     return null;
   }
 
-  private getTranscriptText(transcript: Prisma.JsonValue | null | undefined): string | null {
+  private getTranscriptText(
+    transcript: Prisma.JsonValue | null | undefined,
+  ): string | null {
     if (typeof transcript === 'string') {
       return transcript.trim() || null;
     }

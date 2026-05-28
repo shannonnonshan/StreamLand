@@ -9,6 +9,7 @@ import { RedisService } from '../redis/redis.service';
 import { ProcessingService } from '../processing/processing.service';
 import { Readable } from 'stream';
 import { createWriteStream, promises as fs } from 'fs';
+import ffmpegPath from 'ffmpeg-static';
 import { spawn } from 'child_process';
 // Try to use ffmpeg-static when available to avoid ENOENT if ffmpeg not installed on system
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -2309,8 +2310,14 @@ export class LivestreamService {
           await pipeline(Readable.fromWeb(recordingResponse.body as any), createWriteStream(inputPath));
 
           await new Promise<void>((resolve, reject) => {
-            const ffmpegCmd = ffmpegStaticPath || 'ffmpeg';
-            const ffmpeg = spawn(ffmpegCmd, [
+            if (!ffmpegPath) {
+              reject(new Error('FFmpeg binary not found'));
+              return;
+            }
+
+            this.logger.log(`Using FFmpeg binary: ${ffmpegPath}`);
+
+            const ffmpeg = spawn(ffmpegPath as string, [
               '-y',
               '-i',
               inputPath,
@@ -2325,15 +2332,28 @@ export class LivestreamService {
             ]);
 
             let stderr = '';
+
             ffmpeg.stderr.on('data', (chunk) => {
-              stderr += chunk.toString();
+              const message = chunk.toString();
+              stderr += message;
+
+              this.logger.debug(`[FFmpeg] ${message}`);
             });
-            ffmpeg.on('error', (err) => reject(err));
+
+            ffmpeg.on('error', (err) => {
+              this.logger.error('FFmpeg spawn error', err);
+              reject(err);
+            });
+
             ffmpeg.on('close', (code) => {
+              this.logger.log(`FFmpeg exited with code ${code}`);
+
               if (code === 0) {
                 resolve();
               } else {
-                reject(new Error(`ffmpeg failed (${code}): ${stderr}`));
+                reject(
+                  new Error(`FFmpeg failed (${code}): ${stderr}`),
+                );
               }
             });
           });

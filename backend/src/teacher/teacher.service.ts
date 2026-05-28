@@ -1,20 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-// Minimal Multer file type to avoid dependency on Express.Multer namespace
-type MulterFile = {
-  fieldname: string;
-  originalname: string;
-  encoding?: string;
-  mimetype: string;
-  size: number;
-  buffer?: Buffer;
-  destination?: string;
-  filename?: string;
-  path?: string;
-};
-import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
-import { R2StorageService } from '../r2-storage/r2-storage.service';
-import { ProcessingService } from '../processing/processing.service';
 import { RedisService } from '../redis/redis.service';
 
 type TeacherProfileResponse = {
@@ -51,30 +36,8 @@ type TeacherProfileResponse = {
 export class TeacherService {
   constructor(
     private prisma: PrismaService,
-    private r2StorageService: R2StorageService,
-    private processingService: ProcessingService,
     private redisService: RedisService,
   ) {}
-
-  private shouldEnqueueProcessing(filename: string): boolean {
-    const extension = path.extname(filename).toLowerCase();
-
-    return [
-      '.mp4',
-      '.webm',
-      '.mov',
-      '.mkv',
-      '.avi',
-      '.m4v',
-      '.mp3',
-      '.wav',
-      '.m4a',
-      '.aac',
-      '.ogg',
-      '.flac',
-      '.opus',
-    ].includes(extension);
-  }
 
   // Get teacher videos/livestreams
   async getTeacherVideos(teacherId: string, page: number = 1, limit: number = 20) {
@@ -368,143 +331,6 @@ export class TeacherService {
 
     await this.redisService.set(cacheKey, profile, 300);
     return profile;
-  }
-
-  // Get teacher documents
-  async getDocuments(teacherId: string, fileType?: string) {
-    const teacher = await this.prisma.postgres.user.findUnique({
-      where: { id: teacherId },
-    });
-
-    if (!teacher) {
-      throw new NotFoundException('Teacher not found');
-    }
-
-    const where: any = { teacherId };
-    if (fileType) {
-      where.fileType = fileType;
-    }
-
-    const documents = await this.prisma.postgres.document.findMany({
-      where,
-      orderBy: { uploadedAt: 'desc' },
-    });
-    return documents;
-  }
-
-  // Upload document to R2
-  async uploadDocument(teacherId: string, file: MulterFile, description?: string) {
-    const teacher = await this.prisma.postgres.user.findUnique({
-      where: { id: teacherId },
-      include: { teacherProfile: true },
-    });
-
-    if (!teacher || !teacher.teacherProfile) {
-      throw new NotFoundException('Teacher not found');
-    }
-
-    // Upload to R2
-    const documentUrl = await this.r2StorageService.uploadDocument(
-      teacherId,
-      file.originalname,
-      file.buffer!,
-      file.mimetype,
-    );
-
-    // Determine file type from mime type
-    let fileType = 'file';
-    if (file.mimetype.startsWith('image/')) {
-      fileType = 'image';
-    } else if (file.mimetype.startsWith('video/')) {
-      fileType = 'video';
-    } else if (file.mimetype.includes('pdf')) {
-      fileType = 'pdf';
-    }
-
-    // Save document to database
-    const document = await this.prisma.postgres.document.create({
-      data: {
-        teacherId,
-        title: file.originalname,
-        description: description?.trim() || null,
-        fileUrl: documentUrl,
-        fileName: file.originalname,
-        fileType,
-        fileSize: file.size,
-        mimeType: file.mimetype,
-        processingStatus: 'PENDING',
-      },
-    });
-
-    if (this.shouldEnqueueProcessing(file.originalname)) {
-      await this.processingService.enqueue({
-        type: 'document',
-        itemId: document.id,
-        fileUrl: documentUrl,
-        title: file.originalname,
-      });
-    }
-
-    return document;
-  }
-
-  async updateDocumentDescription(teacherId: string, documentId: string, description?: string) {
-    const existing = await this.prisma.postgres.document.findFirst({
-      where: {
-        id: documentId,
-        teacherId,
-      },
-    });
-
-    if (!existing) {
-      throw new NotFoundException('Document not found');
-    }
-
-    const updated = await this.prisma.postgres.document.update({
-      where: { id: documentId },
-      data: {
-        description: description?.trim() || null,
-      },
-    });
-
-    return updated;
-  }
-
-  // Delete a document (remove from R2 and database)
-  async deleteDocument(teacherId: string, documentId: string) {
-    const existing = await this.prisma.postgres.document.findFirst({
-      where: { id: documentId, teacherId },
-    });
-
-    if (!existing) {
-      throw new NotFoundException('Document not found');
-    }
-
-    // Attempt to delete from R2 (ignore if fails but log)
-    try {
-      if (existing.fileUrl) {
-        await this.r2StorageService.deleteDocument(existing.fileUrl);
-      }
-    } catch (err) {
-      // Log and continue to delete DB record
-      console.error('Failed to delete document from R2:', err);
-    }
-
-    // Delete any associated audio export if exists
-    try {
-      const audioUrl = this.r2StorageService.getDocumentAudioUrlFromUrl(existing.fileUrl);
-      if (audioUrl) {
-        // try deleting audio file
-        await this.r2StorageService.deleteDocument(audioUrl).catch(() => {});
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    // Remove DB record
-    await this.prisma.postgres.document.delete({ where: { id: documentId } });
-
-    return { success: true, message: 'Document deleted' };
   }
 
   // Update teacher settings

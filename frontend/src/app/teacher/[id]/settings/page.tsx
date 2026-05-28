@@ -191,7 +191,7 @@ export default function SettingsPage() {
   );
 
   return (
-    <div className={`${raleway.className} flex h-full flex-col bg-slate-50 px-4 pb-6 pt-5`}>
+    <div className={`${raleway.className} flex h-full flex-col px-4 pb-6 pt-5`}>
       <Toaster/>
       <ConfirmDialog open={confirmState.open} title={confirmState.title} message={confirmState.message} type={confirmState.type} confirmText={confirmState.confirmText} cancelText={confirmState.cancelText} onConfirm={handleConfirm} onCancel={handleCancel}/>
 

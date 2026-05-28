@@ -10,7 +10,7 @@ type MulterFile = {
   filename?: string;
   path?: string;
 };
-import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { TeacherService } from './teacher.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Public } from '../auth/decorators/public.decorator';
@@ -57,74 +57,6 @@ export class TeacherController {
       throw new BadRequestException('Unauthorized - user ID mismatch');
     }
     return await this.teacherService.getDashboardStats(teacherId, filter);
-  }
-
-  // Get teacher documents
-  @UseGuards(JwtAuthGuard)
-  @Get(':id/documents')
-  async getDocuments(
-    @Param('id') teacherId: string,
-    @Query('fileType') fileType: string,
-    @Request() req: { user: { sub: string; role?: string } }
-  ): Promise<any> {
-    // Allow access to own documents or if user is admin
-    if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
-      throw new BadRequestException('You can only access your own documents');
-    }
-
-    return await this.teacherService.getDocuments(teacherId, fileType);
-  }
-
-  // Upload document for livestream
-  @UseGuards(JwtAuthGuard)
-  @Post(':id/upload-document')
-  @UseInterceptors(FileInterceptor('file'))
-  async uploadDocument(
-    @Param('id') teacherId: string,
-    @UploadedFile() file: MulterFile,
-    @Body('description') description: string | undefined,
-    @Request() req: { user: { sub: string } }
-  ) {
-    // Verify that the user is uploading to their own account
-    if (req.user.sub !== teacherId) {
-      throw new BadRequestException('Unauthorized');
-    }
-
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
-    }
-
-    return this.teacherService.uploadDocument(teacherId, file, description);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Patch(':id/documents/:documentId/description')
-  async updateDocumentDescription(
-    @Param('id') teacherId: string,
-    @Param('documentId') documentId: string,
-    @Body('description') description: string | undefined,
-    @Request() req: { user: { sub: string; role?: string } },
-  ) {
-    if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
-      throw new BadRequestException('Unauthorized');
-    }
-
-    return this.teacherService.updateDocumentDescription(teacherId, documentId, description);
-  }
-
-  // Delete a document
-  @UseGuards(JwtAuthGuard)
-  @Delete(':id/documents/:documentId')
-  async deleteDocument(
-    @Param('id') teacherId: string,
-    @Param('documentId') documentId: string,
-    @Request() req: { user: { sub: string; role?: string } }
-  ) {
-    if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
-      throw new BadRequestException('Unauthorized');
-    }
-
-    return this.teacherService.deleteDocument(teacherId, documentId);
   }
 
   // Update teacher settings (profile info)

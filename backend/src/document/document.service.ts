@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
+import { ProcessingService } from '../processing/processing.service';
 import { createWriteStream, promises as fs } from 'fs';
 import { spawn } from 'child_process';
 import { pipeline } from 'stream/promises';
@@ -25,16 +26,10 @@ interface AiTranscriptSummaryDocument {
   transcriptError?: string | null;
   transcript?: Prisma.JsonValue;
   summary?: string;
-  audioUrl?: string;
   moderationResult?: Prisma.JsonValue;
   moderationCheckedAt?: Date;
-  toxicWords?: string[];
-  validationRate?: number;
-  moderationLabel?: string | null;
-  moderationCategories?: string[];
   transcriptGeneratedAt?: Date;
   summaryGeneratedAt?: Date;
-  processingStage?: ProcessingStage;
   processingProgress?: number;
   processingError?: string | null;
   createdAt?: Date;
@@ -46,6 +41,13 @@ type ModerationApiResult = Prisma.JsonObject & {
   score?: number;
   categories?: string[];
   toxic_word?: string[];
+};
+
+type ModerationSnapshot = {
+  toxicWords: string[];
+  validationRate: number;
+  moderationLabel: string | null;
+  moderationCategories: string[];
 };
 
 export interface DocumentAiAnalysisResponse {
@@ -68,16 +70,193 @@ export interface DocumentAiAnalysisResponse {
   cached?: boolean;
 }
 
+type MulterFile = {
+  fieldname: string;
+  originalname: string;
+  encoding?: string;
+  mimetype: string;
+  size: number;
+  buffer?: Buffer;
+  destination?: string;
+  filename?: string;
+  path?: string;
+};
+
 @Injectable()
 export class DocumentService {
   private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
   private readonly logger = new Logger(DocumentService.name);
-  private readonly localAiBaseUrl = (process.env.AI_SERVICE_URL || 'http://localhost:8080').replace(/\/$/, '');
+  private readonly aiServiceUrl = (process.env.AI_SERVICE_URL || '').replace(/\/$/, '');
 
   constructor(
     private prisma: PrismaService,
     private r2StorageService: R2StorageService,
+    private processingService: ProcessingService,
   ) {}
+
+  private shouldEnqueueProcessing(filename: string): boolean {
+    const extension = path.extname(filename).toLowerCase();
+
+    return [
+      '.mp4',
+      '.webm',
+      '.mov',
+      '.mkv',
+      '.avi',
+      '.m4v',
+      '.mp3',
+      '.wav',
+      '.m4a',
+      '.aac',
+      '.ogg',
+      '.flac',
+      '.opus',
+    ].includes(extension);
+  }
+
+  private requireAiServiceUrl(): string {
+    if (!this.aiServiceUrl) {
+      throw new BadRequestException('AI_SERVICE_URL is not configured');
+    }
+
+    return this.aiServiceUrl;
+  }
+
+  async getTeacherDocuments(teacherId: string, fileType?: string) {
+    const teacher = await this.prisma.postgres.user.findUnique({
+      where: { id: teacherId },
+    });
+
+    if (!teacher) {
+      throw new NotFoundException('Teacher not found');
+    }
+
+    const where: Record<string, unknown> = { teacherId };
+    if (fileType) {
+      where.fileType = fileType;
+    }
+
+    return this.prisma.postgres.document.findMany({
+      where,
+      orderBy: { uploadedAt: 'desc' },
+    });
+  }
+
+  async uploadTeacherDocument(teacherId: string, file: MulterFile, description?: string) {
+    const teacher = await this.prisma.postgres.user.findUnique({
+      where: { id: teacherId },
+      include: { teacherProfile: true },
+    });
+
+    if (!teacher || !teacher.teacherProfile) {
+      throw new NotFoundException('Teacher not found');
+    }
+
+    const documentUrl = await this.r2StorageService.uploadDocument(
+      teacherId,
+      file.originalname,
+      file.buffer!,
+      file.mimetype,
+    );
+
+    let fileType = 'file';
+    if (file.mimetype.startsWith('image/')) {
+      fileType = 'image';
+    } else if (file.mimetype.startsWith('video/')) {
+      fileType = 'video';
+    } else if (file.mimetype.includes('pdf')) {
+      fileType = 'pdf';
+    }
+
+    const document = await this.prisma.postgres.document.create({
+      data: {
+        teacherId,
+        title: file.originalname,
+        description: description?.trim() || null,
+        fileUrl: documentUrl,
+        fileName: file.originalname,
+        fileType,
+        fileSize: file.size,
+        mimeType: file.mimetype,
+        processingStatus: 'PENDING',
+      },
+    });
+
+    if (this.shouldEnqueueProcessing(file.originalname)) {
+      await this.processingService.enqueue({
+        type: 'document',
+        itemId: document.id,
+        fileUrl: documentUrl,
+        title: file.originalname,
+      });
+    }
+
+    return document;
+  }
+
+  async updateTeacherDocumentDescription(teacherId: string, documentId: string, description?: string) {
+    const existing = await this.prisma.postgres.document.findFirst({
+      where: {
+        id: documentId,
+        teacherId,
+      },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Document not found');
+    }
+
+    return this.prisma.postgres.document.update({
+      where: { id: documentId },
+      data: {
+        description: description?.trim() || null,
+      },
+    });
+  }
+
+  async deleteTeacherDocument(teacherId: string, documentId: string) {
+    const existing = await this.prisma.postgres.document.findFirst({
+      where: { id: documentId, teacherId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Document not found');
+    }
+
+    try {
+      if (existing.fileUrl) {
+        await this.r2StorageService.deleteDocument(existing.fileUrl);
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to delete document from R2 for ${documentId}`);
+    }
+
+    try {
+      const audioUrl = this.r2StorageService.getDocumentAudioUrlFromUrl(existing.fileUrl);
+      if (audioUrl) {
+        await this.r2StorageService.deleteDocument(audioUrl).catch(() => undefined);
+      }
+    } catch {
+      // ignore missing audio export cleanup
+    }
+
+    await this.prisma.postgres.document.delete({ where: { id: documentId } });
+
+    await this.prisma.mongo.$runCommandRaw({
+      delete: this.aiTranscriptSummaryCollection,
+      deletes: [
+        {
+          q: {
+            type: 'DOCUMENT',
+            documentId,
+          },
+          limit: 0,
+        },
+      ],
+    }).catch(() => undefined);
+
+    return { success: true, message: 'Document deleted' };
+  }
 
   private async getDocumentAiAnalysisDocument(documentId: string): Promise<AiTranscriptSummaryDocument | null> {
     const result = await this.prisma.mongo.$runCommandRaw({
@@ -94,6 +273,14 @@ export class DocumentService {
     documentId: string,
     payload: Partial<AiTranscriptSummaryDocument>,
   ): Promise<void> {
+    const {
+      transcriptStatus: _transcriptStatus,
+      transcriptError: _transcriptError,
+      processingProgress: _processingProgress,
+      processingError: _processingError,
+      ...mongoPayload
+    } = payload;
+
     await this.prisma.mongo.$runCommandRaw({
       update: this.aiTranscriptSummaryCollection,
       updates: [
@@ -105,7 +292,7 @@ export class DocumentService {
               type: 'DOCUMENT',
               documentId,
               recordingId: null,
-              ...payload,
+              ...mongoPayload,
               updatedAt: new Date(),
             },
             $setOnInsert: {
@@ -143,6 +330,17 @@ export class DocumentService {
 
     const normalized = status.trim().toUpperCase();
     return ['SAFE', 'REVIEW', 'BLOCK'].includes(normalized) ? normalized : undefined;
+  }
+
+  private getModerationSnapshot(moderationResult: Prisma.JsonValue | null | undefined): ModerationSnapshot {
+    const moderation = this.sanitizeModerationResult(moderationResult) || null;
+
+    return {
+      toxicWords: moderation?.toxic_word || [],
+      validationRate: typeof moderation?.score === 'number' ? moderation.score : 0,
+      moderationLabel: moderation?.status || null,
+      moderationCategories: moderation?.categories || [],
+    };
   }
 
   private isWordLevelToxicCandidate(value: string): boolean {
@@ -235,7 +433,6 @@ export class DocumentService {
           documentId,
           transcript: existing?.transcript ?? null,
           summary: existing?.summary ?? null,
-          audioUrl: existing?.audioUrl ?? null,
           moderationResult: moderationResult as Prisma.JsonValue,
           moderationCheckedAt: new Date(),
           transcriptStatus: existing?.transcriptStatus ?? 'idle',
@@ -257,6 +454,102 @@ export class DocumentService {
 
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer);
+  }
+
+  private async ensureDocumentAudioUrl(
+    documentId: string,
+    fileUrl: string,
+    mimeType: string,
+  ): Promise<string> {
+    const response = await fetch(fileUrl);
+    if (!response.ok || !response.body) {
+      throw new BadRequestException(`Cannot download document file: ${response.status}`);
+    }
+
+    const tempBase = `document-${documentId}-${Date.now()}`;
+    const inputPath = path.join(os.tmpdir(), `${tempBase}.${this.getInputExtension(mimeType)}`);
+    const outputPath = path.join(os.tmpdir(), `${tempBase}.mp3`);
+
+    try {
+      await pipeline(Readable.fromWeb(response.body as any), createWriteStream(inputPath));
+
+      await new Promise<void>((resolve, reject) => {
+        const ffmpeg = spawn('ffmpeg', [
+          '-y',
+          '-i',
+          inputPath,
+          '-vn',
+          '-ac',
+          '1',
+          '-ar',
+          '16000',
+          '-b:a',
+          '64k',
+          '-f',
+          'mp3',
+          outputPath,
+        ]);
+
+        let stderr = '';
+        ffmpeg.stderr.on('data', (chunk) => {
+          stderr += chunk.toString();
+        });
+        ffmpeg.on('error', (err) => reject(err));
+        ffmpeg.on('close', (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(new Error(`ffmpeg failed (${code}): ${stderr}`));
+          }
+        });
+      });
+
+      const audioBuffer = await fs.readFile(outputPath);
+      const audioUrl = await this.r2StorageService.uploadDocumentAudioById(documentId, audioBuffer);
+
+      await this.prisma.postgres.document.update({
+        where: { id: documentId },
+        data: { audioUrl },
+      });
+
+      return audioUrl;
+    } finally {
+      await Promise.all([
+        fs.unlink(inputPath).catch(() => undefined),
+        fs.unlink(outputPath).catch(() => undefined),
+      ]);
+    }
+  }
+
+  private deriveProcessingStage(
+    processingStatus: string,
+    analysis: AiTranscriptSummaryDocument | null,
+  ): ProcessingStage {
+    if (processingStatus === 'FAILED') {
+      return 'error';
+    }
+
+    if (analysis?.moderationCheckedAt) {
+      return 'done';
+    }
+
+    if (analysis?.summaryGeneratedAt) {
+      return 'moderating';
+    }
+
+    if (analysis?.transcriptGeneratedAt) {
+      return 'summarizing';
+    }
+
+    if (analysis?.transcriptStatus === 'processing') {
+      return 'transcribing';
+    }
+
+    if (processingStatus === 'PROCESSING') {
+      return 'preparing';
+    }
+
+    return 'queued';
   }
 
   private isTranscribable(mimeType?: string | null, fileType?: string | null): boolean {
@@ -326,7 +619,7 @@ export class DocumentService {
     user: { sub: string; role?: string },
     autoTranscribe: boolean = true,
   ): Promise<DocumentAiAnalysisResponse> {
-    await this.assertDocumentAccess(documentId, user);
+    const document = await this.assertDocumentAccess(documentId, user);
     const analysis = await this.getDocumentAiAnalysisDocument(documentId);
 
     if (autoTranscribe && (!analysis || !analysis.transcript)) {
@@ -337,23 +630,21 @@ export class DocumentService {
       documentId,
       transcript: analysis?.transcript || null,
       summary: analysis?.summary || null,
-      audioUrl: analysis?.audioUrl || null,
+      audioUrl: document.audioUrl || null,
       moderationResult: analysis?.moderationResult || null,
-      toxicWords: analysis?.toxicWords || [],
-      validationRate: analysis?.validationRate ?? 0,
-      moderationLabel: analysis?.moderationLabel || null,
-      moderationCategories: analysis?.moderationCategories || [],
+      ...this.getModerationSnapshot(analysis?.moderationResult),
       transcriptStatus: analysis?.transcriptStatus || 'idle',
       transcriptError: analysis?.transcriptError || null,
       transcriptGeneratedAt: analysis?.transcriptGeneratedAt || null,
       summaryGeneratedAt: analysis?.summaryGeneratedAt || null,
-      processingStage: analysis?.processingStage || null,
+      processingStage: this.deriveProcessingStage(document.processingStatus, analysis),
       processingProgress: analysis?.processingProgress ?? 0,
       processingError: analysis?.processingError || null,
     };
   }
 
   async getDocumentModeration(documentId: string, user: { sub: string; role?: string }) {
+    const document = await this.assertDocumentAccess(documentId, user);
     const analysis = await this.getDocumentAiAnalysis(documentId, user, false);
     const transcriptText = this.getTranscriptText(analysis.transcript);
 
@@ -365,6 +656,7 @@ export class DocumentService {
 
     if (moderationResult) {
       await this.replaceDocumentAiAnalysisWithModeration(documentId, moderationResult);
+      const moderationSnapshot = this.getModerationSnapshot(moderationResult as Prisma.JsonValue);
 
       if (moderationResult.status === 'SAFE') {
         await this.prisma.postgres.document.update({
@@ -378,23 +670,25 @@ export class DocumentService {
       return {
         ...analysis,
         moderationResult,
-        score: typeof moderationResult.score === 'number' ? moderationResult.score : 0,
-        toxicWords: moderationResult.toxic_word || analysis.toxicWords || [],
-        status: moderationResult.status || null,
-        label: moderationResult.status || null,
-        categories: moderationResult.categories || analysis.moderationCategories || [],
+        score: moderationSnapshot.validationRate,
+        toxicWords: moderationSnapshot.toxicWords,
+        status: moderationSnapshot.moderationLabel,
+        label: moderationSnapshot.moderationLabel,
+        categories: moderationSnapshot.moderationCategories,
       };
     }
 
+    const moderationSnapshot = this.getModerationSnapshot(analysis.moderationResult);
+
     return {
       ...analysis,
-      score: analysis.validationRate ?? 0,
-      toxicWords: analysis.toxicWords || [],
-      status: analysis.moderationLabel || null,
-      label: analysis.moderationLabel || null,
-      categories: analysis.moderationCategories || [],
+      score: moderationSnapshot.validationRate,
+      toxicWords: moderationSnapshot.toxicWords,
+      status: moderationSnapshot.moderationLabel,
+      label: moderationSnapshot.moderationLabel,
+      categories: moderationSnapshot.moderationCategories,
       moderationResult: null,
-      processingStage: analysis.processingStage || null,
+      processingStage: this.deriveProcessingStage(document.processingStatus, null),
       processingProgress: analysis.processingProgress ?? 0,
       processingError: analysis.processingError || null,
     };
@@ -426,10 +720,10 @@ export class DocumentService {
         if (transcriptText) {
           this.logger.log(`[Moderation] Document ${documentId} (existing) - invoking moderation API; textLen=${transcriptText.length}`);
         }
-        const moderationResult = await this.callModerationApi(transcriptText);
 
+        const moderationResult = await this.callModerationApi(transcriptText || '');
         if (moderationResult) {
-          await this.replaceDocumentAiAnalysisWithModeration(documentId, moderationResult as ModerationApiResult);
+          await this.replaceDocumentAiAnalysisWithModeration(documentId, moderationResult);
         }
       } catch (modErr) {
         this.logger.warn('Moderation call failed', String(modErr));
@@ -453,85 +747,26 @@ export class DocumentService {
       await this.upsertDocumentAiAnalysis(documentId, {
         transcriptStatus: 'processing',
         transcriptError: null,
-        processingStage: 'preparing',
         processingProgress: PROCESSING_STAGE_PROGRESS.preparing,
         processingError: null,
       });
 
-      const audioExists = await this.r2StorageService.documentAudioExistsById(documentId);
-      let audioUrl = existing?.audioUrl || (audioExists ? this.r2StorageService.getDocumentAudioUrlById(documentId) : null);
-      let audioBuffer: Buffer | null = null;
+      const audioUrl = document.audioUrl || await this.ensureDocumentAudioUrl(documentId, document.fileUrl, document.mimeType);
 
-      if (audioUrl) {
-        audioBuffer = await this.downloadToBuffer(audioUrl);
-      } else {
-        const response = await fetch(document.fileUrl);
-        if (!response.ok || !response.body) {
-          throw new BadRequestException(`Cannot download document file: ${response.status}`);
-        }
+      await this.upsertDocumentAiAnalysis(documentId, {
+        processingProgress: PROCESSING_STAGE_PROGRESS.transcribing,
+        processingError: null,
+      });
 
-        const tempBase = `document-${documentId}-${Date.now()}`;
-        const inputPath = path.join(os.tmpdir(), `${tempBase}.${this.getInputExtension(document.mimeType)}`);
-        const outputPath = path.join(os.tmpdir(), `${tempBase}.wav`);
-
-        try {
-          await pipeline(Readable.fromWeb(response.body as any), createWriteStream(inputPath));
-
-          await new Promise<void>((resolve, reject) => {
-            const ffmpeg = spawn('ffmpeg', [
-              '-y',
-              '-i',
-              inputPath,
-              '-vn',
-              '-ac',
-              '1',
-              '-ar',
-              '16000',
-              '-f',
-              'wav',
-              outputPath,
-            ]);
-
-            let stderr = '';
-            ffmpeg.stderr.on('data', (chunk) => {
-              stderr += chunk.toString();
-            });
-            ffmpeg.on('error', (err) => reject(err));
-            ffmpeg.on('close', (code) => {
-              if (code === 0) {
-                resolve();
-              } else {
-                reject(new Error(`ffmpeg failed (${code}): ${stderr}`));
-              }
-            });
-          });
-
-          audioBuffer = await fs.readFile(outputPath);
-          audioUrl = await this.r2StorageService.uploadDocumentAudioById(documentId, audioBuffer);
-        } finally {
-          await Promise.all([
-            fs.unlink(inputPath).catch(() => undefined),
-            fs.unlink(outputPath).catch(() => undefined),
-          ]);
-        }
-      }
-
-      if (!audioBuffer) {
-        throw new BadRequestException('Audio export failed, cannot transcribe');
-      }
-
-      const formData = new FormData();
-      const audioBytes = new Uint8Array(audioBuffer);
-      // Explicitly set audio/wav type for AI server to correctly process audio
-      formData.append('file', new Blob([audioBytes], { type: 'audio/wav' }), `${documentId}.wav`);
-
-      // Stream transcribe response (handles heartbeats and long processing time)
       const aiResponse = await (await import('../utils/aiFetch')).logStreamingTranscribe(
-        `${this.localAiBaseUrl}/transcribe`,
+        `${this.requireAiServiceUrl()}/transcribe`,
         {
           method: 'POST',
-          body: formData,
-          timeoutMs: 30 * 60 * 1000, // 30 minutes
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ fileUrl: audioUrl }),
+          timeoutMs: 30 * 60 * 1000,
         },
         this.logger as any,
       );
@@ -543,7 +778,6 @@ export class DocumentService {
         await this.upsertDocumentAiAnalysis(documentId, {
           transcriptStatus: 'error',
           transcriptError: 'Transcribe service returned empty transcript',
-          processingStage: 'error',
           processingProgress: PROCESSING_STAGE_PROGRESS.transcribing,
           processingError: 'Transcribe service returned empty transcript',
         });
@@ -554,9 +788,7 @@ export class DocumentService {
         transcriptStatus: 'success',
         transcriptError: null,
         transcript,
-        audioUrl: audioUrl || undefined,
         transcriptGeneratedAt: new Date(),
-        processingStage: 'summarizing',
         processingProgress: PROCESSING_STAGE_PROGRESS.summarizing,
         processingError: null,
       });
@@ -571,7 +803,6 @@ export class DocumentService {
       await this.upsertDocumentAiAnalysis(documentId, {
         transcriptStatus: 'error',
         transcriptError: err instanceof Error ? err.message : String(err),
-        processingStage: 'error',
         processingProgress: PROCESSING_STAGE_PROGRESS.error,
         processingError: err instanceof Error ? err.message : String(err),
       }).catch(() => undefined);
@@ -605,7 +836,6 @@ export class DocumentService {
     }
 
     await this.updateDocumentProcessingState(documentId, {
-      processingStage: 'summarizing',
       processingProgress: PROCESSING_STAGE_PROGRESS.summarizing,
       processingError: null,
     });
@@ -614,7 +844,7 @@ export class DocumentService {
       this.logger.log(`[Moderation] Document ${documentId} - invoking moderation API during summarization (will call after summarize); textLen=${transcriptText.length}`);
     }
 
-    const aiResponse = await fetch(`${this.localAiBaseUrl}/summarize`, {
+    const aiResponse = await fetch(`${this.requireAiServiceUrl()}/summarize`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -637,7 +867,6 @@ export class DocumentService {
     await this.upsertDocumentAiAnalysis(documentId, {
       summary,
       summaryGeneratedAt: new Date(),
-      processingStage: 'moderating',
       processingProgress: PROCESSING_STAGE_PROGRESS.moderating,
       processingError: null,
     });
@@ -665,7 +894,6 @@ export class DocumentService {
           }
 
           await this.updateDocumentProcessingState(documentId, {
-            processingStage: 'done',
             processingProgress: PROCESSING_STAGE_PROGRESS.done,
             processingError: null,
           });
@@ -675,7 +903,6 @@ export class DocumentService {
         const message = modErr instanceof Error ? modErr.message : String(modErr);
         this.logger.warn('Moderation call failed', message);
         await this.updateDocumentProcessingState(documentId, {
-          processingStage: 'error',
           processingProgress: PROCESSING_STAGE_PROGRESS.moderating,
           processingError: message,
         }).catch(() => undefined);
@@ -725,31 +952,65 @@ export class DocumentService {
 
     if (typeof transcript === 'object') {
       const data = transcript as Record<string, unknown>;
-      const candidate = data.full_text;
-      if (typeof candidate === 'string') {
-        return candidate.trim() || null;
+      const directTextCandidate = data.full_text ?? data.text;
+      if (typeof directTextCandidate === 'string') {
+        return directTextCandidate.trim() || null;
+      }
+
+      const resultCandidate = data.result;
+      if (resultCandidate && typeof resultCandidate === 'object') {
+        const resultData = resultCandidate as Record<string, unknown>;
+        const resultText = resultData.full_text ?? resultData.text;
+        if (typeof resultText === 'string') {
+          return resultText.trim() || null;
+        }
+      }
+
+      if (Array.isArray(data.timestamps)) {
+        const timestampJoined = data.timestamps
+          .map((segment) => {
+            if (!segment || typeof segment !== 'object') {
+              return '';
+            }
+
+            const segmentData = segment as Record<string, unknown>;
+            return typeof segmentData.text === 'string' ? segmentData.text.trim() : '';
+          })
+          .filter(Boolean)
+          .join('\n')
+          .trim();
+
+        if (timestampJoined) {
+          return timestampJoined;
+        }
+      }
+
+      if (Array.isArray(data.segments)) {
+        const segmentJoined = data.segments
+          .map((segment) => {
+            if (!segment || typeof segment !== 'object') {
+              return '';
+            }
+
+            const segmentData = segment as Record<string, unknown>;
+            return typeof segmentData.text === 'string' ? segmentData.text.trim() : '';
+          })
+          .filter(Boolean)
+          .join('\n')
+          .trim();
+
+        if (segmentJoined) {
+          return segmentJoined;
+        }
       }
     }
 
     return null;
   }
   private async normalizeTranscriptContent(transcript: unknown): Promise<string> {
-    if (typeof transcript === "string") {
-      return transcript.trim();
-    }
-
-    if (!transcript || typeof transcript !== "object") {
-      return "";
-    }
-
-    const data = transcript as Record<string, unknown>;
-
-    if (typeof data.full_text === "string") {
-      return data.full_text.trim();
-    }
-
-    return "";
-  };
+    const text = this.getTranscriptText(transcript as Prisma.JsonValue | null | undefined);
+    return text || '';
+  }
 
   private sanitizeModerationResult(payload: unknown): ModerationApiResult | null {
     if (!payload || typeof payload !== 'object') {
@@ -782,7 +1043,7 @@ export class DocumentService {
   private async callModerationApi(
     transcript: unknown,
   ): Promise<ModerationApiResult | null> {
-    const api = `${this.localAiBaseUrl}/moderation/text`;
+    const api = `${this.requireAiServiceUrl()}/moderation/text`;
 
     try {
       // DEBUG RAW INPUT
@@ -919,7 +1180,8 @@ export class DocumentService {
     }
 
     const data = payload as Record<string, unknown>;
-    const summaryCandidate = data.summary ?? data.result ?? data.text;
+    const nestedData = data.data && typeof data.data === 'object' ? (data.data as Record<string, unknown>) : null;
+    const summaryCandidate = data.summary ?? data.result ?? data.text ?? nestedData?.summary ?? nestedData?.result ?? nestedData?.text;
     if (typeof summaryCandidate === 'string') {
       return summaryCandidate.trim() || null;
     }

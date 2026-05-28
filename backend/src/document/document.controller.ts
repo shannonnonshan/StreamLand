@@ -1,11 +1,83 @@
-import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Request, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { DocumentService } from './document.service';
+
+type MulterFile = {
+  fieldname: string;
+  originalname: string;
+  encoding?: string;
+  mimetype: string;
+  size: number;
+  buffer?: Buffer;
+  destination?: string;
+  filename?: string;
+  path?: string;
+};
 
 @Controller('documents')
 @UseGuards(JwtAuthGuard)
 export class DocumentController {
   constructor(private readonly documentService: DocumentService) {}
+
+  @Get('teacher/:teacherId')
+  async getTeacherDocuments(
+    @Param('teacherId') teacherId: string,
+    @Query('fileType') fileType: string,
+    @Request() req: { user: { sub: string; role?: string } },
+  ) {
+    if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
+      throw new BadRequestException('You can only access your own documents');
+    }
+
+    return this.documentService.getTeacherDocuments(teacherId, fileType);
+  }
+
+  @Post('teacher/:teacherId/upload')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadTeacherDocument(
+    @Param('teacherId') teacherId: string,
+    @UploadedFile() file: MulterFile,
+    @Body('description') description: string | undefined,
+    @Request() req: { user: { sub: string } },
+  ) {
+    if (req.user.sub !== teacherId) {
+      throw new BadRequestException('Unauthorized');
+    }
+
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    return this.documentService.uploadTeacherDocument(teacherId, file, description);
+  }
+
+  @Patch('teacher/:teacherId/:documentId/description')
+  async updateTeacherDocumentDescription(
+    @Param('teacherId') teacherId: string,
+    @Param('documentId') documentId: string,
+    @Body('description') description: string | undefined,
+    @Request() req: { user: { sub: string; role?: string } },
+  ) {
+    if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Unauthorized');
+    }
+
+    return this.documentService.updateTeacherDocumentDescription(teacherId, documentId, description);
+  }
+
+  @Delete('teacher/:teacherId/:documentId')
+  async deleteTeacherDocument(
+    @Param('teacherId') teacherId: string,
+    @Param('documentId') documentId: string,
+    @Request() req: { user: { sub: string; role?: string } },
+  ) {
+    if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Unauthorized');
+    }
+
+    return this.documentService.deleteTeacherDocument(teacherId, documentId);
+  }
 
   @Get(':id/ai-analysis')
   async getDocumentAiAnalysis(

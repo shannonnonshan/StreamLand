@@ -30,9 +30,10 @@ interface SummariseResponse {
 }
 
 interface ModerateResponse {
+  status: string;
   score: number;
-  label: string;
   categories: string[];
+  toxic_word: string[];
 }
 
 interface ProcessingAnalysisDocument {
@@ -47,10 +48,6 @@ interface ProcessingAnalysisDocument {
   audioUrl?: string;
   moderationResult?: Prisma.JsonValue;
   moderationCheckedAt?: Date;
-  toxicWords?: string[];
-  validationRate?: number;
-  moderationLabel?: string | null;
-  moderationCategories?: string[];
   transcriptGeneratedAt?: Date;
   summaryGeneratedAt?: Date;
   processingStage?: ProcessingStage;
@@ -147,7 +144,12 @@ export class ProcessingProcessor {
       );
       throw error instanceof Error ? error : new Error(String(error));
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+        this.logger.log(`Removed temp dir ${tempDir}`);
+      } catch (err) {
+        this.logger.warn(`Failed to remove temp dir ${tempDir}: ${String(err)}`);
+      }
     }
   }
 
@@ -179,6 +181,13 @@ export class ProcessingProcessor {
       payload.type === 'livestream'
         ? { recordingId: payload.itemId, documentId: null }
         : { recordingId: null, documentId: payload.itemId };
+    const {
+      transcriptStatus: _transcriptStatus,
+      transcriptError: _transcriptError,
+      processingProgress: _processingProgress,
+      processingError: _processingError,
+      ...mongoData
+    } = data;
 
     await this.prisma.mongo.$runCommandRaw({
       update: 'ai_transcript_summary',
@@ -193,7 +202,7 @@ export class ProcessingProcessor {
               id: payload.itemId,
               type: payload.type === 'livestream' ? 'LIVESTREAM' : 'DOCUMENT',
               ...itemField,
-              ...data,
+              ...mongoData,
               updatedAt: new Date(),
             },
             $setOnInsert: {
@@ -290,8 +299,9 @@ export class ProcessingProcessor {
       throw new BadRequestException(`Transcribe service error (${response.status}): ${await response.text()}`);
     }
 
-    const payload = (await response.json()) as Partial<TranscribeResponse>;
-    const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+    const payload = (await response.json()) as unknown;
+    const parsed = this.parseTranscribePayload(payload);
+    const text = parsed.text;
 
     if (!text) {
       throw new BadRequestException('Transcribe service returned an empty transcript');
@@ -299,13 +309,13 @@ export class ProcessingProcessor {
 
     return {
       text,
-      language: typeof payload.language === 'string' && payload.language.trim() ? payload.language.trim() : 'und',
-      timestamps: Array.isArray(payload.timestamps) ? payload.timestamps : [],
+      language: parsed.language,
+      timestamps: parsed.timestamps,
     };
   }
 
   private async summarise(text: string, language: string): Promise<SummariseResponse> {
-    const response = await fetch(`${this.requireAiServiceUrl()}/summarise`, {
+    const response = await fetch(`${this.requireAiServiceUrl()}/summarize`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -317,8 +327,8 @@ export class ProcessingProcessor {
       throw new BadRequestException(`Summarise service error (${response.status}): ${await response.text()}`);
     }
 
-    const payload = (await response.json()) as Partial<SummariseResponse>;
-    const summary = typeof payload.summary === 'string' ? payload.summary.trim() : '';
+    const payload = (await response.json()) as unknown;
+    const summary = this.parseSummaryPayload(payload);
 
     if (!summary) {
       throw new BadRequestException('Summarise service returned an empty summary');
@@ -328,7 +338,7 @@ export class ProcessingProcessor {
   }
 
   private async moderate(text: string): Promise<ModerateResponse> {
-    const response = await fetch(`${this.requireAiServiceUrl()}/moderate`, {
+    const response = await fetch(`${this.requireAiServiceUrl()}/moderation/text`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -340,15 +350,8 @@ export class ProcessingProcessor {
       throw new BadRequestException(`Moderate service error (${response.status}): ${await response.text()}`);
     }
 
-    const payload = (await response.json()) as Partial<ModerateResponse>;
-
-    return {
-      score: typeof payload.score === 'number' ? payload.score : 0,
-      label: typeof payload.label === 'string' ? payload.label : 'UNKNOWN',
-      categories: Array.isArray(payload.categories)
-        ? payload.categories.filter((category): category is string => typeof category === 'string')
-        : [],
-    };
+    const payload = (await response.json()) as unknown;
+    return this.parseModerationPayload(payload);
   }
 
   private async upsertAnalysis(
@@ -391,11 +394,108 @@ export class ProcessingProcessor {
     });
   }
 
+  private parseTranscribePayload(payload: unknown): TranscribeResponse {
+    if (!payload || typeof payload !== 'object') {
+      return { text: '', language: 'und', timestamps: [] };
+    }
+
+    const data = payload as Record<string, unknown>;
+    const nestedData = data.data && typeof data.data === 'object' ? (data.data as Record<string, unknown>) : null;
+    const result = nestedData?.result && typeof nestedData.result === 'object'
+      ? (nestedData.result as Record<string, unknown>)
+      : null;
+
+    const textCandidate = result?.text ?? result?.full_text ?? data.text ?? data.transcript;
+    const languageCandidate = result?.language ?? nestedData?.language ?? data.language;
+    const timestampsCandidate = result?.timestamps ?? nestedData?.timestamps ?? data.timestamps;
+
+    const text = typeof textCandidate === 'string' ? textCandidate.trim() : '';
+    const language =
+      typeof languageCandidate === 'string' && languageCandidate.trim()
+        ? languageCandidate.trim()
+        : 'und';
+    const timestamps = Array.isArray(timestampsCandidate)
+      ? timestampsCandidate as Prisma.JsonValue[]
+      : [];
+
+    return { text, language, timestamps };
+  }
+
+  private parseSummaryPayload(payload: unknown): string {
+    if (typeof payload === 'string') {
+      return payload.trim();
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return '';
+    }
+
+    const data = payload as Record<string, unknown>;
+    const nestedData = data.data && typeof data.data === 'object' ? (data.data as Record<string, unknown>) : null;
+    const summaryCandidate = data.summary ?? data.result ?? data.text ?? nestedData?.summary ?? nestedData?.result ?? nestedData?.text;
+
+    return typeof summaryCandidate === 'string' ? summaryCandidate.trim() : '';
+  }
+
+  private parseModerationPayload(payload: unknown): ModerateResponse {
+    if (!payload || typeof payload !== 'object') {
+      return {
+        status: 'UNKNOWN',
+        score: 0,
+        categories: [],
+        toxic_word: [],
+      };
+    }
+
+    const data = payload as Record<string, unknown>;
+    const nestedData = data.data && typeof data.data === 'object' ? (data.data as Record<string, unknown>) : null;
+    const moderation =
+      (nestedData?.moderation && typeof nestedData.moderation === 'object'
+        ? (nestedData.moderation as Record<string, unknown>)
+        : null) ||
+      (data.moderation && typeof data.moderation === 'object'
+        ? (data.moderation as Record<string, unknown>)
+        : data);
+
+    const score = typeof moderation.score === 'number' ? moderation.score : 0;
+    const categories = Array.isArray(moderation.categories)
+      ? moderation.categories.filter((category): category is string => typeof category === 'string')
+      : [];
+    const toxicSource = moderation.toxic_word ?? moderation.toxic_words ?? moderation.toxicWords;
+    const toxic_word = Array.isArray(toxicSource)
+      ? toxicSource
+          .map((value) => {
+            if (typeof value === 'string') {
+              return value.trim();
+            }
+
+            if (value && typeof value === 'object') {
+              const item = value as Record<string, unknown>;
+              const candidate = item.word ?? item.token ?? item.value ?? item.label;
+              return typeof candidate === 'string' ? candidate.trim() : '';
+            }
+
+            return '';
+          })
+          .filter((value) => value.length > 0)
+      : [];
+
+    return {
+      status: typeof moderation.status === 'string' && moderation.status.trim()
+        ? moderation.status.trim().toUpperCase()
+        : 'UNKNOWN',
+      score,
+      categories,
+      toxic_word: Array.from(new Set(toxic_word)),
+    };
+  }
+
   private getSourceFileName(payload: ProcessingJobPayload): string {
     const urlPath = new URL(payload.fileUrl).pathname;
     const extension = path.extname(urlPath) || '.bin';
     return `${payload.itemId}${extension}`;
   }
+
 
   private isVideoFile(fileUrl: string): boolean {
     const extension = path.extname(new URL(fileUrl).pathname).toLowerCase();

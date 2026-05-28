@@ -116,6 +116,7 @@ model LiveStream {
   title            String
   description      String?
   thumbnail        String?
+  audioUrl         String?
   status           LiveStreamStatus        @default(SCHEDULED)
   recordingUrl     String?
   scheduledAt      DateTime?
@@ -130,10 +131,6 @@ model LiveStream {
   processingStatus ProcessingStatus        @default(PENDING)
   isPublic         Boolean                 @default(true)
   allowComments    Boolean                 @default(true)
-  allowQuestions   Boolean                 @default(true)
-  maxViewers       Int?
-  chatMode         ChatMode                @default(EVERYONE)
-  analyticsId      String?
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
   category         String?
@@ -153,6 +150,7 @@ model Document {
   title            String
   description      String?
   fileUrl          String
+  audioUrl         String?
   fileType         String
   fileSize         Int
   mimeType         String
@@ -292,32 +290,12 @@ enum LiveStreamStatus {
   CANCELLED
 }
 
-enum ChatMode {
-  EVERYONE
-  SUBSCRIBERS_ONLY
-  DISABLED
-}
-
 enum ScheduleStatus {
   SCHEDULED
   IN_PROGRESS
   COMPLETED
   CANCELLED
   RESCHEDULED
-}
-
-enum SubscriptionTier {
-  FREE
-  BASIC
-  PREMIUM
-  VIP
-}
-
-enum SubscriptionStatus {
-  ACTIVE
-  CANCELLED
-  EXPIRED
-  PAUSED
 }
 
 enum ReportType {

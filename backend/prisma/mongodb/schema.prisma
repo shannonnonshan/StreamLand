@@ -253,34 +253,6 @@ enum QuestionStatus {
   DISMISSED
 }
 
-// Polls during livestream
-model Poll {
-  id           String @id @default(auto()) @map("_id") @mongodb.ObjectId
-  livestreamId String
-  teacherId    String
-  question     String
-  options      Json // [{id, text, votes: 0}]
-
-  // Settings
-  multipleChoice Boolean @default(false)
-  anonymous      Boolean @default(false)
-  duration       Int? // in seconds, null = no time limit
-
-  // Status
-  isActive Boolean   @default(true)
-  endedAt  DateTime?
-
-  // Results
-  totalVotes Int      @default(0)
-  voters     String[] // Array of user IDs who voted
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([livestreamId, isActive])
-  @@map("polls")
-}
-
 // Reactions/Emojis during livestream
 model Reaction {
   id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
@@ -462,9 +434,7 @@ model AiTranscriptSummary {
   transcript            Json?
   summary               String?
   moderationResult      Json?
-  moderationCheckedAt   DateTime?
-  toxicWords            String[]       @default([])
-  validationRate        Float          @default(0)
+  moderationCheckedAt   DateTime?      
   transcriptGeneratedAt DateTime?
   summaryGeneratedAt    DateTime?
   createdAt             DateTime       @default(now())
@@ -530,6 +500,16 @@ model LearningSession {
 enum TranscriptType {
   LIVESTREAM
   DOCUMENT
+}
+
+enum ProcessingStage {
+  queued
+  preparing
+  transcribing
+  summarizing
+  moderating
+  done
+  error
 }
 
 enum LearningActivityType {

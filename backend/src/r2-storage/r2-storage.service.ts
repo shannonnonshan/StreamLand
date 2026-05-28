@@ -219,10 +219,14 @@ export class R2StorageService {
     return this.getKeyFromUrl(recordingUrl);
   }
 
+  private getRecordingAudioKey(recordingId: string): string {
+    return `audio/livestream/${recordingId}.mp3`;
+  }
+
   getRecordingAudioKeyFromUrl(recordingUrl: string): string | null {
     const key = this.getRecordingKeyFromUrl(recordingUrl);
     if (!key) return null;
-    return this.replaceExtension(key, 'wav');
+    return this.replaceExtension(key, 'mp3');
   }
 
   getRecordingAudioUrlFromUrl(recordingUrl: string): string | null {
@@ -258,7 +262,7 @@ export class R2StorageService {
       Bucket: this.videoBucketName,
       Key: key,
       Body: audioBuffer,
-      ContentType: 'audio/wav',
+      ContentType: 'audio/mpeg',
     });
 
     await this.videoS3Client.send(command);
@@ -270,11 +274,15 @@ export class R2StorageService {
     return this.getKeyFromUrl(documentUrl);
   }
 
+  private getDocumentAudioKey(documentId: string): string {
+    return `audio/document/${documentId}.mp3`;
+  }
+
   getDocumentAudioKeyFromUrl(documentUrl: string): string | null {
     const key = this.getDocumentKeyFromUrl(documentUrl);
     if (!key) return null;
 
-    return this.replaceExtension(key, 'wav');
+    return this.replaceExtension(key, 'mp3');
   }
 
   getDocumentAudioUrlFromUrl(documentUrl: string): string | null {
@@ -311,7 +319,7 @@ export class R2StorageService {
       Bucket: this.documentBucketName,
       Key: audioKey,
       Body: audioBuffer,
-      ContentType: 'audio/wav',
+      ContentType: 'audio/mpeg',
     });
 
     await this.documentS3Client.send(command);
@@ -412,14 +420,14 @@ export class R2StorageService {
     recordingId: string,
     audioBuffer: Buffer,
   ): Promise<string> {
-    const key = `audio-export/${recordingId}.wav`;
+    const key = this.getRecordingAudioKey(recordingId);
 
     try {
       const command = new PutObjectCommand({
         Bucket: this.videoBucketName,
         Key: key,
         Body: audioBuffer,
-        ContentType: 'audio/wav',
+        ContentType: 'audio/mpeg',
       });
 
       await this.videoS3Client.send(command);
@@ -435,7 +443,7 @@ export class R2StorageService {
    * Check if recording audio exists by recording ID
    */
   async recordingAudioExistsById(recordingId: string): Promise<boolean> {
-    const key = `audio-export/${recordingId}.wav`;
+    const key = this.getRecordingAudioKey(recordingId);
 
     try {
       await this.videoS3Client.send(
@@ -454,7 +462,7 @@ export class R2StorageService {
    * Get recording audio URL by recording ID
    */
   getRecordingAudioUrlById(recordingId: string): string {
-    return `${this.publicUrl}/audio-export/${recordingId}.wav`;
+    return `${this.publicUrl}/${this.getRecordingAudioKey(recordingId)}`;
   }
 
   /**
@@ -465,14 +473,14 @@ export class R2StorageService {
     documentId: string,
     audioBuffer: Buffer,
   ): Promise<string> {
-    const key = `audio-export/${documentId}.wav`;
+    const key = this.getDocumentAudioKey(documentId);
 
     try {
       const command = new PutObjectCommand({
         Bucket: this.documentBucketName,
         Key: key,
         Body: audioBuffer,
-        ContentType: 'audio/wav',
+        ContentType: 'audio/mpeg',
       });
 
       await this.documentS3Client.send(command);
@@ -488,7 +496,7 @@ export class R2StorageService {
    * Check if document audio exists by document ID
    */
   async documentAudioExistsById(documentId: string): Promise<boolean> {
-    const key = `audio-export/${documentId}.wav`;
+    const key = this.getDocumentAudioKey(documentId);
 
     try {
       await this.documentS3Client.send(
@@ -507,6 +515,6 @@ export class R2StorageService {
    * Get document audio URL by document ID
    */
   getDocumentAudioUrlById(documentId: string): string {
-    return `${this.documentPublicUrl}/audio-export/${documentId}.wav`;
+    return `${this.documentPublicUrl}/${this.getDocumentAudioKey(documentId)}`;
   }
 }

@@ -429,6 +429,25 @@ export class LivestreamController {
     return await this.livestreamService.uploadRecordingChunk(id, body.chunk, body.chunkIndex, body.totalChunks, body.chunkSize);
   }
 
+  @Delete(':id/recording')
+  @UseGuards(JwtAuthGuard)
+  async deleteRecording(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    const livestream = await this.livestreamService.getLivestreamById(id);
+
+    if (!livestream) {
+      throw new UnauthorizedException('Livestream not found');
+    }
+
+    if (livestream.teacherId !== req.user.sub && req.user.role !== 'ADMIN') {
+      throw new UnauthorizedException('You can only delete recordings from your own livestreams');
+    }
+
+    return await this.livestreamService.deleteRecording(id);
+  }
+
   // Schedule Endpoints
 
   @Post('schedule')

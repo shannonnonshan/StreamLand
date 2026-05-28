@@ -121,7 +121,7 @@ export async function getTeacherDocuments(teacherId: string, fileType?: string):
   const params = new URLSearchParams();
   if (fileType) params.append('fileType', fileType);
   
-  const url = `${API_URL}/teacher/${teacherId}/documents${params.toString() ? '?' + params.toString() : ''}`;
+  const url = `${API_URL}/documents/teacher/${teacherId}${params.toString() ? '?' + params.toString() : ''}`;
   return authenticatedFetch(url);
 }
 
@@ -135,7 +135,7 @@ export async function uploadDocument(teacherId: string, file: File, description?
     formData.append('description', description.trim());
   }
 
-  const response = await fetch(`${API_URL}/teacher/${teacherId}/upload-document`, {
+  const response = await fetch(`${API_URL}/documents/teacher/${teacherId}/upload`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -155,14 +155,14 @@ export async function updateDocumentDescription(
   documentId: string,
   description?: string,
 ): Promise<Document> {
-  return authenticatedFetch(`${API_URL}/teacher/${teacherId}/documents/${documentId}/description`, {
+  return authenticatedFetch(`${API_URL}/documents/teacher/${teacherId}/${documentId}/description`, {
     method: 'PATCH',
     body: JSON.stringify({ description: description?.trim() || '' }),
   });
 }
 
 export async function deleteDocument(teacherId: string, documentId: string): Promise<void> {
-  await authenticatedFetch(`${API_URL}/teacher/${teacherId}/documents/${documentId}`, {
+  await authenticatedFetch(`${API_URL}/documents/teacher/${teacherId}/${documentId}`, {
     method: 'DELETE',
   });
 }

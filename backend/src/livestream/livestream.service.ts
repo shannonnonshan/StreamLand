@@ -34,16 +34,10 @@ interface AiTranscriptSummaryDocument {
   transcriptError?: string | null;
   transcript?: Prisma.JsonValue;
   summary?: string;
-  audioUrl?: string;
   moderationResult?: Prisma.JsonValue;
   moderationCheckedAt?: Date;
-  toxicWords?: string[];
-  validationRate?: number;
-  moderationLabel?: string | null;
-  moderationCategories?: string[];
   transcriptGeneratedAt?: Date;
   summaryGeneratedAt?: Date;
-  processingStage?: ProcessingStage;
   processingProgress?: number;
   processingError?: string | null;
   createdAt?: Date;
@@ -57,11 +51,18 @@ type ModerationApiResult = Prisma.JsonObject & {
   toxic_word?: string[];
 };
 
+type ModerationSnapshot = {
+  toxicWords: string[];
+  validationRate: number;
+  moderationLabel: string | null;
+  moderationCategories: string[];
+};
+
 @Injectable()
 export class LivestreamService {
   private readonly logger = new Logger(LivestreamService.name);
   private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
-  private readonly localAiBaseUrl = (process.env.AI_SERVICE_URL || 'http://localhost:8080').replace(/\/$/, '');
+  private readonly aiServiceUrl = (process.env.AI_SERVICE_URL || '').replace(/\/$/, '');
   
   constructor(
     private prisma: PrismaService,
@@ -69,6 +70,14 @@ export class LivestreamService {
     private redisService: RedisService,
     private processingService: ProcessingService,
   ) {}
+
+  private requireAiServiceUrl(): string {
+    if (!this.aiServiceUrl) {
+      throw new BadRequestException('AI_SERVICE_URL is not configured');
+    }
+
+    return this.aiServiceUrl;
+  }
 
   async createLivestream(createLivestreamDto: CreateLivestreamDto) {
     const { id, teacherId, title, description, isPublic, allowComments } = createLivestreamDto;
@@ -146,22 +155,9 @@ export class LivestreamService {
   }
 
   private async normalizeTranscriptContent(transcript: unknown): Promise<string> {
-    if (typeof transcript === "string") {
-      return transcript.trim();
-    }
-
-    if (!transcript || typeof transcript !== "object") {
-      return "";
-    }
-
-    const data = transcript as Record<string, unknown>;
-
-    if (typeof data.full_text === "string") {
-      return data.full_text.trim();
-    }
-
-    return "";
-  };
+    const text = this.getTranscriptText(transcript as Prisma.JsonValue | null | undefined);
+    return text || '';
+  }
 
   private normalizeModerationStatus(status: unknown): string | undefined {
     if (typeof status !== 'string') {
@@ -170,6 +166,17 @@ export class LivestreamService {
 
     const normalized = status.trim().toUpperCase();
     return ['SAFE', 'REVIEW', 'BLOCK'].includes(normalized) ? normalized : undefined;
+  }
+
+  private getModerationSnapshot(moderationResult: Prisma.JsonValue | null | undefined): ModerationSnapshot {
+    const moderation = this.sanitizeModerationResult(moderationResult) || null;
+
+    return {
+      toxicWords: moderation?.toxic_word || [],
+      validationRate: typeof moderation?.score === 'number' ? moderation.score : 0,
+      moderationLabel: moderation?.status || null,
+      moderationCategories: moderation?.categories || [],
+    };
   }
 
   private isWordLevelToxicCandidate(value: string): boolean {
@@ -399,10 +406,6 @@ export class LivestreamService {
     moderationResult: ModerationApiResult,
   ): Promise<void> {
     const existing = await this.getRecordingAiAnalysisDocument(recordingId);
-    const toxicWords = moderationResult.toxic_word || existing?.toxicWords || [];
-    const validationRate = typeof moderationResult.score === 'number' ? moderationResult.score : (existing?.validationRate ?? 0);
-    const moderationLabel = moderationResult.status || existing?.moderationLabel || null;
-    const moderationCategories = moderationResult.categories || existing?.moderationCategories || [];
 
     await this.prisma.mongo.$runCommandRaw({
       delete: this.aiTranscriptSummaryCollection,
@@ -847,6 +850,60 @@ export class LivestreamService {
       this.logger.error(`Failed to upload recording:`, error);
       throw error;
     }
+  }
+
+  private async deleteRecordingAiAnalysis(recordingId: string): Promise<void> {
+    await this.prisma.mongo.$runCommandRaw({
+      delete: this.aiTranscriptSummaryCollection,
+      deletes: [
+        {
+          q: {
+            type: 'LIVESTREAM',
+            recordingId,
+          },
+          limit: 0,
+        },
+      ],
+    });
+  }
+
+  async deleteRecording(recordingId: string) {
+    const livestream = await this.prisma.postgres.liveStream.findUnique({
+      where: { id: recordingId },
+      select: {
+        id: true,
+        recordingUrl: true,
+      },
+    });
+
+    if (!livestream) {
+      throw new NotFoundException('Livestream not found');
+    }
+
+    if (livestream.recordingUrl) {
+      try {
+        await this.r2StorageService.deleteVideo(recordingId);
+      } catch (error) {
+        this.logger.warn(`Failed to delete recording file from R2 for livestream ${recordingId}`);
+      }
+    }
+
+    await this.deleteRecordingAiAnalysis(recordingId).catch(() => undefined);
+
+    await this.prisma.postgres.liveStream.update({
+      where: { id: recordingId },
+      data: {
+        recordingUrl: null,
+        isRecorded: false,
+        processingStatus: 'PENDING',
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Recording deleted',
+      livestreamId: recordingId,
+    };
   }
 
   async updateRecordingDuration(livestreamId: string, duration: number) {
@@ -1996,6 +2053,14 @@ export class LivestreamService {
     recordingId: string,
     payload: Partial<AiTranscriptSummaryDocument>,
   ): Promise<void> {
+    const {
+      transcriptStatus: _transcriptStatus,
+      transcriptError: _transcriptError,
+      processingProgress: _processingProgress,
+      processingError: _processingError,
+      ...mongoPayload
+    } = payload;
+
     await this.prisma.mongo.$runCommandRaw({
       update: this.aiTranscriptSummaryCollection,
       updates: [
@@ -2007,7 +2072,7 @@ export class LivestreamService {
               type: 'LIVESTREAM',
               recordingId,
               documentId: null,
-              ...payload,
+              ...mongoPayload,
               updatedAt: new Date(),
             },
             $setOnInsert: {
@@ -2015,8 +2080,6 @@ export class LivestreamService {
               type: 'LIVESTREAM',
               recordingId,
               documentId: null,
-              toxicWords: [],
-              validationRate: 0,
               createdAt: new Date(),
             },
           },
@@ -2076,9 +2139,37 @@ export class LivestreamService {
 
     if (typeof transcript === 'object') {
       const data = transcript as Record<string, unknown>;
-      const candidate = data.full_text;
-      if (typeof candidate === 'string') {
-        return candidate.trim() || null;
+      const directTextCandidate = data.full_text ?? data.text;
+      if (typeof directTextCandidate === 'string') {
+        return directTextCandidate.trim() || null;
+      }
+
+      const resultCandidate = data.result;
+      if (resultCandidate && typeof resultCandidate === 'object') {
+        const resultData = resultCandidate as Record<string, unknown>;
+        const resultText = resultData.full_text ?? resultData.text;
+        if (typeof resultText === 'string') {
+          return resultText.trim() || null;
+        }
+      }
+
+      if (Array.isArray(data.timestamps)) {
+        const timestampJoined = data.timestamps
+          .map((segment) => {
+            if (!segment || typeof segment !== 'object') {
+              return '';
+            }
+
+            const segmentData = segment as Record<string, unknown>;
+            return typeof segmentData.text === 'string' ? segmentData.text.trim() : '';
+          })
+          .filter(Boolean)
+          .join('\n')
+          .trim();
+
+        if (timestampJoined) {
+          return timestampJoined;
+        }
       }
 
       if (Array.isArray(data.segments)) {
@@ -2154,10 +2245,7 @@ export class LivestreamService {
       summary: analysis?.summary || undefined,
       audioUrl: analysis?.audioUrl || null,
       moderationResult: analysis?.moderationResult || null,
-      toxicWords: analysis?.toxicWords || [],
-      validationRate: analysis?.validationRate ?? 0,
-      moderationLabel: analysis?.moderationLabel || null,
-      moderationCategories: analysis?.moderationCategories || [],
+        ...this.getModerationSnapshot(analysis?.moderationResult),
       transcriptStatus: analysis?.transcriptStatus || 'idle',
       transcriptError: analysis?.transcriptError || null,
       transcriptGeneratedAt: analysis?.transcriptGeneratedAt || null,
@@ -2178,8 +2266,8 @@ export class LivestreamService {
 
     if (moderationResult) {
       await this.replaceRecordingAiAnalysisWithModeration(recordingId, moderationResult);
-      const toxicWords = moderationResult.toxic_word || analysis.toxicWords || [];
-      const moderationStatus = moderationResult.status || null;
+      const moderationSnapshot = this.getModerationSnapshot(moderationResult as Prisma.JsonValue);
+      const moderationStatus = moderationSnapshot.moderationLabel;
 
       if (moderationStatus === 'SAFE') {
         await this.prisma.postgres.liveStream.update({
@@ -2191,24 +2279,26 @@ export class LivestreamService {
       return {
         ...analysis,
         moderationResult,
-        score: typeof moderationResult.score === 'number' ? moderationResult.score : 0,
-        toxicWords,
+        score: moderationSnapshot.validationRate,
+        toxicWords: moderationSnapshot.toxicWords,
         status: moderationStatus,
         label: moderationStatus,
-        categories: moderationResult.categories || analysis.moderationCategories || [],
+        categories: moderationSnapshot.moderationCategories,
         processingStage: analysis.processingStage || null,
         processingProgress: analysis.processingProgress ?? 0,
         processingError: analysis.processingError || null,
       };
     }
 
+    const moderationSnapshot = this.getModerationSnapshot(analysis.moderationResult);
+
     return {
       ...analysis,
-      score: analysis.validationRate ?? 0,
-      toxicWords: analysis.toxicWords || [],
-      status: analysis.moderationLabel || null,
-      label: analysis.moderationLabel || null,
-      categories: analysis.moderationCategories || [],
+      score: moderationSnapshot.validationRate,
+      toxicWords: moderationSnapshot.toxicWords,
+      status: moderationSnapshot.moderationLabel,
+      label: moderationSnapshot.moderationLabel,
+      categories: moderationSnapshot.moderationCategories,
       moderationResult: null,
       processingStage: analysis.processingStage || null,
       processingProgress: analysis.processingProgress ?? 0,

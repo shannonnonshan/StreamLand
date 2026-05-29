@@ -18,19 +18,18 @@ type EntityRecord = {
   processingStatus: ProcessingJobStatus;
   isApprove: string | boolean | null;
   rejectReason?: string | null;
+  audioUrl?: string | null;
 };
 
 type AnalysisRecord = {
   transcript?: Prisma.JsonValue | null;
   summary?: string | null;
-  audioUrl?: string | null;
   moderationResult?: Prisma.JsonValue | null;
   moderationCheckedAt?: Date | null;
   transcriptStatus?: string | null;
   transcriptError?: string | null;
   transcriptGeneratedAt?: Date | null;
   summaryGeneratedAt?: Date | null;
-  processingStage?: string | null;
   processingProgress?: number | null;
   processingError?: string | null;
   validationRate?: number | null;
@@ -38,11 +37,13 @@ type AnalysisRecord = {
   moderationLabel?: string | null;
   moderationCategories?: string[] | null;
 };
+const PROCESSING_CACHE_TTL_SECONDS = 10;
+const TERMINAL_CACHE_TTL_SECONDS = 3600;
 
 @Injectable()
 export class ProcessingStateService {
   private readonly logger = new Logger(ProcessingStateService.name);
-  private readonly memoryState = new Map<string, ProcessingStatusResponse>();
+  private readonly memoryState = new Map<string, { value: ProcessingStatusResponse; expiresAt: number }>();
   private readonly redisKeyPrefix = 'processing:state';
   private readonly aiTranscriptSummaryCollection = 'ai_transcript_summary';
 
@@ -55,13 +56,18 @@ export class ProcessingStateService {
     return `${this.redisKeyPrefix}:${entityType}:${entityId}`;
   }
 
+  private getTtl(processingStatus: ProcessingJobStatus): number {
+    return processingStatus === 'PROCESSING' || processingStatus === 'PENDING'
+      ? PROCESSING_CACHE_TTL_SECONDS
+      : TERMINAL_CACHE_TTL_SECONDS;
+  }
+
   private toEntityType(value: string): ProcessingEntityType {
     return value.trim().toUpperCase() === 'DOCUMENT' ? 'DOCUMENT' : 'LIVESTREAM';
   }
 
   private toJobStatus(value: unknown): ProcessingJobStatus {
     const status = typeof value === 'string' ? value.trim().toUpperCase() : '';
-
     if (status === 'PROCESSING') return 'PROCESSING';
     if (status === 'DONE') return 'DONE';
     if (status === 'FAILED') return 'FAILED';
@@ -74,14 +80,9 @@ export class ProcessingStateService {
       if (normalized === 'TRUE' || normalized === 'FALSE' || normalized === 'REJECTED') {
         return normalized;
       }
-
       return value;
     }
-
-    if (typeof value === 'boolean') {
-      return value;
-    }
-
+    if (typeof value === 'boolean') return value;
     return null;
   }
 
@@ -91,7 +92,6 @@ export class ProcessingStateService {
       const normalized = value.trim().toUpperCase();
       return normalized === 'TRUE' || normalized === 'REJECTED';
     }
-
     return false;
   }
 
@@ -101,7 +101,6 @@ export class ProcessingStateService {
 
   private createDefaultSteps(): ProcessingStepState[] {
     const timestamp = new Date().toISOString();
-
     return PROCESSING_STEPS.map((step) => ({
       step,
       status: 'pending',
@@ -146,26 +145,19 @@ export class ProcessingStateService {
     if (entityType === 'LIVESTREAM') {
       const entity = await this.prisma.postgres.liveStream.findUnique({
         where: { id: entityId },
-        select: {
-          id: true,
-          title: true,
-          processingStatus: true,
-          isApprove: true,
-        },
+        select: { id: true, title: true, processingStatus: true, audioUrl: true, isApprove: true },
       });
 
-      if (!entity) {
-        throw new NotFoundException('Livestream not found');
-      }
+      if (!entity) throw new NotFoundException('Livestream not found');
 
       const analysis = await this.getAnalysis(entityType, entityId);
-
       return {
         entity: {
           id: entity.id,
           title: entity.title,
           processingStatus: this.toJobStatus(entity.processingStatus),
           isApprove: this.toApprovalValue(entity.isApprove),
+          audioUrl: typeof entity.audioUrl === 'string' ? entity.audioUrl : null,
         },
         analysis,
       };
@@ -173,26 +165,19 @@ export class ProcessingStateService {
 
     const entity = await this.prisma.postgres.document.findUnique({
       where: { id: entityId },
-      select: {
-        id: true,
-        title: true,
-        processingStatus: true,
-        isApprove: true,
-      },
+      select: { id: true, title: true, processingStatus: true, audioUrl: true, isApprove: true },
     });
 
-    if (!entity) {
-      throw new NotFoundException('Document not found');
-    }
+    if (!entity) throw new NotFoundException('Document not found');
 
     const analysis = await this.getAnalysis(entityType, entityId);
-
     return {
       entity: {
         id: entity.id,
         title: entity.title,
         processingStatus: this.toJobStatus(entity.processingStatus),
         isApprove: this.toApprovalValue(entity.isApprove),
+        audioUrl: typeof entity.audioUrl === 'string' ? entity.audioUrl : null,
       },
       analysis,
     };
@@ -202,10 +187,7 @@ export class ProcessingStateService {
     const field = entityType === 'LIVESTREAM' ? 'recordingId' : 'documentId';
     const result = await this.prisma.mongo.$runCommandRaw({
       find: this.aiTranscriptSummaryCollection,
-      filter: {
-        type: entityType,
-        [field]: entityId,
-      },
+      filter: { type: entityType, [field]: entityId },
       limit: 1,
     });
 
@@ -225,8 +207,8 @@ export class ProcessingStateService {
     const hasTranscript = Boolean(analysis?.transcript);
     const hasSummary = typeof analysis?.summary === 'string' && analysis.summary.trim().length > 0;
     const hasModeration = Boolean(analysis?.moderationResult) && Boolean(analysis?.moderationCheckedAt);
-    const hasAudio = Boolean(analysis?.audioUrl);
-    const saveResultsDone = entity.processingStatus === 'DONE';
+    const hasAudio = Boolean(entity.audioUrl);
+   const saveResultsDone = entity.processingStatus === 'DONE' && hasTranscript && hasSummary && hasModeration;
     const isRejected = entity.isApprove === 'REJECTED';
 
     const completed =
@@ -237,14 +219,17 @@ export class ProcessingStateService {
       hasModeration &&
       this.isFinalApproval(entity.isApprove);
 
+    // Only wait for approval when the results were actually saved (terminal DONE state
+    // with transcript/summary/moderation present). This avoids showing "Waiting for approval"
+    // when processing flags are set but DB/mongo save hasn't completed yet.
     const waitingForApproval =
       !isRejected &&
+      saveResultsDone &&
       this.isWaitingForApproval(entity.processingStatus, entity.isApprove);
 
     const nextStatus = (step: ProcessingStep, status: ProcessingStepStatus, message?: string | null) => {
       const entry = baseSteps.find((item) => item.step === step);
       if (!entry) return;
-
       entry.status = status;
       entry.message = message ?? entry.message ?? null;
       entry.timestamp = timestamp;
@@ -255,21 +240,10 @@ export class ProcessingStateService {
       nextStatus('UPLOAD_AUDIO', 'done', hasAudio ? 'Audio uploaded successfully' : 'Audio will be uploaded when you retry');
     }
 
-    if (hasTranscript) {
-      nextStatus('TRANSCRIBE', 'done', 'Transcript is ready');
-    }
-
-    if (hasSummary) {
-      nextStatus('SUMMARIZE', 'done', 'Summary is ready');
-    }
-
-    if (hasModeration) {
-      nextStatus('MODERATION', 'done', 'Safety check is complete');
-    }
-
-    if (saveResultsDone) {
-      nextStatus('SAVE_RESULTS', 'done', 'Results have been saved');
-    }
+    if (hasTranscript) nextStatus('TRANSCRIBE', 'done', 'Transcript is ready');
+    if (hasSummary) nextStatus('SUMMARIZE', 'done', 'Summary is ready');
+    if (hasModeration) nextStatus('MODERATION', 'done', 'Safety check is complete');
+    if (saveResultsDone) nextStatus('SAVE_RESULTS', 'done', 'Results have been saved');
 
     if (isRejected) {
       nextStatus('COMPLETED', 'failed', entity.rejectReason ?? 'This content was rejected.');
@@ -281,7 +255,11 @@ export class ProcessingStateService {
 
     const failedStep = baseSteps.find((step) => step.status === 'failed')?.step || null;
     const runningStep = baseSteps.find((step) => step.status === 'running')?.step || null;
-    const activeStep = runningStep || failedStep || baseSteps.find((step) => step.status === 'pending')?.step || null;
+    const activeStep =
+      runningStep ||
+      failedStep ||
+      baseSteps.find((step) => step.status === 'pending')?.step ||
+      null;
 
     return this.buildStatusResponse({
       entityId: entity.id,
@@ -294,38 +272,77 @@ export class ProcessingStateService {
       lastFailedStep: failedStep,
       completed,
       waitingForApproval,
-      updatedAt: analysis?.summaryGeneratedAt?.toISOString?.() || analysis?.transcriptGeneratedAt?.toISOString?.() || timestamp,
-      title: entity.title,
+      updatedAt: entity.processingStatus === 'PROCESSING'
+      ? new Date().toISOString()                             
+      : analysis?.summaryGeneratedAt?.toISOString?.()
+        || analysis?.transcriptGeneratedAt?.toISOString?.()
+        || timestamp,
+          title: entity.title,
     });
   }
 
+  private getMemory(key: string): ProcessingStatusResponse | null {
+    const entry = this.memoryState.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.memoryState.delete(key);
+      return null;
+    }
+    return entry.value;
+  }
+
+  private setMemory(key: string, value: ProcessingStatusResponse, ttlSeconds: number): void {
+    this.memoryState.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
+  }
+
+  
   async getStatus(entityType: ProcessingEntityType, entityId: string): Promise<ProcessingStatusResponse> {
     const key = this.getStateKey(entityType, entityId);
-
+    const memory = this.getMemory(key);
+    if (memory) return memory;
     const cached = await this.redisService.get<ProcessingStatusResponse>(key).catch(() => null);
     if (cached) {
-      this.memoryState.set(key, cached);
+      const ttl = this.getTtl(cached.processingStatus);
+      this.setMemory(key, cached, ttl);
       return cached;
     }
+    return this.rebuildFromDb(entityType, entityId);
+  }
 
-    const memory = this.memoryState.get(key);
-    if (memory) {
-      return memory;
-    }
-
+  
+  private async rebuildFromDb(
+    entityType: ProcessingEntityType,
+    entityId: string,
+  ): Promise<ProcessingStatusResponse> {
+    const key = this.getStateKey(entityType, entityId);
     const { entity, analysis } = await this.loadEntityRecord(entityType, entityId);
     const derived = this.buildResolvedSteps(entityType, entity, analysis);
-    await this.persist(derived);
+    const ttl = this.getTtl(derived.processingStatus);
+    this.setMemory(key, derived, ttl);
+    await this.redisService.set(key, derived, ttl).catch((error) => {
+      this.logger.warn(`Failed to cache state ${entityType}:${entityId}: ${String(error)}`);
+    });
     return derived;
   }
 
   async persist(status: ProcessingStatusResponse): Promise<void> {
     const key = this.getStateKey(status.entityType, status.entityId);
-    this.memoryState.set(key, status);
-
-    await this.redisService.set(key, status, 86400).catch((error) => {
+    const ttl = this.getTtl(status.processingStatus);
+    this.setMemory(key, status, ttl);
+    await this.redisService.set(key, status, ttl).catch((error) => {
       this.logger.warn(`Failed to persist processing state for ${status.entityType}:${status.entityId}: ${String(error)}`);
     });
+  }
+
+  
+  async invalidateAndRefresh(
+    entityType: ProcessingEntityType,
+    entityId: string,
+  ): Promise<ProcessingStatusResponse> {
+    const key = this.getStateKey(entityType, entityId);
+    this.memoryState.delete(key);
+    await this.redisService.del(key).catch(() => null);
+    return this.rebuildFromDb(entityType, entityId);
   }
 
   async updateStep(params: {
@@ -338,10 +355,7 @@ export class ProcessingStateService {
     const current = await this.getStatus(params.entityType, params.entityId);
     const currentSteps = current.steps ?? this.createDefaultSteps();
     const updatedSteps = currentSteps.map((item) => {
-      if (item.step !== params.step) {
-        return item;
-      }
-
+      if (item.step !== params.step) return item;
       return {
         ...item,
         status: params.status,
@@ -351,7 +365,6 @@ export class ProcessingStateService {
     });
 
     const failedStep = params.status === 'failed' ? params.step : current.lastFailedStep;
-    const runningStep = params.status === 'running' ? params.step : current.activeStep;
     const activeStep = params.status === 'failed'
       ? params.step
       : params.status === 'running'
@@ -366,9 +379,10 @@ export class ProcessingStateService {
       steps: updatedSteps,
       activeStep,
       lastFailedStep: failedStep,
-      processingStatus: params.status === 'failed' ? 'FAILED' : params.status === 'running' ? 'PROCESSING' : current.processingStatus,
-      waitingForApproval: current.waitingForApproval,
-      completed: current.completed,
+      processingStatus:
+        params.status === 'failed' ? 'FAILED'
+        : params.status === 'running' ? 'PROCESSING'
+        : current.processingStatus,
       updatedAt: new Date().toISOString(),
     };
 
@@ -410,18 +424,10 @@ export class ProcessingStateService {
       }
 
       if (failedIndex >= 0 && index >= failedIndex) {
-        return {
-          ...step,
-          status: 'pending' as ProcessingStepStatus,
-          message: null,
-          timestamp: new Date().toISOString(),
-        };
+        return { ...step, status: 'pending' as ProcessingStepStatus, message: null, timestamp: new Date().toISOString() };
       }
 
-      return {
-        ...step,
-        status: (step.status === 'done' ? 'done' : 'pending') as ProcessingStepStatus,
-      };
+      return { ...step, status: (step.status === 'done' ? 'done' : 'pending') as ProcessingStepStatus };
     });
 
     const nextState: ProcessingStatusResponse = {
@@ -449,9 +455,7 @@ export class ProcessingStateService {
   }
 
   async markEntityFailed(entityType: ProcessingEntityType, entityId: string): Promise<ProcessingStatusResponse> {
-    return this.setProcessingStatus(entityType, entityId, 'FAILED', {
-      completed: false,
-    });
+    return this.setProcessingStatus(entityType, entityId, 'FAILED', { completed: false });
   }
 
   async markEntityProcessing(entityType: ProcessingEntityType, entityId: string, title?: string): Promise<ProcessingStatusResponse> {
@@ -469,5 +473,4 @@ export class ProcessingStateService {
     await this.persist(nextState);
     return nextState;
   }
-
 }

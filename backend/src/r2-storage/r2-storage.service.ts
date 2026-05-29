@@ -7,8 +7,10 @@ import {
   ListObjectsV2Command,
   DeleteObjectCommand,
   HeadObjectCommand,
+  GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'stream';
 import * as path from 'path';
 
@@ -219,14 +221,18 @@ export class R2StorageService {
     return this.getKeyFromUrl(recordingUrl);
   }
 
+  private getAudioExportKey(itemId: string): string {
+    return `audio-export/${itemId}.wav`;
+  }
+
   private getRecordingAudioKey(recordingId: string): string {
-    return `audio/livestream/${recordingId}.mp3`;
+    return this.getAudioExportKey(recordingId);
   }
 
   getRecordingAudioKeyFromUrl(recordingUrl: string): string | null {
     const key = this.getRecordingKeyFromUrl(recordingUrl);
     if (!key) return null;
-    return this.replaceExtension(key, 'mp3');
+    return this.replaceExtension(key, 'wav');
   }
 
   getRecordingAudioUrlFromUrl(recordingUrl: string): string | null {
@@ -262,7 +268,7 @@ export class R2StorageService {
       Bucket: this.videoBucketName,
       Key: key,
       Body: audioBuffer,
-      ContentType: 'audio/mpeg',
+      ContentType: 'audio/wav',
     });
 
     await this.videoS3Client.send(command);
@@ -275,14 +281,14 @@ export class R2StorageService {
   }
 
   private getDocumentAudioKey(documentId: string): string {
-    return `audio/document/${documentId}.mp3`;
+    return this.getAudioExportKey(documentId);
   }
 
   getDocumentAudioKeyFromUrl(documentUrl: string): string | null {
     const key = this.getDocumentKeyFromUrl(documentUrl);
     if (!key) return null;
 
-    return this.replaceExtension(key, 'mp3');
+    return this.replaceExtension(key, 'wav');
   }
 
   getDocumentAudioUrlFromUrl(documentUrl: string): string | null {
@@ -319,7 +325,7 @@ export class R2StorageService {
       Bucket: this.documentBucketName,
       Key: audioKey,
       Body: audioBuffer,
-      ContentType: 'audio/mpeg',
+      ContentType: 'audio/wav',
     });
 
     await this.documentS3Client.send(command);
@@ -427,10 +433,11 @@ export class R2StorageService {
         Bucket: this.videoBucketName,
         Key: key,
         Body: audioBuffer,
-        ContentType: 'audio/mpeg',
+        ContentType: 'audio/wav',
       });
 
       await this.videoS3Client.send(command);
+      console.log(`[R2] Uploaded recording audio for ${recordingId}: ${this.publicUrl}/${key}`);
       this.logger.log(`Uploaded recording audio for ${recordingId}`);
       return `${this.publicUrl}/${key}`;
     } catch (error) {
@@ -465,6 +472,17 @@ export class R2StorageService {
     return `${this.publicUrl}/${this.getRecordingAudioKey(recordingId)}`;
   }
 
+  async deleteRecordingAudioById(recordingId: string): Promise<void> {
+    const key = this.getRecordingAudioKey(recordingId);
+
+    await this.videoS3Client.send(
+      new DeleteObjectCommand({
+        Bucket: this.videoBucketName,
+        Key: key,
+      }),
+    );
+  }
+
   /**
    * Upload document audio by document ID
    * Saves to audio-export/{documentId}.wav in document bucket
@@ -480,10 +498,11 @@ export class R2StorageService {
         Bucket: this.documentBucketName,
         Key: key,
         Body: audioBuffer,
-        ContentType: 'audio/mpeg',
+        ContentType: 'audio/wav',
       });
 
       await this.documentS3Client.send(command);
+      console.log(`[R2] Uploaded document audio for ${documentId}: ${this.documentPublicUrl}/${key}`);
       this.logger.log(`Uploaded document audio for ${documentId}`);
       return `${this.documentPublicUrl}/${key}`;
     } catch (error) {
@@ -516,5 +535,44 @@ export class R2StorageService {
    */
   getDocumentAudioUrlById(documentId: string): string {
     return `${this.documentPublicUrl}/${this.getDocumentAudioKey(documentId)}`;
+  }
+
+  async getRecordingPresignedUrlFromUrl(recordingUrl: string, expiresIn = 3600): Promise<string> {
+    const key = this.getRecordingKeyFromUrl(recordingUrl);
+    if (!key) {
+      throw new Error('Recording URL is not in the expected R2 path');
+    }
+
+    const command = new GetObjectCommand({
+      Bucket: this.videoBucketName,
+      Key: key,
+    });
+
+    return getSignedUrl(this.videoS3Client as any, command, { expiresIn });
+  }
+
+  async getDocumentPresignedUrlFromUrl(documentUrl: string, expiresIn = 3600): Promise<string> {
+    const key = this.getDocumentKeyFromUrl(documentUrl);
+    if (!key) {
+      throw new Error('Document URL is not in the expected R2 path');
+    }
+
+    const command = new GetObjectCommand({
+      Bucket: this.documentBucketName,
+      Key: key,
+    });
+
+    return getSignedUrl(this.documentS3Client as any, command, { expiresIn });
+  }
+
+  async deleteDocumentAudioById(documentId: string): Promise<void> {
+    const key = this.getDocumentAudioKey(documentId);
+
+    await this.documentS3Client.send(
+      new DeleteObjectCommand({
+        Bucket: this.documentBucketName,
+        Key: key,
+      }),
+    );
   }
 }

@@ -1460,7 +1460,7 @@ export class StudentService {
     });
 
     return {
-      items: items.map((item) => ({
+      items: items.map((item: (typeof items)[number]) => ({
         contentId: item.livestreamId,
         watchedAt: item.watchedAt,
         duration: item.duration,
@@ -1571,9 +1571,15 @@ export class StudentService {
       },
     });
 
-    const dayWatchSeconds = daySessions.reduce((sum, item) => sum + (item.activeWatchSeconds || 0), 0);
-    const dayHasQualifiedSession = daySessions.some((item) => item.qualifiedForStreak);
-    const dayCompletionMax = daySessions.reduce((max, item) => Math.max(max, item.completionPercentage || 0), 0);
+    const dayWatchSeconds = daySessions.reduce(
+      (sum: number, item: (typeof daySessions)[number]) => sum + (item.activeWatchSeconds || 0),
+      0,
+    );
+    const dayHasQualifiedSession = daySessions.some((item: (typeof daySessions)[number]) => item.qualifiedForStreak);
+    const dayCompletionMax = daySessions.reduce(
+      (max: number, item: (typeof daySessions)[number]) => Math.max(max, item.completionPercentage || 0),
+      0,
+    );
 
     const dayQualified =
       dayHasQualifiedSession ||
@@ -1707,10 +1713,16 @@ export class StudentService {
       },
     });
 
-    const activeWatchSeconds = daySessions.reduce((sum, item) => sum + (item.activeWatchSeconds || 0), 0);
-    const completionPercentage = daySessions.reduce((max, item) => Math.max(max, item.completionPercentage || 0), 0);
+    const activeWatchSeconds = daySessions.reduce(
+      (sum: number, item: (typeof daySessions)[number]) => sum + (item.activeWatchSeconds || 0),
+      0,
+    );
+    const completionPercentage = daySessions.reduce(
+      (max: number, item: (typeof daySessions)[number]) => Math.max(max, item.completionPercentage || 0),
+      0,
+    );
     const qualified =
-      daySessions.some((item) => item.qualifiedForStreak) ||
+      daySessions.some((item: (typeof daySessions)[number]) => item.qualifiedForStreak) ||
       activeWatchSeconds >= MIN_QUALIFIED_WATCH_SECONDS ||
       completionPercentage >= MIN_QUALIFIED_COMPLETION_PERCENT;
 
@@ -1753,7 +1765,7 @@ export class StudentService {
       timezone: streak.timezone,
       startDate,
       endDate: endDateKey,
-      days: dayEntries.map((item) => ({
+      days: dayEntries.map((item: (typeof dayEntries)[number]) => ({
         date: item.dateKey,
         status: item.freezeConsumed ? 'freeze' : item.awarded ? 'learned' : 'missed',
         awarded: item.awarded,
@@ -1775,7 +1787,7 @@ export class StudentService {
       },
     });
 
-    const userIds = rows.map((item) => item.userId);
+    const userIds = rows.map((item: (typeof rows)[number]) => item.userId);
     const users = userIds.length
       ? await this.prisma.postgres.user.findMany({
           where: { id: { in: userIds } },
@@ -1789,7 +1801,7 @@ export class StudentService {
     const userMap = new Map(users.map((item) => [item.id, item]));
 
     return {
-      leaderboard: rows.map((item, index) => ({
+      leaderboard: rows.map((item: (typeof rows)[number], index: number) => ({
         rank: index + 1,
         userId: item.userId,
         fullName: userMap.get(item.userId)?.fullName || 'Unknown user',
@@ -2024,7 +2036,7 @@ export class StudentService {
     const canViewFollowers = await this.canViewProfileJournal(viewerId, userId);
 
     const items = await Promise.all(rows
-      .map(async (row) => {
+      .map(async (row: (typeof rows)[number]) => {
         const entry = await this.loadJournalEntry(row);
 
         const canViewEntry =
@@ -2040,8 +2052,8 @@ export class StudentService {
       }));
 
     const orderedItems = items
-      .filter((item): item is NonNullable<typeof item> => !!item)
-      .sort((left, right) => {
+      .filter((item: (typeof items)[number]): item is NonNullable<(typeof items)[number]> => !!item)
+      .sort((left: NonNullable<(typeof items)[number]>, right: NonNullable<(typeof items)[number]>) => {
         if (left.pinned !== right.pinned) {
           return left.pinned ? -1 : 1;
         }
@@ -2077,7 +2089,7 @@ export class StudentService {
         },
       });
 
-      await Promise.all(others.map((row) => {
+      await Promise.all(others.map((row: (typeof others)[number]) => {
         const metadata = this.normalizeJournalMetadata(row.metadata);
         return this.prisma.mongo.activityLog.update({
           where: { id: row.id },

@@ -447,7 +447,7 @@ function DocumentRow({
       </div>
       
       <div className="col-span-6 sm:col-span-4 flex items-center">
-        <div className="flex-shrink-0 mr-3">
+        <div className="shrink-0 mr-3">
           {getFileIcon(doc.fileType)}
         </div>
         <div className="min-w-0">

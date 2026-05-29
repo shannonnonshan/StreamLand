@@ -45,6 +45,7 @@ export class ProcessingService {
   async retry(entityType: ProcessingEntityType, entityId: string): Promise<Job<ProcessingJobPayload> | null> {
     this.logger.log(`Retry requested for ${entityType}:${entityId}`);
     const payload = await this.resolvePayload(entityType, entityId);
+    this.logger.log(`[Retry] Payload resolved: ${JSON.stringify(payload)}`); 
     await this.processingStateService.resetForRetry(entityType, entityId);
 
     if (entityType === 'LIVESTREAM') {

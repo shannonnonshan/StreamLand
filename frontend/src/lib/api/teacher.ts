@@ -125,7 +125,12 @@ export async function getTeacherDocuments(teacherId: string, fileType?: string):
   return authenticatedFetch(url);
 }
 
-export async function uploadDocument(teacherId: string, file: File, description?: string): Promise<Document> {
+export async function uploadDocument(
+  teacherId: string,
+  file: File,
+  description?: string,
+  title?: string,
+): Promise<Document> {
   const token = getAuthToken();
   if (!token) throw new Error('Not authenticated');
 
@@ -133,6 +138,10 @@ export async function uploadDocument(teacherId: string, file: File, description?
   formData.append('file', file);
   if (typeof description === 'string' && description.trim().length > 0) {
     formData.append('description', description.trim());
+  }
+
+  if (typeof title === 'string' && title.trim().length > 0) {
+    formData.append('title', title.trim());
   }
 
   const response = await fetch(`${API_URL}/documents/teacher/${teacherId}/upload`, {

@@ -9,8 +9,6 @@
     "target": "ES2023",
     "sourceMap": true,
     "outDir": "./dist",
-    "baseUrl": "./",
-    "ignoreDeprecations": "5.0",
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,
@@ -19,7 +17,7 @@
     "strictBindCallApply": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@prisma/mongoClient": ["prisma/mongodb/generated/@prisma/mongodb-client/index"]
+      "@prisma/mongoClient": ["./prisma/mongodb/generated/@prisma/mongodb-client/index"]
     }
   }
 }

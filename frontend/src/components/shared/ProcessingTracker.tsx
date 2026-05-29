@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -23,6 +23,7 @@ import {
   type ProcessingEntityType,
   type ProcessingStatusResponse,
   type ProcessingStep,
+  type ProcessingStepState,
   type ProcessingStepStatus,
 } from "@/lib/api/processing";
 
@@ -101,6 +102,26 @@ const getStepIconState = (status: ProcessingStepStatus) => {
   return 'pending';
 };
 
+const getStepMessage = (step: ProcessingStepState) => step.errorMessage ?? step.message ?? null;
+
+const formatLastUpdated = (updatedAt: string | undefined, nowMs: number) => {
+  if (!updatedAt) return null;
+  const updatedMs = new Date(updatedAt).getTime();
+  if (Number.isNaN(updatedMs)) return null;
+  const diffSeconds = Math.max(0, Math.floor((nowMs - updatedMs) / 1000));
+  if (diffSeconds < 5) return 'just now';
+  if (diffSeconds < 60) return `${diffSeconds}s ago`;
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+};
+
+// FIX 3: Đổi từ 15 phút xuống 10 phút theo yêu cầu
+const TEN_MINUTES_MS = 10 * 60 * 1000;
+
 export default function ProcessingTracker({
   entityId,
   entityType,
@@ -116,12 +137,24 @@ export default function ProcessingTracker({
   const [isPolling, setIsPolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retryingStep, setRetryingStep] = useState<ProcessingStep | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  // FIX 3: Track thời điểm step hiện tại bắt đầu, không dùng updatedAt chung
+  const [activeStepSinceMs, setActiveStepSinceMs] = useState<number | null>(null);
+  const lastActiveStepRef = useRef<ProcessingStep | null>(null);
+
+  // FIX 3: Cooldown sau khi retry – chờ 10 phút mới cho bấm lại
+  const [retryCooldownUntil, setRetryCooldownUntil] = useState<number | null>(null);
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const statusAbortRef = useRef<AbortController | null>(null);
   const completedNotifiedRef = useRef(false);
   const failedNotifiedRef = useRef<string | null>(null);
   const stepRefs = useRef<Partial<Record<ProcessingStep, HTMLDivElement | null>>>({});
-  const statusSteps = status?.steps ?? [];
+  const autoRetryFiredRef = useRef(false);
 
+  const statusSteps = status?.steps ?? [];
+  const hasFailedStep = statusSteps.some((step) => step.status === 'failed');
   const approvalState = normalizeApprovalState(status?.isApprove ?? null);
   const isRejected = approvalState === 'rejected';
   const isWaitingForApproval = Boolean(status?.waitingForApproval);
@@ -141,6 +174,40 @@ export default function ProcessingTracker({
     || statusSteps.find((step) => step.status === 'pending')?.step
     || null;
 
+  const failedStepState = statusSteps.find((step) => step.step === status?.lastFailedStep)
+    || statusSteps.find((step) => step.status === 'failed')
+    || null;
+  const failedStepMessage = failedStepState ? getStepMessage(failedStepState) : null;
+  const failedStepLabel = failedStepState ? STEP_META[failedStepState.step]?.label ?? failedStepState.step : null;
+  const retryFallbackStep = status?.lastFailedStep || activeStep || 'EXTRACT_AUDIO';
+
+  // FIX 3: Stale = step hiện tại không đổi quá 10 phút VÀ không đang trong cooldown
+  const isStaleProcessing = Boolean(
+    status?.processingStatus === 'PROCESSING' &&
+    activeStepSinceMs !== null &&
+    (retryCooldownUntil === null || nowMs >= retryCooldownUntil) &&
+    nowMs - activeStepSinceMs > TEN_MINUTES_MS
+  );
+  const staleElapsedMinutes = isStaleProcessing && activeStepSinceMs !== null
+    ? Math.floor((nowMs - activeStepSinceMs) / 60000)
+    : 0;
+
+  // FIX 3: Cooldown còn lại (giây) để hiển thị cho user
+  const retryCooldownRemainingSeconds = retryCooldownUntil !== null && nowMs < retryCooldownUntil
+    ? Math.ceil((retryCooldownUntil - nowMs) / 1000)
+    : 0;
+
+  const showIdleRetryButton = Boolean(
+    showRetry
+    && status
+    && !isRejected
+    && !isWaitingForApproval
+    && !isCompleted
+    && status.processingStatus !== 'PROCESSING'
+    && !hasFailedStep,
+  );
+  const showStaleRetryButton = Boolean(showRetry && isStaleProcessing && !isRejected);
+
   const triggerConfig = useMemo(() => {
     if (status?.processingStatus === 'PROCESSING') {
       return {
@@ -149,7 +216,6 @@ export default function ProcessingTracker({
         icon: Loader2,
       };
     }
-
     if (isRejected) {
       return {
         label: 'Rejected – View Details',
@@ -157,7 +223,6 @@ export default function ProcessingTracker({
         icon: AlertTriangle,
       };
     }
-
     if (isWaitingForApproval) {
       return {
         label: 'Waiting for Approval',
@@ -165,7 +230,6 @@ export default function ProcessingTracker({
         icon: Clock3,
       };
     }
-
     if (isCompleted || approvalState === 'approved') {
       return {
         label: 'View Processing Result',
@@ -173,7 +237,6 @@ export default function ProcessingTracker({
         icon: BadgeCheck,
       };
     }
-
     if (isFailed) {
       return {
         label: 'Processing Failed – View Details',
@@ -181,7 +244,6 @@ export default function ProcessingTracker({
         icon: AlertTriangle,
       };
     }
-
     return {
       label: 'View Processing Status',
       className: 'border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50',
@@ -189,44 +251,71 @@ export default function ProcessingTracker({
     };
   }, [approvalState, isCompleted, isFailed, isRejected, isWaitingForApproval, status?.processingStatus]);
 
-  const loadStatus = async () => {
+  // FIX 1: Bọc loadStatus trong useCallback để tránh stale closure trong setInterval
+  const loadStatus = useCallback(async () => {
+    const controller = new AbortController();
+    if (statusAbortRef.current) {
+      statusAbortRef.current.abort();
+    }
+    statusAbortRef.current = controller;
+
     try {
-      const nextStatus = await getProcessingStatus(entityType, entityId);
+      const nextStatus = await getProcessingStatus(entityType, entityId, { signal: controller.signal });
       setStatus(nextStatus);
       console.log('isApprove raw:', nextStatus?.isApprove, '| normalized:', normalizeApprovalState(nextStatus?.isApprove ?? null));
-
       setError(null);
       return nextStatus;
     } catch (loadError) {
+      if (controller.signal.aborted || (loadError instanceof Error && loadError.name === 'AbortError')) {
+        return null;
+      }
       const message = loadError instanceof Error ? loadError.message : 'Failed to load processing status';
       setError(message);
       return null;
     } finally {
+      if (statusAbortRef.current === controller) {
+        statusAbortRef.current = null;
+      }
       setLoading(false);
     }
-  };
+  }, [entityId, entityType]);
 
-  const startPolling = () => {
+  // FIX 1: startPolling dùng ref để luôn gọi phiên bản mới nhất của loadStatus
+  const loadStatusRef = useRef(loadStatus);
+  useEffect(() => {
+    loadStatusRef.current = loadStatus;
+  }, [loadStatus]);
+
+  const startPolling = useCallback(() => {
     if (pollRef.current) return;
     setIsPolling(true);
     pollRef.current = setInterval(() => {
-      void loadStatus();
+      // Gọi qua ref → luôn dùng loadStatus mới nhất, không bị stale closure
+      void loadStatusRef.current();
     }, 3000);
-  };
+  }, []);
 
-  const stopPolling = () => {
+  const stopPolling = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
+    if (statusAbortRef.current) {
+      statusAbortRef.current.abort();
+      statusAbortRef.current = null;
+    }
     setIsPolling(false);
-  };
+  }, []);
 
   useEffect(() => {
     completedNotifiedRef.current = false;
     failedNotifiedRef.current = null;
 
     void loadStatus();
+
+    // FIX 2: Join room để server biết client đang track entity nào
+    // Server cần lắng nghe event 'join-processing-room' và đưa socket vào room tương ứng
+    socket.emit('join-processing-room', { entityId, entityType });
 
     const handleStepUpdate = (payload: {
       entityId: string;
@@ -242,6 +331,8 @@ export default function ProcessingTracker({
 
     const handleConnect = () => {
       stopPolling();
+      // Re-join room sau khi reconnect
+      socket.emit('join-processing-room', { entityId, entityType });
       void loadStatus();
     };
 
@@ -264,15 +355,69 @@ export default function ProcessingTracker({
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
       socket.off('connect_error', handleDisconnect);
+      // FIX 2: Leave room khi unmount
+      socket.emit('leave-processing-room', { entityId, entityType });
       stopPolling();
     };
-  }, [entityId, entityType]);
+  }, [entityId, entityType, loadStatus, startPolling, stopPolling]);
+
+  // FIX 3: Theo dõi khi nào activeStep thay đổi để reset đồng hồ 10 phút
+  useEffect(() => {
+    if (!activeStep) return;
+    if (activeStep !== lastActiveStepRef.current) {
+      // Step mới → reset timer
+      lastActiveStepRef.current = activeStep;
+      setActiveStepSinceMs(Date.now());
+    }
+  }, [activeStep]);
 
   useEffect(() => {
     if (!isOpen || !activeStep) return;
     const currentRef = stepRefs.current[activeStep];
     currentRef?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [activeStep, isOpen]);
+
+  // Auto-retry khi FAILED, chỉ fire 1 lần per entityId+entityType
+  useEffect(() => {
+    if (!showRetry) return;
+    if (!isFailed) {
+      autoRetryFiredRef.current = false;
+      return;
+    }
+    if (autoRetryFiredRef.current) return;
+    if (retryingStep) return;
+    autoRetryFiredRef.current = true;
+
+    const step = (status?.lastFailedStep || status?.activeStep || 'EXTRACT_AUDIO') as ProcessingStep;
+
+    // Bypass cooldown cho auto-retry – cooldown chỉ áp dụng cho manual retry
+    stopPolling();
+    setRetryingStep(step);
+    setError(null);
+    retryProcessing(entityType, entityId)
+      .then((nextStatus) => {
+        const retryStartedAt = Date.now();
+        setRetryCooldownUntil(retryStartedAt + TEN_MINUTES_MS);
+        setActiveStepSinceMs(retryStartedAt);
+        lastActiveStepRef.current = step;
+        setStatus({
+          ...nextStatus,
+          processingStatus: 'PROCESSING',
+          activeStep: nextStatus.activeStep || step,
+          updatedAt: new Date(retryStartedAt).toISOString(),
+        });
+        setIsOpen(true);
+        startPolling();
+      })
+      .catch((err) => {
+        console.error('Auto-retry failed:', err);
+        setError(err instanceof Error ? err.message : 'Auto-retry failed');
+        autoRetryFiredRef.current = false; // cho phép thử lại nếu lỗi
+      })
+      .finally(() => {
+        setRetryingStep(null);
+      });
+  }, [isFailed, showRetry, entityId, entityType]);
 
   useEffect(() => {
     if (!status) return;
@@ -281,7 +426,6 @@ export default function ProcessingTracker({
       completedNotifiedRef.current = true;
       onCompleted?.();
     }
-
     if (!isCompleted) {
       completedNotifiedRef.current = false;
     }
@@ -295,20 +439,41 @@ export default function ProcessingTracker({
       failedNotifiedRef.current = failedStep;
       onFailed?.(failedStep);
     }
-
     if (!isFailed) {
       failedNotifiedRef.current = null;
     }
   }, [isCompleted, isFailed, onCompleted, onFailed, status]);
 
   const handleRetry = async (step: ProcessingStep) => {
+    // FIX 3: Chặn retry nếu đang trong cooldown 10 phút
+    if (retryingStep) return;
+    if (retryCooldownUntil !== null && nowMs < retryCooldownUntil) return;
+
     try {
+      stopPolling();
       setRetryingStep(step);
+      setError(null);
       const nextStatus = await retryProcessing(entityType, entityId);
-      setStatus(nextStatus);
+      const retryStartedAt = Date.now();
+
+      // FIX 3: Set cooldown 10 phút kể từ lần retry này
+      setRetryCooldownUntil(retryStartedAt + TEN_MINUTES_MS);
+
+      // Reset đồng hồ step vì đang bắt đầu lại
+      setActiveStepSinceMs(retryStartedAt);
+      lastActiveStepRef.current = step;
+
+      setStatus({
+        ...nextStatus,
+        processingStatus: 'PROCESSING',
+        activeStep: nextStatus.activeStep || step,
+        updatedAt: new Date(retryStartedAt).toISOString(),
+      });
       setIsOpen(true);
+      startPolling();
     } catch (retryError) {
       console.error('Failed to retry processing:', retryError);
+      setError(retryError instanceof Error ? retryError.message : 'Failed to retry processing');
     } finally {
       setRetryingStep(null);
     }
@@ -335,7 +500,6 @@ export default function ProcessingTracker({
               : (fallbackStep.message ?? null),
           };
         }
-
         return fallbackStep;
       })
     : STEP_ORDER.map((step) => ({
@@ -354,6 +518,15 @@ export default function ProcessingTracker({
   const TriggerIcon = triggerConfig.icon;
   const doneStepsCount = statusSteps.filter((step) => step.status === 'done').length;
   const runningStep = statusSteps.find((step) => step.status === 'running');
+  const runningStepLabel = runningStep ? STEP_META[runningStep.step].label : null;
+  const lastUpdatedLabel = formatLastUpdated(status?.updatedAt, nowMs);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const progressPercent = useMemo(() => {
     if (!status) return 0;
@@ -409,6 +582,15 @@ export default function ProcessingTracker({
                 <p className="mt-1 text-sm text-white/70">
                   {entityType === 'LIVESTREAM' ? 'Livestream recording' : 'Document'} · {entityId}
                 </p>
+                {lastUpdatedLabel && (
+                  <p className="mt-1 text-xs font-medium text-white/60">Last updated {lastUpdatedLabel}</p>
+                )}
+                {status?.processingStatus === 'PROCESSING' && (
+                  <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-300/35 bg-amber-400/15 px-3 py-1.5 text-xs font-semibold text-amber-100">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" />
+                    Processing is running now
+                  </div>
+                )}
               </div>
               <button
                 type="button"
@@ -439,6 +621,21 @@ export default function ProcessingTracker({
                 </div>
               )}
 
+              {status?.processingStatus === 'PROCESSING' && (
+                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                  Processing is still running{runningStepLabel ? ` at ${runningStepLabel}` : ''}. You can keep this window open to follow each step in real time.
+                </div>
+              )}
+
+              {isStaleProcessing && (
+                <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+                  <p className="font-semibold">No progress for about {staleElapsedMinutes} minutes.</p>
+                  <p className="mt-1 text-amber-800">
+                    This process may be stuck. Retry will cancel the current pipeline and start again from the last safe step.
+                  </p>
+                </div>
+              )}
+
               {!isRejected && isCompleted && (
                 <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
                   Processing is complete and the content is ready for review.
@@ -447,7 +644,65 @@ export default function ProcessingTracker({
 
               {!isRejected && isFailed && (
                 <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">
-                  Processing failed. Review the failed step below and retry if needed.
+                  <p className="font-semibold">Processing failed{failedStepLabel ? ` at ${failedStepLabel}` : ''}.</p>
+                  <p className="mt-1 text-rose-700">{failedStepMessage ?? 'Review the failed step below and retry if needed.'}</p>
+                  {showRetry && (
+                    <button
+                      type="button"
+                      onClick={() => void handleRetry(retryFallbackStep)}
+                      disabled={Boolean(retryingStep) || retryCooldownRemainingSeconds > 0}
+                      className="mt-3 inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {retryingStep ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                      {retryingStep
+                        ? 'Retrying...'
+                        : retryCooldownRemainingSeconds > 0
+                          ? `Wait ${Math.ceil(retryCooldownRemainingSeconds / 60)}m before retrying`
+                          : 'Retry processing'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {showIdleRetryButton && (
+                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                  <p>Processing is not running right now. You can retry to continue the pipeline.</p>
+                  <button
+                    type="button"
+                    onClick={() => void handleRetry(retryFallbackStep)}
+                    disabled={Boolean(retryingStep) || retryCooldownRemainingSeconds > 0}
+                    className="mt-3 inline-flex items-center gap-2 rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {retryingStep ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={16} />
+                    )}
+                    {retryingStep
+                      ? 'Retrying...'
+                      : retryCooldownRemainingSeconds > 0
+                        ? `Wait ${Math.ceil(retryCooldownRemainingSeconds / 60)}m before retrying`
+                        : 'Retry processing'}
+                  </button>
+                </div>
+              )}
+
+              {showStaleRetryButton && !showIdleRetryButton && !isFailed && (
+                <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+                  <p>Step has not progressed for more than 10 minutes.</p>
+                  <button
+                    type="button"
+                    onClick={() => void handleRetry(retryFallbackStep)}
+                    disabled={Boolean(retryingStep) || retryCooldownRemainingSeconds > 0}
+                    className="mt-3 inline-flex items-center gap-2 rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {retryingStep ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                    {retryingStep
+                      ? 'Retrying...'
+                      : retryCooldownRemainingSeconds > 0
+                        ? `Wait ${Math.ceil(retryCooldownRemainingSeconds / 60)}m before retrying`
+                        : 'Retry now'}
+                  </button>
                 </div>
               )}
 
@@ -459,6 +714,7 @@ export default function ProcessingTracker({
                   const isActive = activeStep === step.step;
                   const isFailedStep = step.status === 'failed';
                   const isRunning = step.status === 'running';
+                  const stepMessage = getStepMessage(step);
 
                   return (
                     <div
@@ -467,8 +723,12 @@ export default function ProcessingTracker({
                         stepRefs.current[step.step] = node;
                       }}
                       className={`rounded-3xl border p-4 transition ${
-                        isActive ? 'border-[#121826]/20 bg-white shadow-sm' : 'border-slate-200 bg-white/80'
-                      } ${isFailedStep ? 'ring-1 ring-rose-200' : ''}`}
+                        isFailedStep
+                          ? 'border-rose-200 bg-rose-50/50 ring-1 ring-rose-200'
+                          : isActive
+                            ? 'border-[#121826]/20 bg-white shadow-sm'
+                            : 'border-slate-200 bg-white/80'
+                      }`}
                     >
                       <div className="flex items-start gap-4">
                         <div
@@ -476,7 +736,7 @@ export default function ProcessingTracker({
                             iconState === 'done'
                               ? 'bg-emerald-100 text-emerald-700'
                               : iconState === 'running'
-                                ? 'bg-blue-100 text-blue-700'
+                                ? 'bg-amber-100 text-amber-700'
                                 : iconState === 'failed'
                                   ? 'bg-rose-100 text-rose-700'
                                   : 'bg-slate-100 text-slate-500'
@@ -504,7 +764,7 @@ export default function ProcessingTracker({
                                 iconState === 'done'
                                   ? 'bg-emerald-100 text-emerald-700'
                                   : iconState === 'running'
-                                    ? 'bg-blue-100 text-blue-700'
+                                    ? 'bg-amber-100 text-amber-700'
                                     : iconState === 'failed'
                                       ? 'bg-rose-100 text-rose-700'
                                       : 'bg-slate-100 text-slate-600'
@@ -514,9 +774,9 @@ export default function ProcessingTracker({
                             </span>
                           </div>
 
-                          {step.message && (
-                            <p className={`mt-2 text-sm ${isFailedStep ? 'text-rose-700' : isRunning ? 'text-blue-700' : 'text-slate-600'}`}>
-                              {step.message}
+                          {stepMessage && (
+                            <p className={`mt-2 text-sm ${isFailedStep ? 'text-rose-700' : isRunning ? 'text-amber-700' : 'text-slate-600'}`}>
+                              {stepMessage}
                             </p>
                           )}
 
@@ -524,7 +784,7 @@ export default function ProcessingTracker({
                             <button
                               type="button"
                               onClick={() => void handleRetry(step.step)}
-                              disabled={retryingStep === step.step}
+                              disabled={Boolean(retryingStep) || retryCooldownRemainingSeconds > 0}
                               className="mt-3 inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-70"
                             >
                               {retryingStep === step.step ? (
@@ -532,7 +792,11 @@ export default function ProcessingTracker({
                               ) : (
                                 <RefreshCw size={16} />
                               )}
-                              Retry from this step
+                              {retryingStep === step.step
+                                ? 'Retrying...'
+                                : retryCooldownRemainingSeconds > 0
+                                  ? `Wait ${Math.ceil(retryCooldownRemainingSeconds / 60)}m`
+                                  : 'Retry from this step'}
                             </button>
                           )}
                         </div>

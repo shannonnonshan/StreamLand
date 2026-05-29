@@ -305,13 +305,13 @@ export default function Home() {
                   <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
                     <div className="space-y-2">
                       <div className="flex items-start gap-2">
-                        <div className="w-6 h-6 bg-blue-500 rounded-full flex-shrink-0"></div>
+                        <div className="w-6 h-6 bg-blue-500 rounded-full shrink-0"></div>
                         <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg">
                           <p className="text-white text-sm">Great lesson! 🔥</p>
                         </div>
                       </div>
                       <div className="flex items-start gap-2">
-                        <div className="w-6 h-6 bg-purple-500 rounded-full flex-shrink-0"></div>
+                        <div className="w-6 h-6 bg-purple-500 rounded-full shrink-0"></div>
                         <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg">
                           <p className="text-white text-sm">I understand now, thank you! ❤️</p>
                         </div>
@@ -397,7 +397,7 @@ export default function Home() {
                     >
                       <div className="flex gap-4">
                         {/* Thumbnail */}
-                        <div className="relative w-32 h-20 rounded-lg overflow-hidden flex-shrink-0">
+                        <div className="relative w-32 h-20 rounded-lg overflow-hidden shrink-0">
                           <Image 
                             src={stream.thumbnail || 'https://images.unsplash.com/photo-1509228468518-180dd4864904?w=800&h=450&fit=crop'}
                             alt={stream.title}

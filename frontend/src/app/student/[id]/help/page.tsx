@@ -357,7 +357,7 @@ export default function StudentHelpPage() {
                 className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 {message.role === "assistant" && (
-                  <div className="h-8 w-8 rounded-lg bg-indigo-100 text-indigo-700 grid place-items-center flex-shrink-0">
+                  <div className="h-8 w-8 rounded-lg bg-indigo-100 text-indigo-700 grid place-items-center shrink-0">
                     <Bot className="w-4 h-4" />
                   </div>
                 )}
@@ -380,7 +380,7 @@ export default function StudentHelpPage() {
                 </div>
 
                 {message.role === "user" && (
-                  <div className="h-8 w-8 rounded-lg bg-slate-900 text-white grid place-items-center flex-shrink-0">
+                  <div className="h-8 w-8 rounded-lg bg-slate-900 text-white grid place-items-center shrink-0">
                     <User className="w-4 h-4" />
                   </div>
                 )}

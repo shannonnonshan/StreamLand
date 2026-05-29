@@ -10,6 +10,7 @@ const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false })
 
 interface AudienceProps {
   filter: string;
+  teacherId?: string;
 }
 
 // Helper function to get categories and data based on filter
@@ -85,8 +86,8 @@ const getChartConfig = (filter: string, stats: any) => {
   };
 };
 
-export default function Audience({ filter }: AudienceProps) {
-  const { stats, loading, error } = useTeacherDashboard(filter);
+export default function Audience({ filter, teacherId }: AudienceProps) {
+  const { stats, loading, error } = useTeacherDashboard(filter, teacherId);
   
   const chartConfig = getChartConfig(filter, stats);
   

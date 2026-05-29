@@ -82,7 +82,7 @@ function SearchVideoCard({ item, index }: { item: SearchResult; index: number })
       }`}
     >
       <div className="flex flex-col md:flex-row gap-4">
-        <div className="relative w-full md:w-56 h-36 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0">
+        <div className="relative w-full md:w-56 h-36 rounded-xl overflow-hidden bg-gray-100 shrink-0">
           {item.thumbnailUrl && !imageError ? (
             <Image
               src={item.thumbnailUrl}

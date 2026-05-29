@@ -448,7 +448,7 @@ export default function RecordingsPage() {
                   onClick={() => router.push(`/teacher/${teacherId}/recordings/detail/${rec.id}`)}
                 >
                   <div className="flex gap-4 p-4">
-                    <div className="relative w-48 h-28 flex-shrink-0 rounded-lg overflow-hidden">
+                    <div className="relative w-48 h-28 shrink-0 rounded-lg overflow-hidden">
                       <Image
                         src={rec.thumbnail || "/logo.png"}
                         alt={rec.title}

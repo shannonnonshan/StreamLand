@@ -1647,7 +1647,7 @@ export default function VideoPlayerPage() {
                   {isAuthenticated ? (
                     <div className="mb-4">
                       <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden bg-gray-200">
+                        <div className="shrink-0 w-8 h-8 rounded-full overflow-hidden bg-gray-200">
                           {currentStudent?.avatar ? (
                             <Image
                               src={currentStudent.avatar}
@@ -1680,7 +1680,7 @@ export default function VideoPlayerPage() {
                       <div key={c.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
                         <div className="flex items-start justify-between">
                           <div className="flex items-start gap-3">
-                            <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
+                            <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 shrink-0">
                               {c.authorAvatar ? (
                                 <Image
                                   src={c.authorAvatar}
@@ -1832,7 +1832,7 @@ export default function VideoPlayerPage() {
                   <div className="space-y-3">
                     {relatedVideos.slice(0, displayedVideos).map((video) => (
                       <div key={video.id} onClick={() => router.push(`/student/video/${video.id}`)} className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
-                        <div className="w-36 h-20 relative flex-shrink-0 rounded-md overflow-hidden bg-gray-200">
+                        <div className="w-36 h-20 relative shrink-0 rounded-md overflow-hidden bg-gray-200">
                           <Image src={video.thumbnail || '/logo.png'} alt={video.title} fill className="object-cover" />
                           {video.duration > 0 && (
                             <div className="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-2 py-0.5 rounded">{formatTime(video.duration)}</div>

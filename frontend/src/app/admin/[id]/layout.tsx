@@ -232,7 +232,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                       : "text-gray-600 hover:text-gray-900"
                   }`}
                 >
-                  <Search className="mr-2 flex-shrink-0" />
+                  <Search className="mr-2 shrink-0" />
                   <span className="absolute right-0 top-8 hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 transform translate-x-8">
                     Search
                   </span>
@@ -253,7 +253,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   }`}
                 >
                   <div className="relative">
-                    <Bell className="mr-2 flex-shrink-0" />
+                    <Bell className="mr-2 shrink-0" />
                     <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
                       3
                     </span>
@@ -356,7 +356,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                         className="p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
                       >
                         <div className="flex items-start gap-3">
-                          <div className="flex-shrink-0">
+                          <div className="shrink-0">
                             {notification.type === 'report' && (
                               <Flag className="text-red-500" size={20} />
                             )}
@@ -379,7 +379,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                             </p>
                           </div>
                           {!notification.isRead && (
-                            <div className="flex-shrink-0">
+                            <div className="shrink-0">
                               <div className="h-2 w-2 bg-blue-500 rounded-full"></div>
                             </div>
                           )}

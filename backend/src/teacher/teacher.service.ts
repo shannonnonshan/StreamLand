@@ -41,6 +41,13 @@ export class TeacherService {
 
   // Get teacher videos/livestreams
   async getTeacherVideos(teacherId: string, page: number = 1, limit: number = 20) {
+    const cacheKey = `teacher:${teacherId}:videos:${page}:${limit}`;
+    const cachedVideos = await this.redisService.get<unknown[]>(cacheKey);
+
+    if (cachedVideos) {
+      return cachedVideos;
+    }
+
     const skip = (page - 1) * limit;
     const livestreams = await this.prisma.postgres.liveStream.findMany({
       where: {
@@ -80,7 +87,7 @@ export class TeacherService {
       },
     });
 
-    return livestreams.map(stream => ({
+    const result = livestreams.map(stream => ({
       id: stream.id,
       title: stream.title,
       description: stream.description,
@@ -95,6 +102,9 @@ export class TeacherService {
       date: stream.endedAt || stream.startedAt || stream.scheduledAt || stream.createdAt,
       teacherId,
     }));
+
+    await this.redisService.set(cacheKey, result, 120);
+    return result;
   }
 
   // Helper to format duration in seconds to HH:MM:SS or MM:SS
@@ -114,12 +124,31 @@ export class TeacherService {
 
   // Get dashboard stats for teacher
   async getDashboardStats(teacherId: string, filter?: string) {
+    const cacheKey = `teacher:${teacherId}:dashboard:${filter || 'default'}`;
+    const cachedStats = await this.redisService.get<Record<string, unknown>>(cacheKey);
+
+    if (cachedStats) {
+      return cachedStats;
+    }
+
     // Run all database queries in parallel (Promise.all) instead of sequentially
     const [teacher, totalLivestreams, endedLivestreams, totalDocuments, scheduledLivestreams, allEndedStreams, topLivestreams] = await Promise.all([
       // Query 1: Get teacher with profile
       this.prisma.postgres.user.findUnique({
         where: { id: teacherId },
-        include: { teacherProfile: { include: { followers: true } } },
+        select: {
+          id: true,
+          teacherProfile: {
+            select: {
+              rating: true,
+              _count: {
+                select: {
+                  followers: true,
+                },
+              },
+            },
+          },
+        },
       }),
       
       // Query 2: Count total livestreams
@@ -200,7 +229,7 @@ export class TeacherService {
     });
     
     // Use followers count as subscriber growth (simpler approach)
-    const totalFollowers = teacher.teacherProfile.followers.length;
+    const totalFollowers = teacher.teacherProfile._count.followers;
     monthRanges.forEach(() => {
       // For now, just spread the total followers evenly
       monthlySubscribers.push(Math.round(totalFollowers / last12Months));
@@ -238,7 +267,7 @@ export class TeacherService {
       }
     }
 
-    return {
+    const stats = {
       totalStudents: totalFollowers,
       totalLivestreams,
       totalRecordings: endedLivestreams.length,
@@ -254,6 +283,9 @@ export class TeacherService {
       rating: teacher.teacherProfile.rating,
       topLivestreams,
     };
+
+    await this.redisService.set(cacheKey, stats, 120);
+    return stats;
   }
 
   // Get teacher profile by ID
@@ -265,38 +297,57 @@ export class TeacherService {
       return cachedProfile;
     }
 
-    const teacher = await this.prisma.postgres.user.findUnique({
-      where: { 
-        id: teacherId,
-      },
-      include: {
-        teacherProfile: {
-          include: {
-            followers: true,
+    const [teacher, totalVideos] = await Promise.all([
+      this.prisma.postgres.user.findUnique({
+        where: {
+          id: teacherId,
+        },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          avatar: true,
+          bio: true,
+          location: true,
+          createdAt: true,
+          twoFactorEnabled: true,
+          teacherProfile: {
+            select: {
+              education: true,
+              experience: true,
+              website: true,
+              linkedin: true,
+              subjects: true,
+              cvUrl: true,
+              rating: true,
+              _count: {
+                select: {
+                  followers: true,
+                },
+              },
+            },
           },
         },
-      },
-    });
+      }),
+      this.prisma.postgres.liveStream.count({
+        where: {
+          teacherId,
+          isPublic: true,
+          OR: [
+            { status: 'LIVE' },
+            { status: 'SCHEDULED' },
+            {
+              status: 'ENDED',
+              recordingUrl: { not: null }, // Only count ended streams with recordings
+            },
+          ],
+        },
+      }),
+    ]);
 
     if (!teacher || !teacher.teacherProfile) {
       throw new NotFoundException('Teacher not found');
     }
-
-    // Count total videos/livestreams for this teacher
-    const totalVideos = await this.prisma.postgres.liveStream.count({
-      where: {
-        teacherId,
-        isPublic: true,
-        OR: [
-          { status: 'LIVE' },
-          { status: 'SCHEDULED' },
-          { 
-            status: 'ENDED',
-            recordingUrl: { not: null } // Only count ended streams with recordings
-          },
-        ],
-      },
-    });
 
     const profile: TeacherProfileResponse = {
       id: teacher.id,
@@ -307,7 +358,7 @@ export class TeacherService {
       avatar: teacher.avatar || '/logo.png',
       bio: teacher.bio || '',
       location: teacher.location || null,
-      subscribers: teacher.teacherProfile.followers.length,
+      subscribers: teacher.teacherProfile._count.followers,
       totalVideos,
       rating: teacher.teacherProfile.rating,
       createAt: teacher.createdAt,
@@ -329,7 +380,7 @@ export class TeacherService {
       linkedin: teacher.teacherProfile.linkedin || null,
     };
 
-    await this.redisService.set(cacheKey, profile, 300);
+    await this.redisService.set(cacheKey, profile, 180);
     return profile;
   }
 

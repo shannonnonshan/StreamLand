@@ -587,15 +587,15 @@ export default function LivestreamViewerPage() {
                       <div className="flex items-center justify-between p-3 bg-green-50 border-b-2 border-green-200">
                         <div className="flex items-center gap-2 flex-1 min-w-0">
                           {sharedDocument.type === 'pdf' || sharedDocument.type === 'doc' || sharedDocument.type === 'ppt' ? (
-                            <DocumentIcon className="h-5 w-5 text-red-600 flex-shrink-0" />
+                            <DocumentIcon className="h-5 w-5 text-red-600 shrink-0" />
                           ) : sharedDocument.type === 'image' ? (
-                            <PhotoIcon className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                            <PhotoIcon className="h-5 w-5 text-blue-600 shrink-0" />
                           ) : (
-                            <VideoCameraIcon className="h-5 w-5 text-purple-600 flex-shrink-0" />
+                            <VideoCameraIcon className="h-5 w-5 text-purple-600 shrink-0" />
                           )}
                           <h3 className="font-semibold text-sm truncate">{sharedDocument.name}</h3>
                         </div>
-                        <span className="text-xs text-white px-3 py-1 bg-green-600 rounded-full flex-shrink-0 font-semibold animate-pulse">
+                        <span className="text-xs text-white px-3 py-1 bg-green-600 rounded-full shrink-0 font-semibold animate-pulse">
                           🎓 Shared by Teacher
                         </span>
                       </div>
@@ -753,7 +753,7 @@ export default function LivestreamViewerPage() {
                     <div className="flex-1 overflow-y-auto p-3 space-y-2.5 scrollbar-hide">
                       {chatMessages.map((msg) => (
                         <div key={msg.id} className="flex gap-2 animate-slide-up">
-                          <div className={`h-7 w-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-lg ${msg.userRole === 'teacher'
+                          <div className={`h-7 w-7 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-lg ${msg.userRole === 'teacher'
                             ? 'bg-[#EC255A]'
                             : 'bg-[#161853]'
                             }`}>
@@ -817,7 +817,7 @@ export default function LivestreamViewerPage() {
                         <button
                           onClick={sendChatMessage}
                           disabled={!chatMessage.trim() || !user}
-                          className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg whitespace-nowrap"
+                          className="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg whitespace-nowrap"
                         >
                           Send
                         </button>
@@ -1013,7 +1013,7 @@ export default function LivestreamViewerPage() {
         
             {/* Documents Sidebar - Teacher's Shared Materials */}
             {showDocuments && (
-              <div className="w-96 flex-shrink-0 flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-200 sticky top-4 max-h-[calc(100vh-2rem)]">
+              <div className="w-96 shrink-0 flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-200 sticky top-4 max-h-[calc(100vh-2rem)]">
                 {/* Documents Header */}
                 <div className="p-4 bg-[#161853] text-white flex items-center justify-between shadow-lg">
                   <div className="flex items-center gap-3">
@@ -1061,7 +1061,7 @@ export default function LivestreamViewerPage() {
                           >
                             {/* Document Header */}
                             <div className="flex items-start gap-3 mb-3">
-                              <div className="flex-shrink-0">
+                              <div className="shrink-0">
                                 {getFileIcon(doc.type)}
                               </div>
                               <div className="flex-1 min-w-0">
@@ -1121,7 +1121,7 @@ export default function LivestreamViewerPage() {
                             {/* Saved Indicator */}
                             {isSaved && (
                               <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
-                                <CheckIcon className="h-4 w-4 text-green-600 flex-shrink-0" />
+                                <CheckIcon className="h-4 w-4 text-green-600 shrink-0" />
                                 <p className="text-xs text-green-700 font-medium">
                                   Available in your Documents library
                                 </p>
@@ -1137,7 +1137,7 @@ export default function LivestreamViewerPage() {
                 {/* Footer Info */}
                 <div className="p-4 border-t-2 border-gray-200 bg-gray-50">
                   <div className="flex items-start gap-2 text-xs text-gray-600">
-                    <div className="p-1.5 bg-[#161853]/10 rounded-lg flex-shrink-0">
+                    <div className="p-1.5 bg-[#161853]/10 rounded-lg shrink-0">
                       <svg className="h-4 w-4 text-[#161853]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>

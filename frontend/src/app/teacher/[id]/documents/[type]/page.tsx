@@ -26,13 +26,15 @@ export default function DocumentsTypePage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(12);
   const [isUploading, setIsUploading] = useState(false);
-  const [showDescriptionModal, setShowDescriptionModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingTitle, setPendingTitle] = useState("");
   const [pendingDescription, setPendingDescription] = useState("");
   const [editingDescription, setEditingDescription] = useState(false);
   const [editDescriptionValue, setEditDescriptionValue] = useState("");
   const [editDescriptionLoading, setEditDescriptionLoading] = useState(false);
   const descriptionInputRef = useRef<HTMLInputElement>(null);
+  const uploadFileInputRef = useRef<HTMLInputElement>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
@@ -157,13 +159,22 @@ export default function DocumentsTypePage() {
     fetchDocuments();
   }, [teacherId, type, setDocuments, setError, setIsLoading]);
 
-  // Khi chọn file, show modal nhập description
+  const openUploadModal = () => {
+    setPendingFiles([]);
+    setPendingTitle("");
+    setPendingDescription("");
+    setShowUploadModal(true);
+  };
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
-    setPendingFiles(Array.from(files));
+
+    const selectedFiles = Array.from(files);
+    setPendingFiles(selectedFiles);
     setPendingDescription("");
-    setShowDescriptionModal(true);
+    setPendingTitle((currentTitle) => currentTitle.trim() || selectedFiles[0]?.name.replace(/\.[^.]+$/, "") || "");
+    setShowUploadModal(true);
     // Reset input để có thể chọn lại cùng file
     event.target.value = '';
   };
@@ -174,7 +185,7 @@ export default function DocumentsTypePage() {
     try {
       const uploadedDocs: Document[] = [];
       for (const file of pendingFiles) {
-        const data = await uploadDocument(teacherId, file, pendingDescription);
+        const data = await uploadDocument(teacherId, file, pendingDescription, pendingTitle);
         uploadedDocs.push(data);
       }
       setDocuments((prev) => [...uploadedDocs, ...prev]);
@@ -185,8 +196,9 @@ export default function DocumentsTypePage() {
         confirmText: 'OK',
         cancelText: 'Close'
       });
-      setShowDescriptionModal(false);
+      setShowUploadModal(false);
       setPendingFiles([]);
+      setPendingTitle("");
       setPendingDescription("");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Failed to upload documents';
@@ -284,17 +296,15 @@ export default function DocumentsTypePage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3 xl:justify-end">
-              <label className="inline-flex min-w-45 cursor-pointer items-center justify-center gap-2.5 rounded-full bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 hover:shadow-md active:scale-[0.99]">
+              <button
+                type="button"
+                className="inline-flex min-w-45 items-center justify-center gap-2.5 rounded-full bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={openUploadModal}
+                disabled={isUploading}
+              >
                 <Upload size={17} />
                 <span>{isUploading ? 'Uploading...' : 'Upload Documents'}</span>
-                <input
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={handleFileUpload}
-                  disabled={isUploading}
-                />
-              </label>
+              </button>
 
               <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
                 <Filter size={16} />
@@ -810,29 +820,68 @@ export default function DocumentsTypePage() {
         </div>
       )}
 
-      {/* Modal: Add description when uploading */}
-      {showDescriptionModal && (
+      {/* Modal: Upload document */}
+      {showUploadModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
-            <h3 className="text-lg font-bold mb-2">Add a description for the document</h3>
-            <p className="text-sm text-gray-500 mb-4">You can enter a description for this document (optional).</p>
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 className="mb-2 text-lg font-bold text-slate-900">Upload document</h3>
+            <p className="mb-4 text-sm text-gray-500">Choose a file, add a title, and optionally add a description.</p>
+
             <input
-              className="w-full rounded border px-3 py-2 mb-4 text-sm"
+              ref={uploadFileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleFileUpload}
+              disabled={isUploading}
+            />
+
+            <button
+              type="button"
+              className="mb-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => uploadFileInputRef.current?.click()}
+              disabled={isUploading}
+            >
+              <Upload size={16} />
+              {pendingFiles.length > 0 ? `Selected ${pendingFiles.length} file(s)` : 'Choose file'}
+            </button>
+
+            {pendingFiles.length > 0 && (
+              <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                <p className="mb-2 font-semibold text-slate-700">Selected file(s)</p>
+                <ul className="space-y-1">
+                  {pendingFiles.map((file) => (
+                    <li key={`${file.name}-${file.size}`} className="truncate">
+                      {file.name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <input
+              className="mb-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-emerald-300"
+              placeholder="Enter document title..."
+              value={pendingTitle}
+              onChange={e => setPendingTitle(e.target.value)}
+              disabled={isUploading}
+            />
+            <input
+              className="mb-4 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-emerald-300"
               placeholder="Enter document description..."
               value={pendingDescription}
               onChange={e => setPendingDescription(e.target.value)}
-              autoFocus
               disabled={isUploading}
             />
             <div className="flex gap-3">
               <button
-                className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50"
+                className="flex-1 rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={handleConfirmUpload}
-                disabled={isUploading}
+                disabled={isUploading || pendingFiles.length === 0}
               >{isUploading ? 'Uploading...' : 'Confirm & Upload'}</button>
               <button
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 disabled:opacity-50"
-                onClick={() => { setShowDescriptionModal(false); setPendingFiles([]); setPendingDescription(""); }}
+                className="flex-1 rounded-xl bg-gray-200 px-4 py-3 font-semibold text-gray-700 transition hover:bg-gray-300 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => { setShowUploadModal(false); setPendingFiles([]); setPendingTitle(""); setPendingDescription(""); }}
                 disabled={isUploading}
               >Cancel</button>
             </div>

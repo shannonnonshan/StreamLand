@@ -338,7 +338,25 @@ model Comment {
 }
 
 // Real-time User Presence
-// User presence model removed (unused)
+model UserPresence {
+  id       String     @id @default(auto()) @map("_id") @mongodb.ObjectId
+  userId   String     @unique
+  status   UserStatus @default(OFFLINE)
+  lastSeen DateTime   @default(now())
+  socketId String?
+  metadata Json?
+
+  @@index([status])
+  @@map("user_presences")
+}
+
+enum UserStatus {
+  ONLINE
+  OFFLINE
+  BUSY
+  AWAY
+}
+
 // Student Notebook - Saved documents from livestreams
 model StudentNotebook {
   id           String @id @default(auto()) @map("_id") @mongodb.ObjectId
@@ -501,4 +519,137 @@ enum LearningActivityType {
 }
 
 // Personal Activities: learning journal, notes, plans, reactions, comments, XP and badges
-// Activity, study note, reward and related models removed (unused)
+model Activity {
+  id         String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  userId     String
+  type       String // e.g. status, note_update, plan_milestone, streak
+  content    String?
+  media      Json? // [{type, url, thumbnail, meta}]
+  attached   Json? // { contentType, contentId }
+  hashtags   String[]
+  visibility String   @default("public") // public | followers | private
+  replyTo    String? // activity id
+  pinned     Boolean  @default(false)
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([hashtags])
+  @@map("activities")
+}
+
+model StudyNote {
+  id                 String    @id @default(auto()) @map("_id") @mongodb.ObjectId
+  userId             String
+  title              String
+  description        String?
+  status             String    @default("planned") // planned|in_progress|paused|completed
+  progressPercentage Int       @default(0)
+  visibility         String    @default("private")
+  startedAt          DateTime?
+  completedAt        DateTime?
+  isTemplate         Boolean   @default(false)
+  tags               String[]
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([isTemplate])
+  @@map("study_notes")
+}
+
+model StudyNoteTask {
+  id          String    @id @default(auto()) @map("_id") @mongodb.ObjectId
+  noteId      String
+  title       String
+  details     String?
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  orderIndex  Int       @default(0)
+  deadline    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([noteId, orderIndex])
+  @@map("study_note_tasks")
+}
+
+model ActivityReaction {
+  id         String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  activityId String
+  userId     String
+  type       String // e.g. motivated, clap, keep_going, rocket
+  createdAt  DateTime @default(now())
+
+  @@unique([activityId, userId, type])
+  @@index([activityId])
+  @@map("activity_reactions")
+}
+
+model ActivityComment {
+  id         String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  activityId String
+  userId     String
+  content    String
+  parentId   String?
+  likeCount  Int      @default(0)
+  likedBy    String[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([activityId, createdAt])
+  @@map("activity_comments")
+}
+
+model XpEntry {
+  id        String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  userId    String
+  source    String // e.g. task_complete, note_complete, streak
+  sourceId  String? // related resource id
+  amount    Int
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("xp_ledger")
+}
+
+model Badge {
+  id          String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  code        String   @unique
+  title       String
+  description String?
+  icon        String?
+  criteria    Json? // expression or rule descriptor
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id        String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  userId    String
+  badgeCode String
+  awardedAt DateTime @default(now())
+  metadata  Json?
+
+  @@unique([userId, badgeCode])
+  @@index([userId])
+  @@map("user_badges")
+}
+
+model SharedPlan {
+  id         String   @id @default(auto()) @map("_id") @mongodb.ObjectId
+  sourceNote String // study note id
+  ownerId    String
+  title      String
+  visibility String   @default("public")
+  tags       String[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([ownerId, createdAt])
+  @@map("shared_plans")
+}

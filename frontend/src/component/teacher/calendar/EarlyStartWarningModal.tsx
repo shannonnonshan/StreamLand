@@ -38,7 +38,7 @@ export default function EarlyStartWarningModal({
         </button>
 
         <div className="flex items-start gap-4 mb-4">
-          <div className="flex-shrink-0">
+          <div className="shrink-0">
             <AlertCircle className="h-6 w-6 text-amber-600" />
           </div>
           <div>

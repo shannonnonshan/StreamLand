@@ -30,7 +30,7 @@ export interface DashboardStats {
 const dashboardCache = new Map<string, { data: DashboardStats; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-export function useTeacherDashboard(filter?: string) {
+export function useTeacherDashboard(filter?: string, teacherIdFromParam?: string) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,13 +40,18 @@ export function useTeacherDashboard(filter?: string) {
       try {
         const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
         const userStr = localStorage.getItem('user');
-        
-        if (!token || !userStr) {
-          throw new Error('Not authenticated - Please login again');
+
+        // Allow passing teacherId from route params (preferred when viewing other teachers)
+        let teacherId = teacherIdFromParam;
+
+        if (!teacherId) {
+          if (!token || !userStr) {
+            throw new Error('Not authenticated - Please login again');
+          }
+
+          const user = JSON.parse(userStr);
+          teacherId = user.id;
         }
-        
-        const user = JSON.parse(userStr);
-        const teacherId = user.id;
         
         if (!teacherId) {
           throw new Error('Teacher ID not found');
@@ -114,7 +119,7 @@ export function useTeacherDashboard(filter?: string) {
     };
 
     fetchStats();
-  }, [filter]);
+  }, [filter, teacherIdFromParam]);
 
   return { stats, loading, error };
 }

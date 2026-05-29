@@ -56,11 +56,11 @@ export default function Toast({ message, type, onClose, duration = 4000 }: Toast
       <div
         className={`flex items-center gap-3 p-4 rounded-lg border-2 shadow-lg min-w-[300px] max-w-md ${getStyles()}`}
       >
-        <div className="flex-shrink-0">{getIcon()}</div>
+        <div className="shrink-0">{getIcon()}</div>
         <p className="flex-1 text-sm font-medium text-gray-900">{message}</p>
         <button
           onClick={onClose}
-          className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
+          className="shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
         >
           <X className="w-5 h-5" />
         </button>

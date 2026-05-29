@@ -296,10 +296,10 @@ function VideoCard({ video, index = 0 }: { video: Livestream | Video; index?: nu
                 alt={video.teacher.fullName}
                 width={20}
                 height={20}
-                className="rounded-full mr-2 border border-gray-200 object-cover flex-shrink-0"
+                className="rounded-full mr-2 border border-gray-200 object-cover shrink-0"
               />
             ) : (
-              <div className="h-5 w-5 rounded-full bg-[#161853]/10 mr-2 border border-gray-200 flex items-center justify-center flex-shrink-0">
+              <div className="h-5 w-5 rounded-full bg-[#161853]/10 mr-2 border border-gray-200 flex items-center justify-center shrink-0">
                 <span className="text-xs text-[#161853]">{video.teacher.fullName.charAt(0)}</span>
               </div>
             )}
@@ -567,7 +567,7 @@ export default function LiveFollowingPage() {
               {filteredLivestreams.map((stream, index) => (
                 <motion.div 
                   key={stream.id} 
-                  className="flex-shrink-0 w-72 h-full snap-center" 
+                  className="shrink-0 w-72 h-full snap-center" 
                   variants={fadeInUp} 
                   transition={{ delay: 0.05 * (index < 8 ? index : 8) }} 
                   whileHover={{ y: -5, transition: { duration: 0.3 } }}

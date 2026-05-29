@@ -68,7 +68,7 @@ export default function RoleSelectorModal({ isOpen, closeModal, onSelectRole, pr
                     onClick={() => onSelectRole('STUDENT')}
                     className="group w-full flex items-center gap-4 p-6 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all duration-200"
                   >
-                    <div className="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <div className="shrink-0 w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
                       <AcademicCapIcon className="h-8 w-8 text-white" />
                     </div>
                     <div className="flex-1 text-left">
@@ -86,7 +86,7 @@ export default function RoleSelectorModal({ isOpen, closeModal, onSelectRole, pr
                     onClick={() => onSelectRole('TEACHER')}
                     className="group w-full flex items-center gap-4 p-6 border-2 border-gray-200 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-all duration-200"
                   >
-                    <div className="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <div className="shrink-0 w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
                       <UserGroupIcon className="h-8 w-8 text-white" />
                     </div>
                     <div className="flex-1 text-left">

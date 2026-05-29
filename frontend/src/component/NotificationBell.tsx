@@ -238,7 +238,13 @@ export default function NotificationBell() {
                 <p>Chưa có thông báo</p>
               </div>
             ) : (
-              notifications.map((notification) => (
+              notifications.map((notification) => {
+                const friendRequestId = notification.data?.friendRequestId || '';
+                const hasFriendRequestActions =
+                  notification.data?.type === 'friend_request' &&
+                  !processedRequests.has(friendRequestId);
+
+                return (
                 <div
                   key={notification.id}
                   onClick={() => handleNotificationClick(notification)}
@@ -248,7 +254,7 @@ export default function NotificationBell() {
                 >
                   <div className="flex gap-3">
                     {/* Icon/Avatar */}
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       {getNotificationIcon(notification)}
                     </div>
 
@@ -265,8 +271,7 @@ export default function NotificationBell() {
                       </p>
 
                       {/* Friend Request Actions */}
-                      {notification.data?.type === 'friend_request' && 
-                       !processedRequests.has(notification.data.friendRequestId || '') && (
+                      {hasFriendRequestActions && (
                         <div className="flex gap-2 mt-2">
                           <button
                             onClick={(e) => handleAcceptFriendRequest(e, notification)}
@@ -284,8 +289,7 @@ export default function NotificationBell() {
                       )}
 
                       {/* Show processed message for friend requests */}
-                      {notification.data?.type === 'friend_request' && 
-                       processedRequests.has(notification.data.friendRequestId || '') && (
+                      {notification.data?.type === 'friend_request' && !hasFriendRequestActions && (
                         <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg">
                           <p className="text-xs text-green-700 font-medium">
                             ✓ Đã chấp nhận lời mời kết bạn
@@ -322,15 +326,19 @@ export default function NotificationBell() {
                           e.stopPropagation();
                           deleteNotification(notification.id);
                         }}
-                        className="p-1 rounded hover:bg-red-100 text-red-600"
+                        className={hasFriendRequestActions
+                          ? 'p-1 rounded hover:bg-red-100 text-red-600'
+                          : 'inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100'}
                         title="Xóa"
                       >
-                        <TrashIcon className="w-4 h-4" />
+                        <TrashIcon className={hasFriendRequestActions ? 'w-4 h-4' : 'w-4 h-4'} />
+                        {!hasFriendRequestActions && <span>Xóa</span>}
                       </button>
                     </div>
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
 

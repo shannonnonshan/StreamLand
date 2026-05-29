@@ -396,7 +396,7 @@ function EnglishVideoCard({ item, index, progressRatio }: { item: VideoData; ind
       }`}
     >
       <div className="flex flex-col md:flex-row gap-4">
-        <div className="relative w-full md:w-56 h-36 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0">
+        <div className="relative w-full md:w-56 h-36 rounded-xl overflow-hidden bg-gray-100 shrink-0">
           {item.thumbnailUrl && !imageError ? (
             <Image
               src={item.thumbnailUrl}
@@ -1138,7 +1138,7 @@ export default function StudentDashboard() {
                 {topLivestreams.map((stream, index) => (
                   <motion.div
                     key={stream.id}
-                    className="flex-shrink-0 w-72 sm:w-72 md:w-72 lg:w-72 snap-center"
+                    className="shrink-0 w-72 sm:w-72 md:w-72 lg:w-72 snap-center"
                     variants={fadeInUp}
                     transition={{ delay: 0.1 * (index > 5 ? 5 : index) }}
                     whileHover={{ y: -5, transition: { duration: 0.3 } }}

@@ -39,6 +39,7 @@ export class DocumentController {
     @Param('teacherId') teacherId: string,
     @UploadedFile() file: MulterFile,
     @Body('description') description: string | undefined,
+    @Body('title') title: string | undefined,
     @Request() req: { user: { sub: string } },
   ) {
     if (req.user.sub !== teacherId) {
@@ -49,7 +50,7 @@ export class DocumentController {
       throw new BadRequestException('No file uploaded');
     }
 
-    return this.documentService.uploadTeacherDocument(teacherId, file, description);
+    return this.documentService.uploadTeacherDocument(teacherId, file, description, title);
   }
 
   @Patch('teacher/:teacherId/:documentId/description')
@@ -85,7 +86,7 @@ export class DocumentController {
     @Query('autoTranscribe') autoTranscribe: string | undefined,
     @Request() req: { user: { sub: string; role?: string } },
   ) {
-    return this.documentService.getDocumentAiAnalysis(documentId, req.user, autoTranscribe !== 'false');
+    return this.documentService.getDocumentAiAnalysis(documentId, req.user, autoTranscribe === 'true');
   }
 
   @Get(':id/moderation')

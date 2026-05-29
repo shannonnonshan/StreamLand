@@ -18,6 +18,7 @@ export interface ProcessingStepState {
   step: ProcessingStep;
   status: ProcessingStepStatus;
   message?: string | null;
+  errorMessage?: string | null;
   timestamp: string;
 }
 
@@ -39,8 +40,9 @@ export interface ProcessingStatusResponse {
 export async function getProcessingStatus(
   entityType: ProcessingEntityType,
   entityId: string,
+  options: RequestInit = {},
 ): Promise<ProcessingStatusResponse> {
-  return authenticatedFetch(`${API_URL}/processing/${entityType}/${entityId}/status`);
+  return authenticatedFetch(`${API_URL}/processing/${entityType}/${entityId}/status`, options);
 }
 
 export async function retryProcessing(

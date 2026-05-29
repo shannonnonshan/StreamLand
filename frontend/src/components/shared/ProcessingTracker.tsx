@@ -79,6 +79,7 @@ interface ProcessingTrackerProps {
   entityId: string;
   entityType: ProcessingEntityType;
   showRetry?: boolean;
+  autoRetryOnFailed?: boolean;
   onCompleted?: () => void;
   onFailed?: (step: string) => void;
   triggerClassName?: string;
@@ -126,6 +127,7 @@ export default function ProcessingTracker({
   entityId,
   entityType,
   showRetry = false,
+  autoRetryOnFailed = false,
   onCompleted,
   onFailed,
   triggerClassName,
@@ -379,7 +381,7 @@ export default function ProcessingTracker({
 
   // Auto-retry khi FAILED, chỉ fire 1 lần per entityId+entityType
   useEffect(() => {
-    if (!showRetry) return;
+    if (!showRetry || !autoRetryOnFailed) return;
     if (!isFailed) {
       autoRetryFiredRef.current = false;
       return;
@@ -417,7 +419,7 @@ export default function ProcessingTracker({
       .finally(() => {
         setRetryingStep(null);
       });
-  }, [isFailed, showRetry, entityId, entityType]);
+  }, [isFailed, showRetry, autoRetryOnFailed, entityId, entityType]);
 
   useEffect(() => {
     if (!status) return;

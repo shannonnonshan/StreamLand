@@ -170,6 +170,20 @@ export async function updateDocumentDescription(
   });
 }
 
+export async function updateDocument(
+  teacherId: string,
+  documentId: string,
+  data: { title?: string; description?: string }
+): Promise<Document> {
+  return authenticatedFetch(`${API_URL}/documents/teacher/${teacherId}/${documentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      title: data.title?.trim(),
+      description: data.description?.trim(),
+    }),
+  });
+}
+
 export async function deleteDocument(teacherId: string, documentId: string): Promise<void> {
   await authenticatedFetch(`${API_URL}/documents/teacher/${teacherId}/${documentId}`, {
     method: 'DELETE',

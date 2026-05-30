@@ -34,3 +34,54 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Quick Start (StreamLand frontend)
+
+1. Install dependencies
+
+```bash
+cd frontend
+npm install
+```
+
+2. Create a `.env` file with at least the following variables:
+
+```
+NEXT_PUBLIC_API_URL="http://localhost:3001"
+NEXT_PUBLIC_SOCKET_URL="http://localhost:3001"
+NEXT_PUBLIC_WEBRTC_STUN_URLS="stun:stun.l.google.com:19302"
+```
+
+3. Run the development server
+
+```bash
+npm run dev
+```
+
+4. Build for production
+
+```bash
+npm run build
+npm start
+```
+
+## Environment variables
+
+- `NEXT_PUBLIC_API_URL` — Backend API base URL (e.g. `http://localhost:3001`).
+- `NEXT_PUBLIC_SOCKET_URL` — Socket.IO server URL.
+- `NEXT_PUBLIC_WEBRTC_STUN_URLS` — Comma-separated STUN server URLs.
+- `NEXT_PUBLIC_WEBRTC_TURN_URLS` (optional) — TURN server(s) for production.
+
+## Deploy
+
+- Vercel: Connect repository to Vercel and set environment variables in the Vercel dashboard.
+- Docker: Create a simple Dockerfile if you need containerized frontend deployments.
+
+## Key paths (frontend)
+
+- `frontend/src/` — application code: pages, components, hooks, contexts, and styles.
+- `frontend/public/` — static assets served by Next.js (images, admin assets).
+- `frontend/package.json` — frontend scripts and dependencies.
+- `frontend/next.config.ts` — Next.js configuration specific to the project.
+
+

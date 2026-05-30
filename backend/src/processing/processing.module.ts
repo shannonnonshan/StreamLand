@@ -26,6 +26,6 @@ import { ProcessingStateService } from './processing-state.service';
   ],
   controllers: [ProcessingController],
   providers: [ProcessingService, ProcessingProcessor, ProcessingStateService, ProcessingGateway],
-  exports: [ProcessingService],
+  exports: [ProcessingService, ProcessingStateService],
 })
 export class ProcessingModule {}

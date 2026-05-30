@@ -43,6 +43,7 @@ export interface ProcessingJobPayload {
   itemId: string;
   fileUrl: string;
   title: string;
+  audioUrl?: string | null;
 }
 
 export type ProcessingJobStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';

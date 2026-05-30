@@ -50,6 +50,17 @@ The platform uses **WebRTC** with **TURN server support** to ensure reliable con
 - **Platform Analytics**: Monitor platform usage and statistics
 - **Settings**: Configure platform settings and parameters
 
+## Roles & Permissions (summary)
+
+StreamLand follows a simple RBAC model with these primary roles:
+
+- `admin` — full platform control (user management, stats, configuration).
+- `teacher` — create and manage livestreams, upload documents, view teacher dashboard.
+- `student` — join streams, view recordings, interact in chat and follow teachers.
+- `guest` — limited access for unauthenticated users.
+
+See `backend/README.md` for implementation notes (guards, JWT claims, ownership checks).
+
 ## Tech Stack
 
 ### Frontend
@@ -294,6 +305,22 @@ StreamLand/
 └── README.md                 # This file
 ```
 
+## Important paths
+
+Below are key repository paths and what they contain:
+
+- `backend/` — NestJS server source, Prisma schemas and seeds, Dockerfile, backend-specific scripts.
+- `backend/src/` — Backend TypeScript source code (modules, controllers, services).
+- `backend/prisma/postgres/` — PostgreSQL Prisma schema, migrations and seeds.
+- `backend/prisma/mongodb/` — MongoDB Prisma schema and seeds for chat/messages.
+- `frontend/` — Next.js frontend application source and public assets.
+- `frontend/src/` — Frontend application code (pages, components, hooks, contexts).
+- `frontend/public/` — Static assets served by Next.js (images, admin assets).
+- `docker-compose.yml` — Local Docker orchestration for services (db, app, etc.).
+- `nginx.conf` — Optional local reverse-proxy configuration used in some deployments.
+- `README.md` — Project overview and quick start (this file).
+
+
 ## 🔐 Environment Variables
 
 ### Required Backend Variables
@@ -378,6 +405,36 @@ The application includes **free public TURN servers** (Open Relay Project) confi
 ## 🔧 Development Tools
 
 ### Backend Commands
+
+## Contributing
+
+Thank you for your interest in contributing to StreamLand. To contribute:
+
+- Fork the repository and create a feature branch: `git checkout -b feature/your-feature`
+- Make small, focused changes with clear commit messages.
+- Open a pull request describing your changes and include any setup or test notes.
+
+Please follow the existing code style and run tests locally before submitting.
+
+## Troubleshooting & Quick Tips
+
+- If the backend doesn't start, check `.env` and database connections.
+- Run `npx prisma generate` after changing any Prisma schema files.
+- If frontend assets fail, run `npm install` in the `frontend` directory and clear Next.js cache.
+
+## License
+
+This project is licensed under the MIT License. See the LICENSE file for details.
+
+## Contact / Authors
+
+- Main authors: Đoàn Minh Khanh, Đinh Thị Thanh Vy
+- Project issues and contributions: please use the repository Issues tab.
+
+## Changelog
+
+See the repository tags or Git history for changes. Create release notes for major updates.
+
 
 ```bash
 # Start development server

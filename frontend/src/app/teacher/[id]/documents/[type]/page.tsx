@@ -34,6 +34,9 @@ export default function DocumentsTypePage() {
   const [editDescriptionValue, setEditDescriptionValue] = useState("");
   const [editDescriptionLoading, setEditDescriptionLoading] = useState(false);
   const descriptionInputRef = useRef<HTMLInputElement>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editTitleValue, setEditTitleValue] = useState("");
+  const [editTitleLoading, setEditTitleLoading] = useState(false);
   const uploadFileInputRef = useRef<HTMLInputElement>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -446,11 +449,29 @@ export default function DocumentsTypePage() {
                     </p>
                   </div>
 
-                  {doc.description ? (
-                    <p className="line-clamp-1 text-sm leading-5 text-slate-600">{doc.description}</p>
-                  ) : (
-                    <p className="text-sm text-slate-400">No description added.</p>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {doc.description ? (
+                      <p className="line-clamp-1 text-sm leading-5 text-slate-600 flex-1">{doc.description}</p>
+                    ) : (
+                      <p className="text-sm text-slate-400 flex-1">No description added.</p>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedDoc(doc);
+                        setEditDescriptionValue(doc.description || "");
+                        setEditTitleValue(doc.title || "");
+                        setTimeout(() => descriptionInputRef.current?.focus(), 100);
+                        setEditingDescription(true);
+                        setEditingTitle(true);
+                      }}
+                      className="p-2 rounded-full bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white shadow-sm transition"
+                      title="Edit title & description"
+                      aria-label="Edit title and description"
+                    >
+                      <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="pointer-events-none"><path d="M15.232 5.232l3.536 3.536M9 11l6.586-6.586a2 2 0 112.828 2.828L11.828 13.828a2 2 0 01-.707.464l-4 1a1 1 0 01-1.213-1.213l1-4a2 2 0 01.464-.707z"/></svg>
+                    </button>
+                  </div>
 
                   <div className="flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs text-slate-500">
                     <span>{(doc.fileSize / 1024 / 1024).toFixed(2)} MB</span>
@@ -578,7 +599,40 @@ export default function DocumentsTypePage() {
               <div className="mb-6 flex items-start justify-between border-b border-slate-100 pb-4">
                 <div className="flex-1">
                   <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Document Detail</p>
-                  <h3 className="mb-1 mt-1 text-xl font-black tracking-tight text-slate-900">{selectedDoc.title}</h3>
+                  {editingTitle ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        className="text-xl font-black tracking-tight text-slate-900 border-b border-slate-200 pb-1 focus:outline-none"
+                        value={editTitleValue}
+                        onChange={(e) => setEditTitleValue(e.target.value)}
+                        disabled={editTitleLoading}
+                      />
+                      <button
+                        className="px-3 py-1 rounded bg-emerald-600 text-white text-sm font-semibold"
+                        disabled={editTitleLoading}
+                        onClick={async () => {
+                          setEditTitleLoading(true);
+                          try {
+                            const updated = await import("@/lib/api/teacher").then(m => m.updateDocument(teacherId, selectedDoc.id, { title: editTitleValue, description: editingDescription ? editDescriptionValue : selectedDoc.description }));
+                            setDocuments(prev => prev.map(doc => doc.id === updated.id ? updated : doc));
+                            setSelectedDoc(updated);
+                            setEditingTitle(false);
+                          } catch (err) {
+                            showDialog({ title: 'Update Failed', message: 'Could not update title.', type: 'danger', confirmText: 'OK', cancelText: 'Close' });
+                          } finally {
+                            setEditTitleLoading(false);
+                          }
+                        }}
+                      >Save</button>
+                      <button
+                        className="px-3 py-1 rounded bg-gray-200 text-gray-700 text-sm font-semibold"
+                        disabled={editTitleLoading}
+                        onClick={() => { setEditingTitle(false); setEditTitleValue(''); }}
+                      >Cancel</button>
+                    </div>
+                  ) : (
+                    <h3 className="mb-1 mt-1 text-xl font-black tracking-tight text-slate-900">{selectedDoc.title}</h3>
+                  )}
                   <p className="text-sm font-medium text-slate-500">
                     Uploaded: {formatDateTime(selectedDoc.uploadedAt)}
                   </p>
@@ -597,42 +651,59 @@ export default function DocumentsTypePage() {
               <div className="mb-4 flex items-center gap-2">
                 {editingDescription ? (
                   <>
-                    <input
-                      ref={descriptionInputRef}
-                      className="flex-1 rounded border px-2 py-1 text-sm"
-                      value={editDescriptionValue}
-                      onChange={e => setEditDescriptionValue(e.target.value)}
-                      disabled={editDescriptionLoading}
-                      placeholder="Enter description..."
-                    />
-                    <button
-                      className="px-2 py-1 rounded bg-emerald-600 text-white text-xs font-semibold"
-                      disabled={editDescriptionLoading}
-                      onClick={async () => {
-                        setEditDescriptionLoading(true);
-                        try {
-                          const updated = await import("@/lib/api/teacher").then(m => m.updateDocumentDescription(teacherId, selectedDoc.id, editDescriptionValue));
-                          setDocuments(prev => prev.map(doc => doc.id === updated.id ? updated : doc));
-                          setSelectedDoc(updated);
-                          setEditingDescription(false);
-                        } catch (err) {
-                          showDialog({
-                            title: 'Update Failed',
-                            message: 'Could not update description.',
-                            type: 'danger',
-                            confirmText: 'OK',
-                            cancelText: 'Close'
-                          });
-                        } finally {
-                          setEditDescriptionLoading(false);
-                        }
-                      }}
-                    >Save</button>
-                    <button
-                      className="px-2 py-1 rounded bg-gray-200 text-gray-700 text-xs font-semibold"
-                      disabled={editDescriptionLoading}
-                      onClick={() => setEditingDescription(false)}
-                    >Cancel</button>
+                    <div className="flex flex-col gap-3 w-full">
+                      <label className="text-xs font-semibold text-slate-600">Edit title</label>
+                      <input
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-lg font-extrabold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 shadow-sm"
+                        value={editTitleValue}
+                        onChange={e => setEditTitleValue(e.target.value)}
+                        disabled={editTitleLoading}
+                        placeholder="Enter title..."
+                      />
+
+                      <label className="text-xs font-semibold text-slate-600">Edit description</label>
+                      <textarea
+                        ref={descriptionInputRef}
+                        className="w-full min-h-[120px] rounded-2xl border border-slate-200 px-4 py-3 text-sm leading-6 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 shadow-sm resize-vertical"
+                        value={editDescriptionValue}
+                        onChange={e => setEditDescriptionValue(e.target.value)}
+                        disabled={editDescriptionLoading}
+                        placeholder="Enter description..."
+                      />
+                    </div>
+                    <div className="flex items-center gap-3 mt-3">
+                      <button
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-60 relative z-60 pointer-events-auto"
+                        disabled={editDescriptionLoading || editTitleLoading}
+                        onClick={async () => {
+                          setEditDescriptionLoading(true);
+                          setEditTitleLoading(true);
+                          try {
+                            const updated = await import("@/lib/api/teacher").then(m => m.updateDocument(teacherId, selectedDoc.id, { title: editTitleValue, description: editDescriptionValue }));
+                            setDocuments(prev => prev.map(doc => doc.id === updated.id ? updated : doc));
+                            setSelectedDoc(updated);
+                            setEditingDescription(false);
+                            setEditingTitle(false);
+                          } catch (err) {
+                            showDialog({
+                              title: 'Update Failed',
+                              message: 'Could not update document.',
+                              type: 'danger',
+                              confirmText: 'OK',
+                              cancelText: 'Close'
+                            });
+                          } finally {
+                            setEditDescriptionLoading(false);
+                            setEditTitleLoading(false);
+                          }
+                        }}
+                      >Save</button>
+                      <button
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white border border-slate-200 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60 relative z-60 pointer-events-auto"
+                        disabled={editDescriptionLoading || editTitleLoading}
+                        onClick={() => { setEditingDescription(false); setEditingTitle(false); }}
+                      >Cancel</button>
+                    </div>
                   </>
                 ) : (
                   <>

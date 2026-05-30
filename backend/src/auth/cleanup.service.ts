@@ -8,28 +8,52 @@ export class CleanupService {
 
   constructor(private prisma: PrismaService) {}
 
+  private async runWithRetries<T>(
+    fn: () => Promise<T>,
+    attempts = 3,
+    delayMs = 2000,
+  ): Promise<T> {
+    let lastError: any;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastError = err;
+        const msg = err?.message || String(err);
+        this.logger.warn(
+          `Attempt ${i} failed in CleanupService: ${msg}. ${
+            i < attempts ? `Retrying in ${delayMs}ms...` : 'No more retries.'
+          }`,
+        );
+        if (i < attempts) {
+          await new Promise((r) => setTimeout(r, delayMs));
+        }
+      }
+    }
+    throw lastError;
+  }
+
   // Run every 2 minutes to delete expired pending registrations
   @Cron('*/2 * * * *')
   async cleanupExpiredPendingRegistrations() {
     try {
       const now = new Date();
-      // Delete pending registrations with expired OTP
-      const result = await this.prisma.postgres.pendingRegistration.deleteMany({
-        where: {
-          otpExpiry: {
-            lt: now,
+      // Delete pending registrations with expired OTP (retry on transient DB errors)
+      const result = await this.runWithRetries(() =>
+        this.prisma.postgres.pendingRegistration.deleteMany({
+          where: {
+            otpExpiry: {
+              lt: now,
+            },
           },
-        },
-      });
+        }),
+      );
 
       if (result.count > 0) {
         this.logger.log(`Cleaned up ${result.count} expired pending registrations`);
       }
     } catch (error) {
-      this.logger.error(
-        'Failed to cleanup expired pending registrations:',
-        error,
-      );
+      this.logger.error('Failed to cleanup expired pending registrations:', error);
     }
   }
 
@@ -39,13 +63,15 @@ export class CleanupService {
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-      const result = await this.prisma.postgres.pendingRegistration.deleteMany({
-        where: {
-          createdAt: {
-            lt: oneHourAgo,
+      const result = await this.runWithRetries(() =>
+        this.prisma.postgres.pendingRegistration.deleteMany({
+          where: {
+            createdAt: {
+              lt: oneHourAgo,
+            },
           },
-        },
-      });
+        }),
+      );
 
       if (result.count > 0) {
         this.logger.log(

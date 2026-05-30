@@ -91,6 +91,7 @@ export class ProcessingService {
           id: true,
           title: true,
           recordingUrl: true,
+          audioUrl: true,
         },
       });
 
@@ -107,6 +108,7 @@ export class ProcessingService {
         itemId: livestream.id,
         fileUrl: livestream.recordingUrl,
         title: livestream.title,
+        audioUrl: livestream.audioUrl ?? null,
       };
     }
 
@@ -116,6 +118,7 @@ export class ProcessingService {
         id: true,
         title: true,
         fileUrl: true,
+        audioUrl: true,
       },
     });
 
@@ -128,6 +131,7 @@ export class ProcessingService {
       itemId: document.id,
       fileUrl: document.fileUrl,
       title: document.title,
+      audioUrl: document.audioUrl ?? null,
     };
   }
 }

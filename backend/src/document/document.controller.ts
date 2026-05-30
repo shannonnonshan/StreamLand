@@ -67,6 +67,21 @@ export class DocumentController {
     return this.documentService.updateTeacherDocumentDescription(teacherId, documentId, description);
   }
 
+  @Patch('teacher/:teacherId/:documentId')
+  async updateTeacherDocument(
+    @Param('teacherId') teacherId: string,
+    @Param('documentId') documentId: string,
+    @Body('title') title: string | undefined,
+    @Body('description') description: string | undefined,
+    @Request() req: { user: { sub: string; role?: string } },
+  ) {
+    if (req.user.sub !== teacherId && req.user.role !== 'ADMIN') {
+      throw new BadRequestException('Unauthorized');
+    }
+
+    return this.documentService.updateTeacherDocument(teacherId, documentId, title, description);
+  }
+
   @Delete('teacher/:teacherId/:documentId')
   async deleteTeacherDocument(
     @Param('teacherId') teacherId: string,

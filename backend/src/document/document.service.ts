@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
 import { ProcessingService } from '../processing/processing.service';
+import { ProcessingStateService } from '../processing/processing-state.service';
 import { RedisService } from '../redis/redis.service';
 import { createWriteStream, promises as fs } from 'fs';
 import { spawn } from 'child_process';
@@ -26,11 +27,11 @@ interface AiTranscriptSummaryDocument {
   transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
   transcriptError?: string | null;
   transcript?: Prisma.JsonValue;
-  summary?: string;
+  summary?: string | null;
   moderationResult?: Prisma.JsonValue;
-  moderationCheckedAt?: Date;
-  transcriptGeneratedAt?: Date;
-  summaryGeneratedAt?: Date;
+  moderationCheckedAt?: Date | null;
+  transcriptGeneratedAt?: Date | null;
+  summaryGeneratedAt?: Date | null;
   processingProgress?: number;
   processingError?: string | null;
   createdAt?: Date;
@@ -93,6 +94,7 @@ export class DocumentService {
     private prisma: PrismaService,
     private r2StorageService: R2StorageService,
     private processingService: ProcessingService,
+    private processingStateService: ProcessingStateService,
     private redisService: RedisService,
   ) {}
 
@@ -245,6 +247,31 @@ export class DocumentService {
       where: { id: documentId },
       data: {
         description: description?.trim() || null,
+      },
+    });
+
+    await this.invalidateTeacherDocumentCache(teacherId);
+
+    return updatedDocument;
+  }
+
+  async updateTeacherDocument(teacherId: string, documentId: string, title?: string, description?: string) {
+    const existing = await this.prisma.postgres.document.findFirst({
+      where: {
+        id: documentId,
+        teacherId,
+      },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Document not found');
+    }
+
+    const updatedDocument = await this.prisma.postgres.document.update({
+      where: { id: documentId },
+      data: {
+        title: typeof title === 'string' && title.trim().length > 0 ? title.trim() : existing.title,
+        description: typeof description === 'string' ? (description.trim() || null) : existing.description,
       },
     });
 
@@ -710,6 +737,12 @@ export class DocumentService {
             isApprove: 'TRUE',
           },
         }).catch(() => undefined);
+
+        await this.updateDocumentProcessingState(documentId, {
+          processingProgress: PROCESSING_STAGE_PROGRESS.done,
+          processingError: null,
+        });
+        await this.updateDocumentProcessingStatus(documentId, 'DONE').catch(() => undefined);
       }
 
       return {
@@ -749,6 +782,22 @@ export class DocumentService {
 
     if (!this.isTranscribable(document.mimeType, document.fileType)) {
       throw new BadRequestException('Document type is not supported for transcription');
+    }
+
+    if (force) {
+      await this.processingStateService.resetForRetry('DOCUMENT', documentId);
+      await this.updateDocumentProcessingState(documentId, {
+        transcriptStatus: 'processing',
+        transcriptError: null,
+        transcript: null,
+        summary: null,
+        moderationResult: null,
+        moderationCheckedAt: null,
+        transcriptGeneratedAt: null,
+        summaryGeneratedAt: null,
+        processingProgress: PROCESSING_STAGE_PROGRESS.preparing,
+        processingError: null,
+      });
     }
 
     const existing = await this.getDocumentAiAnalysisDocument(documentId);
@@ -829,6 +878,12 @@ export class DocumentService {
       }
 
       await this.saveTranscriptAndMarkCompleted(documentId, transcript);
+
+      try {
+        await this.generateDocumentSummary(documentId, true, user);
+      } catch (summaryErr) {
+        this.logger.warn('Summary failed for document', String(summaryErr));
+      }
 
       return {
         ...(await this.getDocumentAiAnalysis(documentId, user, false)),

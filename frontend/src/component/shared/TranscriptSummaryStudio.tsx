@@ -19,6 +19,9 @@ type TranscriptPayload =
       text?: unknown;
       transcript?: unknown;
       result?: unknown;
+      payload?: unknown;
+      data?: unknown;
+      timestamps?: unknown[];
       segments?: unknown[];
     };
 
@@ -31,47 +34,134 @@ interface SubtitleCue {
 
 type ProcessingStage = 'queued' | 'preparing' | 'transcribing' | 'summarizing' | 'moderating' | 'done' | 'error';
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+};
+
+const extractTranscriptTextValue = (value: unknown, depth = 0): string => {
+  if (depth > 8 || value == null) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => extractTranscriptTextValue(item, depth + 1))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+
+  if (!isPlainObject(value)) {
+    return '';
+  }
+
+  const data = value as Record<string, unknown>;
+  const directCandidates = [
+    data.full_text,
+    data.text,
+    data.transcript,
+    data.result,
+    data.payload,
+    data.data,
+  ];
+
+  for (const candidate of directCandidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+
+    if (candidate && typeof candidate === 'object') {
+      const nestedText = extractTranscriptTextValue(candidate, depth + 1);
+      if (nestedText) {
+        return nestedText;
+      }
+    }
+  }
+
+  for (const key of ['timestamps', 'segments']) {
+    const blocks = data[key];
+    if (!Array.isArray(blocks)) {
+      continue;
+    }
+
+    const text = blocks
+      .map((item) => extractTranscriptTextValue(item, depth + 1))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+
+    if (text) {
+      return text;
+    }
+  }
+
+  for (const nestedValue of Object.values(data)) {
+    const nestedText = extractTranscriptTextValue(nestedValue, depth + 1);
+    if (nestedText) {
+      return nestedText;
+    }
+  }
+
+  return '';
+};
+
+const collectTranscriptSegments = (payload: unknown, depth = 0): Array<Record<string, unknown>> => {
+  if (depth > 8 || payload == null) {
+    return [];
+  }
+
+  if (Array.isArray(payload)) {
+    return payload.flatMap((item) => collectTranscriptSegments(item, depth + 1));
+  }
+
+  if (!isPlainObject(payload)) {
+    return [];
+  }
+
+  const data = payload as Record<string, unknown>;
+  const collected: Array<Record<string, unknown>> = [];
+
+  for (const key of ['timestamps', 'segments']) {
+    const blocks = data[key];
+    if (!Array.isArray(blocks)) {
+      continue;
+    }
+
+    for (const block of blocks) {
+      if (isPlainObject(block)) {
+        collected.push(block);
+      }
+    }
+  }
+
+  for (const key of ['transcript', 'result', 'payload', 'data']) {
+    const nested = data[key];
+    if (nested && typeof nested === 'object') {
+      collected.push(...collectTranscriptSegments(nested, depth + 1));
+    }
+  }
+
+  return collected;
+};
+
+const extractCueText = (segment: Record<string, unknown>): string => {
+  const textCandidate = [
+    segment.text,
+    segment.full_text,
+    segment.transcript,
+    segment.result,
+    segment.payload,
+  ].find((value) => typeof value === 'string');
+
+  return typeof textCandidate === 'string' ? textCandidate.trim() : '';
+};
+
 const normalizeTranscriptContent = (transcript: TranscriptPayload | null | undefined): string => {
-  if (typeof transcript === "string") {
-    return transcript.trim();
-  }
-
-  if (!transcript || typeof transcript !== "object") {
-    return "";
-  }
-
-  const data = transcript as Record<string, unknown>;
-
-  const directText = [data.full_text, data.text, data.transcript, data.result].find(
-    (value) => typeof value === "string",
-  );
-
-  if (typeof directText === "string") {
-    return directText.trim();
-  }
-
-  if (Array.isArray(data.segments)) {
-    const segments = data.segments
-      .map((segment) => {
-        if (typeof segment === "string") {
-          return segment.trim();
-        }
-
-        if (!segment || typeof segment !== "object") {
-          return "";
-        }
-
-        const segmentData = segment as Record<string, unknown>;
-        const segmentText = segmentData.text ?? segmentData.full_text ?? segmentData.transcript ?? segmentData.result;
-
-        return typeof segmentText === "string" ? segmentText.trim() : "";
-      })
-      .filter(Boolean);
-
-    return segments.join("\n").trim();
-  }
-
-  return "";
+  return extractTranscriptTextValue(transcript);
 };
 
 
@@ -117,6 +207,7 @@ export default function TranscriptSummaryStudio({
   const canSummarize = !isDocumentMode && transcriptContent.trim().length > 0;
   const hasTranscript = transcriptContent.trim().length > 0 || transcriptStatus === 'success';
   const hasSummary = summaryContent.trim().length > 0;
+  const canRegenerateTranscript = hasTranscript || hasSummary;
   const canRetry = transcriptStatus === 'error' || !!processingError || processingStage === 'error';
 
   const normalizeProgress = (value: unknown): number => {
@@ -258,11 +349,15 @@ export default function TranscriptSummaryStudio({
   const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([]);
 
   const coerceNumber = (value: unknown): number | null => {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
     if (typeof value === 'string') {
-      const parsed = Number.parseFloat(value);
+      const parsed = Number.parseFloat(value.trim());
       return Number.isFinite(parsed) ? parsed : null;
     }
+
     return null;
   };
 
@@ -289,35 +384,7 @@ export default function TranscriptSummaryStudio({
   };
 
   const extractTranscriptText = (payload: TranscriptPayload | null | undefined): string => {
-    if (!payload) return '';
-    if (typeof payload === 'string') return payload.trim();
-
-    if (Array.isArray(payload)) {
-      return payload.map((item) => extractTranscriptText(item as TranscriptPayload)).filter(Boolean).join('\n');
-    }
-
-    if (typeof payload === 'object') {
-      const data = payload as Record<string, unknown>;
-      const directText = [data.full_text, data.text, data.transcript, data.result].find(
-        (value) => typeof value === 'string',
-      );
-      if (typeof directText === 'string') return directText.trim();
-
-      if (Array.isArray(data.segments)) {
-        return data.segments
-          .map((segment) => {
-            if (typeof segment === 'string') return segment.trim();
-            if (!segment || typeof segment !== 'object') return '';
-            const seg = segment as Record<string, unknown>;
-            const segText = seg.text ?? seg.full_text ?? seg.transcript ?? seg.result;
-            return typeof segText === 'string' ? segText.trim() : '';
-          })
-          .filter(Boolean)
-          .join('\n');
-      }
-    }
-
-    return '';
+    return extractTranscriptTextValue(payload);
   };
 
   const buildCuesFromTranscript = (payload: TranscriptPayload | null | undefined, totalDuration: number): SubtitleCue[] => {
@@ -329,8 +396,7 @@ export default function TranscriptSummaryStudio({
     const tryAddSegment = (segment: Record<string, unknown>, index: number) => {
       const startRaw = coerceNumber(segment.start ?? segment.start_time ?? segment.startTime);
       const endRaw = coerceNumber(segment.end ?? segment.end_time ?? segment.endTime);
-      const textValue = segment.text ?? segment.full_text ?? segment.transcript ?? segment.result;
-      const text = typeof textValue === 'string' ? textValue.trim() : '';
+      const text = extractCueText(segment);
       if (!text) return;
 
       rawSegments.push({
@@ -341,26 +407,10 @@ export default function TranscriptSummaryStudio({
       });
     };
 
-    if (Array.isArray(payload)) {
-      payload.forEach((item, index) => {
-        if (!item || typeof item !== 'object') return;
-        tryAddSegment(item as Record<string, unknown>, index);
-      });
-    } else if (typeof payload === 'object') {
-      const data = payload as Record<string, unknown>;
-      const nestedTranscript = data.transcript && typeof data.transcript === 'object' ? (data.transcript as Record<string, unknown>) : null;
-      const nestedResult = data.result && typeof data.result === 'object' ? (data.result as Record<string, unknown>) : null;
-      const nestedData = data.data && typeof data.data === 'object' ? (data.data as Record<string, unknown>) : null;
-
-      const candidates = [data.segments, nestedTranscript?.segments, nestedResult?.segments, nestedData?.segments].filter(Array.isArray) as unknown[][];
-      for (const candidate of candidates) {
-        (candidate as unknown[]).forEach((item, index) => {
-          if (!item || typeof item !== 'object') return;
-          tryAddSegment(item as Record<string, unknown>, index);
-        });
-        if (rawSegments.length > 0) break;
-      }
-    }
+    const candidates = collectTranscriptSegments(payload);
+    candidates.forEach((item, index) => {
+      tryAddSegment(item, index);
+    });
 
     if (rawSegments.length > 0) {
       // Normalize timeline when some segments lack end times
@@ -486,7 +536,7 @@ export default function TranscriptSummaryStudio({
 
     if (isTranscribing || isCheckingStatus) return;
 
-    const shouldRetry = canRetry;
+    const shouldRetry = canRetry || canRegenerateTranscript;
 
     try {
       setTranscriptError(null);
@@ -576,11 +626,10 @@ export default function TranscriptSummaryStudio({
           onClick={handleGenerateTranscript}
           disabled={
             isCheckingStatus ||
-            (isTranscribing && transcriptStatus !== 'processing') ||
-            (!canRetry && (hasTranscript || hasSummary))
+            (isTranscribing && transcriptStatus !== 'processing')
           }
           className={`inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold transition ${
-            isCheckingStatus || (isTranscribing && transcriptStatus !== 'processing') || (!canRetry && (hasTranscript || hasSummary))
+            isCheckingStatus || (isTranscribing && transcriptStatus !== 'processing')
               ? "cursor-not-allowed bg-gray-200 text-gray-500"
               : "bg-[#292C6D] text-white hover:bg-[#1f2350]"
           }`}
@@ -605,7 +654,7 @@ export default function TranscriptSummaryStudio({
               <RefreshCw size={16} />
               Retry process
             </>
-          ) : transcriptContent ? (
+          ) : canRegenerateTranscript ? (
             <>
               <FileText size={16} />
               Regenerate Transcript

@@ -29,6 +29,7 @@ interface TranscribeResponse {
   text: string;
   language: string;
   timestamps: Prisma.JsonValue[];
+  payload: Prisma.JsonValue;
 }
 
 interface SummariseResponse {
@@ -107,25 +108,41 @@ export class ProcessingProcessor {
 
       await this.updateProcessingStatus(payload, 'PROCESSING');
 
-      await this.updateProcessingAnalysis(payload, {
-        transcriptStatus: 'processing',
-        transcriptError: null,
-        processingStage: 'extracting_audio',
-        processingProgress: PROCESSING_STAGE_PROGRESS.preparing,
-        processingError: null,
-      });
+      const audioUrl = payload.audioUrl || null;
 
-      this.logger.log(`[1/5] Downloading source file...`);
-      const sourcePath = await this.downloadFile(payload.fileUrl, tempDir, this.getSourceFileName(payload));
+      if (!audioUrl) {
+        await this.updateProcessingAnalysis(payload, {
+          transcriptStatus: 'processing',
+          transcriptError: null,
+          processingStage: 'extracting_audio',
+          processingProgress: PROCESSING_STAGE_PROGRESS.preparing,
+          processingError: null,
+        });
 
-      this.logger.log(`[2/5] Preparing audio...`);
-      await this.updateProcessingAnalysis(payload, {
-        processingStage: 'uploading_audio',
-        processingProgress: 25,
-        processingError: null,
-      });
+        this.logger.log(`[1/5] Downloading source file...`);
+        const sourcePath = await this.downloadFile(payload.fileUrl, tempDir, this.getSourceFileName(payload));
 
-      const audioUrl = await this.prepareAudioFileUrl(payload, sourcePath, tempDir);
+        this.logger.log(`[2/5] Preparing audio...`);
+        await this.updateProcessingAnalysis(payload, {
+          processingStage: 'uploading_audio',
+          processingProgress: 25,
+          processingError: null,
+        });
+
+        const preparedAudioUrl = await this.prepareAudioFileUrl(payload, sourcePath, tempDir);
+        payload.audioUrl = preparedAudioUrl;
+      } else {
+        this.logger.log(`[1/5] Reusing existing audio URL, skipping extract/upload...`);
+        await this.updateProcessingAnalysis(payload, {
+          transcriptStatus: 'processing',
+          transcriptError: null,
+          processingStage: 'transcribing',
+          processingProgress: PROCESSING_STAGE_PROGRESS.transcribing,
+          processingError: null,
+        });
+      }
+
+      const effectiveAudioUrl = payload.audioUrl || audioUrl;
 
       latestProgress = PROCESSING_STAGE_PROGRESS.transcribing;
       await this.updateProcessingAnalysis(payload, {
@@ -134,7 +151,7 @@ export class ProcessingProcessor {
       });
 
       this.logger.log(`[3/5] Transcribing audio...`);
-      const transcript = await this.transcribe(audioUrl);
+      const transcript = await this.transcribe(effectiveAudioUrl as string);
       transcriptCompleted = true;
 
       latestProgress = PROCESSING_STAGE_PROGRESS.summarizing;
@@ -383,7 +400,7 @@ export class ProcessingProcessor {
     if (!parsed.text) {
       throw new BadRequestException('Transcribe service returned an empty transcript');
     }
-    return { text: parsed.text, language: parsed.language, timestamps: parsed.timestamps };
+    return { text: parsed.text, language: parsed.language, timestamps: parsed.timestamps, payload: parsed.payload };
   }
 
   private async summarise(text: string, language: string): Promise<SummariseResponse> {
@@ -449,20 +466,20 @@ export class ProcessingProcessor {
         return this.parseTranscribePayload(parsed.data);
       } catch { continue; }
     }
-    return { text: '', language: 'und', timestamps: [] };
+    return { text: '', language: 'und', timestamps: [], payload: null };
   }
 
   private parseTranscribePayload(payload: unknown): TranscribeResponse {
-    if (!payload || typeof payload !== 'object') return { text: '', language: 'und', timestamps: [] };
+    if (!payload || typeof payload !== 'object') return { text: '', language: 'und', timestamps: [], payload: null };
     const data = payload as Record<string, unknown>;
     const result = data.result && typeof data.result === 'object' ? (data.result as Record<string, unknown>) : null;
-    const textCandidate = result?.text;
+    const textCandidate = result?.text ?? data.text ?? data.transcript ?? data.full_text;
     const languageCandidate = result?.language ?? data.language;
-    const timestampsCandidate = result?.timestamps ?? data.timestamps;
+    const timestampsCandidate = result?.timestamps ?? data.timestamps ?? result?.segments ?? data.segments;
     const text = typeof textCandidate === 'string' ? textCandidate.trim() : '';
     const language = typeof languageCandidate === 'string' && languageCandidate.trim() ? languageCandidate.trim() : 'und';
     const timestamps = Array.isArray(timestampsCandidate) ? timestampsCandidate as Prisma.JsonValue[] : [];
-    return { text, language, timestamps };
+    return { text, language, timestamps, payload: data as Prisma.JsonValue };
   }
 
   private parseSummaryPayload(payload: unknown): string {

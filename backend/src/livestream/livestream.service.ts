@@ -7,6 +7,7 @@ import { Prisma, LiveStreamStatus, ScheduleStatus } from '@prisma/client';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
 import { RedisService } from '../redis/redis.service';
 import { ProcessingService } from '../processing/processing.service';
+import { ProcessingStateService } from '../processing/processing-state.service';
 import { Readable } from 'stream';
 import { createWriteStream, promises as fs } from 'fs';
 import { spawn } from 'child_process';
@@ -33,11 +34,11 @@ interface AiTranscriptSummaryDocument {
   transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
   transcriptError?: string | null;
   transcript?: Prisma.JsonValue;
-  summary?: string;
+  summary?: string | null;
   moderationResult?: Prisma.JsonValue;
-  moderationCheckedAt?: Date;
-  transcriptGeneratedAt?: Date;
-  summaryGeneratedAt?: Date;
+  moderationCheckedAt?: Date | null;
+  transcriptGeneratedAt?: Date | null;
+  summaryGeneratedAt?: Date | null;
   processingProgress?: number;
   processingError?: string | null;
   createdAt?: Date;
@@ -69,6 +70,7 @@ export class LivestreamService {
     private r2StorageService: R2StorageService,
     private redisService: RedisService,
     private processingService: ProcessingService,
+    private processingStateService: ProcessingStateService,
   ) {}
 
   private async invalidateTeacherScheduleCaches(teacherId: string) {
@@ -2205,6 +2207,12 @@ export class LivestreamService {
           where: { id: recordingId },
           data: { isApprove: 'TRUE' },
         }).catch(() => undefined);
+
+        await this.updateRecordingProcessingState(recordingId, {
+          processingProgress: PROCESSING_STAGE_PROGRESS.done,
+          processingError: null,
+        });
+        await this.updateRecordingProcessingStatus(recordingId, 'DONE').catch(() => undefined);
       }
 
       return {
@@ -2265,6 +2273,22 @@ export class LivestreamService {
 
     if (!livestream.recordingUrl) {
       throw new BadRequestException('Recording URL is missing, cannot transcribe');
+    }
+
+    if (force) {
+      await this.processingStateService.resetForRetry('LIVESTREAM', recordingId);
+      await this.updateRecordingProcessingState(recordingId, {
+        transcriptStatus: 'processing',
+        transcriptError: null,
+        transcript: null,
+        summary: null,
+        moderationResult: null,
+        moderationCheckedAt: null,
+        transcriptGeneratedAt: null,
+        summaryGeneratedAt: null,
+        processingProgress: PROCESSING_STAGE_PROGRESS.preparing,
+        processingError: null,
+      });
     }
 
     const existing = await this.getRecordingAiAnalysisDocument(recordingId);
@@ -2742,6 +2766,12 @@ export class LivestreamService {
             where: { id: recordingId },
             data: { isApprove: 'TRUE' },
           }).catch(() => undefined);
+
+          await this.updateRecordingProcessingState(recordingId, {
+            processingProgress: PROCESSING_STAGE_PROGRESS.done,
+            processingError: null,
+          });
+          await this.updateRecordingProcessingStatus(recordingId, 'DONE').catch(() => undefined);
         }
 
         await this.updateRecordingProcessingState(recordingId, {

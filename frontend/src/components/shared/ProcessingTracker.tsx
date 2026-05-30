@@ -154,6 +154,8 @@ export default function ProcessingTracker({
   const failedNotifiedRef = useRef<string | null>(null);
   const stepRefs = useRef<Partial<Record<ProcessingStep, HTMLDivElement | null>>>({});
   const autoRetryFiredRef = useRef(false);
+  const isRetrying = Boolean(retryingStep);
+  const isSyncing = loading || isPolling || isRetrying;
 
   const statusSteps = status?.steps ?? [];
   const hasFailedStep = statusSteps.some((step) => step.status === 'failed');
@@ -253,6 +255,13 @@ export default function ProcessingTracker({
     };
   }, [approvalState, isCompleted, isFailed, isRejected, isWaitingForApproval, status?.processingStatus]);
 
+  const triggerLabel = useMemo(() => {
+    if (loading) return 'Loading status...';
+    if (isRetrying) return 'Retrying...';
+    if (isPolling && status?.processingStatus !== 'PROCESSING') return 'Syncing status...';
+    return triggerConfig.label;
+  }, [isPolling, isRetrying, loading, status?.processingStatus, triggerConfig.label]);
+
   // FIX 1: Bọc loadStatus trong useCallback để tránh stale closure trong setInterval
   const loadStatus = useCallback(async () => {
     const controller = new AbortController();
@@ -264,7 +273,6 @@ export default function ProcessingTracker({
     try {
       const nextStatus = await getProcessingStatus(entityType, entityId, { signal: controller.signal });
       setStatus(nextStatus);
-      console.log('isApprove raw:', nextStatus?.isApprove, '| normalized:', normalizeApprovalState(nextStatus?.isApprove ?? null));
       setError(null);
       return nextStatus;
     } catch (loadError) {
@@ -310,6 +318,14 @@ export default function ProcessingTracker({
   }, []);
 
   useEffect(() => {
+    // Reset transient loading state when switching to a different entity
+    setLoading(true);
+    setError(null);
+    setRetryingStep(null);
+    setRetryCooldownUntil(null);
+    setActiveStepSinceMs(null);
+    lastActiveStepRef.current = null;
+    autoRetryFiredRef.current = false;
     completedNotifiedRef.current = false;
     failedNotifiedRef.current = null;
 
@@ -548,8 +564,8 @@ export default function ProcessingTracker({
           onClick={() => setIsOpen(true)}
           className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition ${triggerClassName || triggerConfig.className}`}
         >
-          <TriggerIcon size={16} className={status?.processingStatus === 'PROCESSING' ? 'animate-spin' : ''} />
-          {loading ? 'Loading status...' : triggerConfig.label}
+          <TriggerIcon size={16} className={isSyncing || status?.processingStatus === 'PROCESSING' ? 'animate-spin' : ''} />
+          {triggerLabel}
         </button>
 
         {showInlineProgress && (

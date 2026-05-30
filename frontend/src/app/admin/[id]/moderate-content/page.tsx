@@ -84,14 +84,14 @@ export default function ContentModerationPage() {
   const getProcessingStageLabel = (value: unknown) => {
     const stage = typeof value === 'string' ? value.trim().toLowerCase() : '';
 
-    if (stage === 'queued') return 'Queued';
+    if (stage === 'queued') return '';
     if (stage === 'preparing') return 'Preparing';
     if (stage === 'transcribing') return 'Transcribing';
     if (stage === 'summarizing') return 'Summarizing';
     if (stage === 'moderating') return 'Moderating';
     if (stage === 'done') return 'Complete';
     if (stage === 'error') return 'Failed';
-    return 'Waiting';
+    return '';
   }
 
   const getApprovalStatusClasses = (value: ReportedContent['status']) => {
@@ -824,9 +824,11 @@ export default function ContentModerationPage() {
                       <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getProcessingStatusClasses(content.processingStatus)}`}>
                         {normalizeProcessingStatus(content.processingStatus)}
                       </span>
-                      <div className="text-[11px] font-medium text-gray-500">
-                        {normalizeProcessingProgress(content.processingProgress)}% · {getProcessingStageLabel(content.processingStage)}
-                      </div>
+                      {getProcessingStageLabel(content.processingStage) && (
+                        <div className="text-[11px] font-medium text-gray-500">
+                          {getProcessingStageLabel(content.processingStage)}
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">

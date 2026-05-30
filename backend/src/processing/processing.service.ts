@@ -21,10 +21,15 @@ export class ProcessingService {
     private readonly processingStateService: ProcessingStateService,
   ) {}
 
+  private getJobId(payload: ProcessingJobPayload): string {
+    return `${payload.type}:${payload.itemId}`;
+  }
+
   async enqueue(payload: ProcessingJobPayload): Promise<Job<ProcessingJobPayload> | null> {
     try {
       this.logger.log(`Queueing processing job for ${payload.type}:${payload.itemId} (${payload.title})`);
       return await this.processingQueue.add(PROCESSING_JOB_NAME, payload, {
+        jobId: this.getJobId(payload),
         attempts: 3,
         backoff: {
           type: 'exponential',
@@ -62,6 +67,17 @@ export class ProcessingService {
           processingStatus: 'PENDING',
         },
       });
+    }
+
+    const existingJob = await this.processingQueue.getJob(this.getJobId(payload));
+    if (existingJob) {
+      const state = await existingJob.getState();
+      if (state === 'active' || state === 'waiting' || state === 'delayed' || state === 'paused') {
+        this.logger.log(`Retry skipped for ${entityType}:${entityId} because job is already ${state}`);
+        return existingJob;
+      }
+
+      await existingJob.remove();
     }
 
     return this.enqueue(payload);

@@ -218,53 +218,6 @@ model LiveStreamAnalytics {
   @@map("livestream_analytics")
 }
 
-// Q&A During Livestream
-model Question {
-  id            String         @id @default(auto()) @map("_id") @mongodb.ObjectId
-  livestreamId  String
-  studentId     String
-  studentName   String
-  studentAvatar String?
-  question      String
-  status        QuestionStatus @default(PENDING)
-
-  // Answer
-  answeredBy String?
-  answer     String?
-  answeredAt DateTime?
-
-  // Engagement
-  upvotes       Int      @default(0)
-  upvotedBy     String[] // Array of user IDs
-  isHighlighted Boolean  @default(false)
-  isPinned      Boolean  @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([livestreamId, status])
-  @@index([livestreamId, createdAt])
-  @@map("questions")
-}
-
-enum QuestionStatus {
-  PENDING
-  ANSWERED
-  DISMISSED
-}
-
-// Reactions/Emojis during livestream
-model Reaction {
-  id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId
-  livestreamId String
-  userId       String
-  emoji        String
-  timestamp    DateTime @default(now())
-
-  @@index([livestreamId, timestamp])
-  @@map("reactions")
-}
-
 // Watch history
 model WatchHistory {
   id           String   @id @default(auto()) @map("_id") @mongodb.ObjectId

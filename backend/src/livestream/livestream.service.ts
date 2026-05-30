@@ -2255,6 +2255,7 @@ export class LivestreamService {
         id: true,
         recordingUrl: true,
         audioUrl: true,
+        processingStatus: true,
       },
     });
 
@@ -2288,6 +2289,13 @@ export class LivestreamService {
         this.logger.warn('Moderation failed for recording', String(err));
       }
 
+      return {
+        ...(await this.getRecordingAiAnalysis(recordingId)),
+        cached: true,
+      };
+    }
+
+    if (!force && livestream?.processingStatus === 'PROCESSING') {
       return {
         ...(await this.getRecordingAiAnalysis(recordingId)),
         cached: true,
@@ -2649,9 +2657,30 @@ export class LivestreamService {
   }
 
   async generateRecordingSummary(recordingId: string, force = false) {
+    const livestream = await this.prisma.postgres.liveStream.findUnique({
+      where: { id: recordingId },
+      select: {
+        id: true,
+        processingStatus: true,
+      },
+    });
     const existing = await this.getRecordingAiAnalysisDocument(recordingId);
 
     let transcript = existing?.transcript || null;
+    if (!force && existing?.summary) {
+      return {
+        ...(await this.getRecordingAiAnalysis(recordingId)),
+        cached: true,
+      };
+    }
+
+    if (!force && livestream?.processingStatus === 'PROCESSING') {
+      return {
+        ...(await this.getRecordingAiAnalysis(recordingId)),
+        cached: true,
+      };
+    }
+
     if (!transcript) {
       return await this.generateRecordingTranscript(recordingId, false);
     }

@@ -760,6 +760,13 @@ export class DocumentService {
       };
     }
 
+    if (!force && document.processingStatus === 'PROCESSING') {
+      return {
+        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
+        cached: true,
+      };
+    }
+
     if (!force && existing?.transcriptStatus === 'success' && existing?.transcript) {
       return {
         ...(await this.getDocumentAiAnalysis(documentId, user, false)),
@@ -854,6 +861,20 @@ export class DocumentService {
     const shouldModerate = true;
 
     let transcript = existing?.transcript || null;
+    if (!force && existing?.summary) {
+      return {
+        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
+        cached: true,
+      };
+    }
+
+    if (!force && document.processingStatus === 'PROCESSING') {
+      return {
+        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
+        cached: true,
+      };
+    }
+
     if (!transcript) {
       return await this.generateDocumentTranscript(documentId, false, user);
     }

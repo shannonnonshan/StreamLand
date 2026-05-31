@@ -194,6 +194,18 @@ export class LivestreamController {
     return await this.livestreamService.getRecordingAiAnalysis(id);
   }
 
+  @Get(':id/ai-analysis/raw')
+  @UseGuards(OptionalJwtAuthGuard)
+  async getRecordingAiAnalysisRaw(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    const livestream = await this.livestreamService.getLivestreamById(id);
+    this.assertLivestreamAccess(livestream, req);
+
+    return await this.livestreamService.getRecordingAiAnalysisRaw(id);
+  }
+
   @Post(':id/transcript')
   @UseGuards(OptionalJwtAuthGuard)
   async generateRecordingTranscript(

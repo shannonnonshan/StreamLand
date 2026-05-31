@@ -4,7 +4,20 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export interface DocumentAiAnalysis {
   documentId: string;
-  transcript: string | null;
+  transcript:
+    | string
+    | {
+        full_text?: unknown;
+        text?: unknown;
+        transcript?: unknown;
+        result?: unknown;
+        payload?: unknown;
+        data?: unknown;
+        language?: unknown;
+        timestamps?: unknown[];
+        segments?: unknown[];
+      }
+    | null;
   summary?: string | null;
   audioUrl?: string | null;
   transcriptStatus?: 'idle' | 'processing' | 'success' | 'error';
@@ -14,7 +27,6 @@ export interface DocumentAiAnalysis {
   processingStage?: string | null;
   processingProgress?: number | null;
   processingError?: string | null;
-  cached?: boolean;
 }
 
 export async function getDocumentAiAnalysis(documentId: string): Promise<DocumentAiAnalysis> {

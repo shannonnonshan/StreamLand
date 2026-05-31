@@ -1,16 +1,31 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { Play, Calendar, Clock, Search, Filter, Grid3x3, List, Video, FileVideo, Globe, Lock } from "lucide-react";
+import {
+  ArrowUpDown,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  FileVideo,
+  Globe,
+  Grid3x3,
+  List,
+  Lock,
+  Play,
+  Search,
+  SlidersHorizontal,
+  Video,
+} from "lucide-react";
 import { getRecordedLivestreams, LiveStream, groupRecordingsByMonth } from "@/lib/api/teacher";
 import Pagination from "@/component/Pagination";
 
 export default function RecordingsPage() {
   const params = useParams();
   const router = useRouter();
-  const teacherId = params?.id as string || "1";
+  const teacherId = (params?.id as string) || "1";
 
   const [filter, setFilter] = useState<"7days" | "1month" | "custom">("7days");
   const [customFrom, setCustomFrom] = useState("2025-01");
@@ -24,41 +39,78 @@ export default function RecordingsPage() {
   const [recordingFilter, setRecordingFilter] = useState<"all" | "recorded" | "no-recording">("all");
   const [approvalFilter, setApprovalFilter] = useState<"all" | "true" | "false" | "rejected">("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = viewMode === "grid" ? 9 : 10;
+  const [itemsPerPage, setItemsPerPage] = useState<6 | 12 | 24 | 36>(12);
 
   const getApprovalState = (value: string | null | undefined): "true" | "false" | "rejected" => {
-    if (value === "TRUE" || value === "true") {
-      return "true";
-    }
-
-    if (value === "rejected" || value === "REJECTED" || value === "reject") {
-      return "rejected";
-    }
-
+    if (value === "TRUE" || value === "true") return "true";
+    if (value === "rejected" || value === "REJECTED" || value === "reject") return "rejected";
     return "false";
   };
 
   const recordingsByMonth = groupRecordingsByMonth(recordings);
   const months = Object.keys(recordingsByMonth).sort((a, b) => b.localeCompare(a));
   const [selectedMonth, setSelectedMonth] = useState(months[0] || "");
+  const visibleMonths = filter === "custom"
+    ? months.filter((month) => month >= customFrom && month <= customTo)
+    : months.slice(0, 6);
 
-  // Fetch recordings from backend
+  const totalRecordings = recordings.length;
+  const recordedCount = recordings.filter((recording) => Boolean(recording.recordingUrl)).length;
+  const noRecordingCount = totalRecordings - recordedCount;
+  const approvedCount = recordings.filter((recording) => getApprovalState(recording.isApprove) === "true").length;
+  const selectedMonthIndex = visibleMonths.indexOf(selectedMonth);
+  const formatMonthLabel = (monthKey: string) => {
+    const [year, month] = monthKey.split("-");
+    if (!year || !month) {
+      return monthKey;
+    }
+
+    return `${month}/${year}`;
+  };
+
+  const formatDateLabel = (date: Date) =>
+    date.toLocaleDateString(undefined, {
+      month: "2-digit",
+      day: "2-digit",
+      year: "numeric",
+    });
+
+  const getFilterLabel = () => {
+    const now = new Date();
+
+    if (filter === "custom") {
+      return `${formatMonthLabel(customFrom)}-${formatMonthLabel(customTo)}`;
+    }
+
+    if (filter === "7days") {
+      const end = now;
+      const start = new Date(now);
+      start.setDate(now.getDate() - 6);
+      return `${formatDateLabel(start)}-${formatDateLabel(end)}`;
+    }
+
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    return `${formatDateLabel(start)}-${formatDateLabel(end)}`;
+  };
+
   useEffect(() => {
     const fetchRecordings = async () => {
       try {
         setIsLoading(true);
         setError(null);
+
         const data = await getRecordedLivestreams(teacherId);
-        console.log('[RecordingsPage] getRecordedLivestreams response', { teacherId, length: Array.isArray(data) ? data.length : 'non-array', sample: Array.isArray(data) ? data.slice(0,3) : data });
         setRecordings(data);
+
         if (data.length > 0) {
           const grouped = groupRecordingsByMonth(data);
           const monthKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
           setSelectedMonth(monthKeys[0]);
         }
       } catch (err) {
-        console.error('Failed to fetch recordings:', err);
-        setError('Failed to load recordings');
+        console.error("Failed to fetch recordings:", err);
+        setError("Failed to load recordings");
       } finally {
         setIsLoading(false);
       }
@@ -67,39 +119,37 @@ export default function RecordingsPage() {
     fetchRecordings();
   }, [teacherId]);
 
-  // Lọc tháng hiển thị theo filter
-  const monthsToShow = filter === "custom"
-    ? months.filter(m => m >= customFrom && m <= customTo)
-    : months.slice(0, 6);
+  useEffect(() => {
+    if (selectedMonth && !months.includes(selectedMonth) && months.length > 0) {
+      setSelectedMonth(months[0]);
+    }
+  }, [months, selectedMonth]);
 
-  // Filter recordings by search query, recording availability, and sort
-  const filteredRecordings = (recordingsByMonth[selectedMonth] || [])
-    .filter(r => {
-      // Search filter
-      const matchesSearch = r.title.toLowerCase().includes(searchQuery.toLowerCase());
+  useEffect(() => {
+    if (visibleMonths.length === 0) {
+      return;
+    }
 
-      const approvalState = getApprovalState(r.isApprove);
+    if (!visibleMonths.includes(selectedMonth)) {
+      setSelectedMonth(visibleMonths[0]);
+    }
+  }, [selectedMonth, visibleMonths]);
 
-      if (approvalFilter === "true" && approvalState !== "true") {
-        return false;
-      }
+  const displayedRecordings = filter === "custom"
+    ? visibleMonths.flatMap((month) => recordingsByMonth[month] || [])
+    : recordingsByMonth[selectedMonth] || [];
 
-      if (approvalFilter === "false" && approvalState !== "false") {
-        return false;
-      }
+  const filteredRecordings = displayedRecordings
+    .filter((recording) => {
+      const matchesSearch = recording.title.toLowerCase().includes(searchQuery.toLowerCase());
+      const approvalState = getApprovalState(recording.isApprove);
 
-      if (approvalFilter === "rejected" && approvalState !== "rejected") {
-        return false;
-      }
+      if (approvalFilter === "true" && approvalState !== "true") return false;
+      if (approvalFilter === "false" && approvalState !== "false") return false;
+      if (approvalFilter === "rejected" && approvalState !== "rejected") return false;
 
-
-      // Recording availability filter
-      if (recordingFilter === "recorded") {
-        return matchesSearch && r.recordingUrl;
-      } else if (recordingFilter === "no-recording") {
-        return matchesSearch && !r.recordingUrl;
-      }
-      
+      if (recordingFilter === "recorded") return matchesSearch && Boolean(recording.recordingUrl);
+      if (recordingFilter === "no-recording") return matchesSearch && !recording.recordingUrl;
       return matchesSearch;
     })
     .sort((a, b) => {
@@ -108,20 +158,30 @@ export default function RecordingsPage() {
       return sortOrder === "newest" ? dateB - dateA : dateA - dateB;
     });
 
-  // Pagination calculations
   const totalPages = Math.ceil(filteredRecordings.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const currentMonthRecordings = filteredRecordings.slice(startIndex, endIndex);
 
-  // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, recordingFilter, approvalFilter, sortOrder, selectedMonth, viewMode]);
+  }, [searchQuery, recordingFilter, approvalFilter, sortOrder, selectedMonth, viewMode, itemsPerPage]);
+
+  const goToPreviousMonth = () => {
+    if (selectedMonthIndex > 0) {
+      setSelectedMonth(visibleMonths[selectedMonthIndex - 1]);
+    }
+  };
+
+  const goToNextMonth = () => {
+    if (selectedMonthIndex >= 0 && selectedMonthIndex < visibleMonths.length - 1) {
+      setSelectedMonth(visibleMonths[selectedMonthIndex + 1]);
+    }
+  };
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-full">
+      <div className="flex h-full items-center justify-center">
         <div className="text-gray-500">Loading recordings...</div>
       </div>
     );
@@ -129,406 +189,438 @@ export default function RecordingsPage() {
 
   if (error) {
     return (
-      <div className="flex justify-center items-center h-full">
+      <div className="flex h-full items-center justify-center">
         <div className="text-red-500">{error}</div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-br from-slate-50 via-white to-cyan-50 p-6">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">My Recordings</h1>
-        <p className="text-gray-600">Browse and manage your livestream recordings</p>
-      </div>
+    <div className="flex h-full flex-col px-4 pb-6 pt-5">
+      <div className="mx-auto w-full max-w-7xl">
+        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Teacher workspace</p>
+              <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Recordings</h1>
+              <p className="mt-1 text-sm text-slate-500">
+                Browse livestream recordings, filter what you need, and open the right session fast.
+              </p>
+            </div>
 
-      {/* Filters Bar */}
-      <div className="bg-white/95 border border-slate-200 rounded-xl shadow-sm p-4 mb-6">
-        <div className="flex flex-wrap gap-4 items-center justify-between">
-          {/* Search */}
-          <div className="flex-1 min-w-[250px]">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-              <input
-                type="text"
-                placeholder="Search recordings..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
-              />
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: "Total", value: totalRecordings },
+                { label: "Recorded", value: recordedCount },
+                { label: "No rec", value: noRecordingCount },
+                { label: "Approved", value: approvedCount },
+              ].map((item) => (
+                <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-center">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{item.label}</div>
+                  <div className="mt-1 text-lg font-bold text-slate-900">{item.value}</div>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Filter Options */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Filter size={18} className="text-gray-500" />
-              <select
-                className="border border-slate-300 rounded-lg bg-white px-4 py-2 text-sm focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value as "7days" | "1month" | "custom")}
-              >
-                <option value="7days">Last 7 days</option>
-                <option value="1month">Last 1 month</option>
-                <option value="custom">Custom range</option>
-              </select>
-            </div>
-
-            {/* Recording Availability Filter */}
-            <div className="flex items-center gap-2">
-              <select
-                className="border border-slate-300 rounded-lg bg-white px-4 py-2 text-sm focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900"
-                value={recordingFilter}
-                onChange={(e) => setRecordingFilter(e.target.value as "all" | "recorded" | "no-recording")}
-              >
-                <option value="all">All Livestreams</option>
-                <option value="recorded">Recorded</option>
-                <option value="no-recording">No Recording</option>
-              </select>
-            </div>
-
-            {/* Approval Filter - Clickable */}
-            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/40 p-1">
-              <button
-                type="button"
-                onClick={() => setApprovalFilter("all")}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                  approvalFilter === "all"
-                    ? "bg-[#B45309] text-amber-50"
-                    : "text-amber-800 hover:bg-amber-100"
-                }`}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                onClick={() => setApprovalFilter("true")}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                  approvalFilter === "true"
-                    ? "bg-amber-500 text-white"
-                    : "text-amber-800 hover:bg-amber-100"
-                }`}
-              >
-                Approved
-              </button>
-              <button
-                type="button"
-                onClick={() => setApprovalFilter("false")}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                  approvalFilter === "false"
-                    ? "bg-emerald-600 text-white"
-                    : "text-amber-800 hover:bg-amber-100"
-                }`}
-              >
-                Waiting to approve
-              </button>
-              <button
-                type="button"
-                onClick={() => setApprovalFilter("rejected")}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                  approvalFilter === "rejected"
-                    ? "bg-red-600 text-white"
-                    : "text-amber-800 hover:bg-amber-100"
-                }`}
-              >
-                Rejected
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 p-1">
-              <button
-                type="button"
-                onClick={() => setRecordingFilter("no-recording")}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                  recordingFilter === "no-recording"
-                    ? "bg-sky-600 text-white"
-                    : "text-sky-800 hover:bg-sky-100"
-                }`}
-              >
-                No Recording
-              </button>
-            </div>
-
-            {filter === "custom" && (
-              <div className="flex items-center gap-2">
-                <select
-                  value={customFrom}
-                  onChange={(e) => {
-                    setCustomFrom(e.target.value);
-                    if (e.target.value > customTo) setCustomTo(e.target.value);
-                  }}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900"
-                >
-                  {months.map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-                <span className="text-gray-400">→</span>
-                <select
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900"
-                >
-                  {months.filter(m => m >= customFrom).map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
+          <div className="flex flex-col gap-3 border-t border-slate-100 pt-4">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="relative flex-[1.8]">
+                <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input
+                  type="text"
+                  placeholder="Search by title..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-4 text-sm text-slate-900 shadow-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100"
+                />
               </div>
-            )}
 
-            {/* Sort Options */}
-            <select
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value as "newest" | "oldest")}
-              className="border border-gray-200 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-[#292C6D] focus:border-transparent text-gray-900 bg-white"
-            >
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
-            </select>
-
-            {/* View Mode Toggle */}
-            <div className="flex border border-gray-200 rounded-lg overflow-hidden">
-              <button
-                onClick={() => setViewMode("grid")}
-                className={`p-2 ${viewMode === "grid" ? "bg-[#292C6D] text-white" : "bg-white text-gray-600 hover:bg-[#FAEDF0]/50"}`}
-              >
-                <Grid3x3 size={18} />
-              </button>
-              <button
-                onClick={() => setViewMode("list")}
-                className={`p-2 ${viewMode === "list" ? "bg-[#292C6D] text-white" : "bg-white text-gray-600 hover:bg-[#FAEDF0]/50"}`}
-              >
-                <List size={18} />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Main content */}
-      <div className="flex flex-1 overflow-hidden gap-6">
-        {/* Left Sidebar: Months */}
-        <div className="w-64 bg-white/95 border border-slate-200 rounded-xl shadow-sm p-4 overflow-y-auto">
-          <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <Calendar size={18} />
-            Time Period
-          </h3>
-          <ul className="space-y-1">
-            {monthsToShow.map(month => {
-              const monthRecordings = recordingsByMonth[month] || [];
-              return (
-                <li key={month}>
-                  <button
-                    onClick={() => setSelectedMonth(month)}
-                    className={`w-full text-left px-4 py-3 rounded-lg transition-all ${
-                      month === selectedMonth 
-                        ? "bg-[#292C6D] text-white shadow-md" 
-                        : "hover:bg-[#FAEDF0]/50 text-gray-700"
-                    }`}
+              <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                <div className="flex h-11 min-w-44 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 shadow-sm">
+                  <SlidersHorizontal size={16} className="text-slate-500" />
+                  <select
+                    className="bg-transparent text-sm font-medium text-slate-800 outline-none"
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value as "7days" | "1month" | "custom")}
                   >
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium">{month}</span>
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        month === selectedMonth ? "bg-white/20" : "bg-gray-100 text-gray-600"
-                      }`}>
-                        {monthRecordings.length}
-                      </span>
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+                    <option value="7days">Last 7 days</option>
+                    <option value="1month">Last 1 month</option>
+                    <option value="custom">Custom range</option>
+                  </select>
+                </div>
+
+                {filter === "custom" && (
+                  <div className="flex h-11 min-w-56 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 shadow-sm">
+                    <Calendar size={16} className="text-slate-500" />
+                    <select
+                      value={customFrom}
+                      onChange={(e) => {
+                        setCustomFrom(e.target.value);
+                        if (e.target.value > customTo) setCustomTo(e.target.value);
+                      }}
+                      className="bg-transparent text-sm font-medium text-slate-800 outline-none"
+                    >
+                      {months.map((month) => (
+                        <option key={month} value={month}>
+                          {month}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-slate-400">to</span>
+                    <select
+                      value={customTo}
+                      onChange={(e) => setCustomTo(e.target.value)}
+                      className="bg-transparent text-sm font-medium text-slate-800 outline-none"
+                    >
+                      {months.filter((month) => month >= customFrom).map((month) => (
+                        <option key={month} value={month}>
+                          {month}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setApprovalFilter("all")}
+                  className={`inline-flex h-10 items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
+                    approvalFilter === "all"
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  All approvals
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApprovalFilter("true")}
+                  className={`inline-flex h-10 items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
+                    approvalFilter === "true"
+                      ? "border-amber-500 bg-amber-500 text-white"
+                      : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                  }`}
+                >
+                  Approved
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApprovalFilter("rejected")}
+                  className={`inline-flex h-10 items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
+                    approvalFilter === "rejected"
+                      ? "border-rose-600 bg-rose-600 text-white"
+                      : "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                  }`}
+                >
+                  Rejected
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRecordingFilter("recorded")}
+                  className={`inline-flex h-10 items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
+                    recordingFilter === "recorded"
+                      ? "border-emerald-600 bg-emerald-600 text-white"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                  }`}
+                >
+                  Recorded
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRecordingFilter("no-recording")}
+                  className={`inline-flex h-10 items-center justify-center rounded-full border px-4 text-sm font-semibold transition ${
+                    recordingFilter === "no-recording"
+                      ? "border-sky-600 bg-sky-600 text-white"
+                      : "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                  }`}
+                >
+                  No recording
+                </button>
+              </div>
+
+              <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2 py-2 shadow-sm self-start xl:self-auto">
+                <button
+                  type="button"
+                  onClick={goToPreviousMonth}
+                  disabled={selectedMonthIndex <= 0}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Previous month"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={goToNextMonth}
+                  disabled={selectedMonthIndex < 0 || selectedMonthIndex >= months.length - 1}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Next month"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Right: Recordings Grid/List */}
-        <div className="flex-1 overflow-y-auto">
-          {currentMonthRecordings.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                <Play size={40} className="text-gray-400" />
+        <div className="mt-5 rounded-3xl border border-slate-200/70 bg-white/75 p-4 shadow-[0_18px_60px_-42px_rgba(15,23,42,0.4)] backdrop-blur-xl sm:p-6">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-slate-900">{getFilterLabel()}</div>
+              <p className="mt-1 text-sm text-slate-500">
+                {filteredRecordings.length} recording{filteredRecordings.length === 1 ? "" : "s"} found
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-1.5 py-1.5 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("grid")}
+                  className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border text-sm font-semibold shadow-sm transition ${
+                    viewMode === "grid"
+                      ? "border-indigo-600 bg-indigo-600 text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-indigo-50"
+                  }`}
+                  aria-label="Grid view"
+                  title="Grid view"
+                >
+                  <Grid3x3 size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("list")}
+                  className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border text-sm font-semibold shadow-sm transition ${
+                    viewMode === "list"
+                      ? "border-indigo-600 bg-indigo-600 text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-indigo-50"
+                  }`}
+                  aria-label="List view"
+                  title="List view"
+                >
+                  <List size={18} />
+                </button>
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">No recordings found</h3>
-              <p className="text-gray-500">
-                {searchQuery ? "Try adjusting your search query" : "No recordings for this period"}
+
+              <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
+                <ArrowUpDown size={16} className="text-slate-500" />
+                <select
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value as "newest" | "oldest")}
+                  className="bg-transparent text-sm font-medium text-slate-800 outline-none"
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {currentMonthRecordings.length === 0 ? (
+            <div className="flex min-h-96 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50/80 text-center">
+              <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-white shadow-sm">
+                <Play size={34} className="text-slate-400" />
+              </div>
+              <h3 className="text-xl font-semibold text-slate-950">No recordings match this view</h3>
+              <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+                {searchQuery
+                  ? "Try a shorter search, a different month, or reset one of the filters above."
+                  : "Change the filters above to reveal recordings here."}
               </p>
             </div>
           ) : viewMode === "grid" ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {currentMonthRecordings.map((rec) => (
-                <div
-                  key={rec.id}
-                  className="bg-white border border-slate-100 rounded-xl shadow-sm overflow-hidden cursor-pointer group hover:shadow-xl transition-all transform hover:-translate-y-1"
-                  onClick={() => router.push(`/teacher/${teacherId}/recordings/detail/${rec.id}`)}
-                >
-                  <div className="relative aspect-video overflow-hidden">
-                    <Image
-                      src={rec.thumbnail || "/logo.png"}
-                      alt={rec.title}
-                      width={400}
-                      height={225}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                    />
-                    {/* Recording Badge */}
-                    {rec.recordingUrl ? (
-                      getApprovalState(rec.isApprove) === "true" ? (
-                        <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-md text-xs font-bold flex items-center gap-1">
-                          <FileVideo size={14} />
-                          Approved
-                        </div>
-                      ) : getApprovalState(rec.isApprove) === "rejected" ? (
-                        <div className="absolute top-2 right-2 bg-red-500 text-white px-2 py-1 rounded-md text-xs font-bold flex items-center gap-1">
-                          <Lock size={14} />
-                          Rejected
-                        </div>
-                      ) : (
-                        <div className="absolute top-2 right-2 bg-amber-500 text-white px-2 py-1 rounded-md text-xs font-bold flex items-center gap-1">
-                          <Clock size={14} />
-                          Waiting to approve
-                        </div>
-                      )
-                    ) : (
-                      <div className="absolute top-2 right-2 bg-gray-500 text-white px-2 py-1 rounded-md text-xs font-bold flex items-center gap-1">
-                        <Video size={14} />
-                        No Recording
-                      </div>
-                    )}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center">
-                        <Play size={24} className="text-[#292C6D] ml-1" />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="p-4">
-                    <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2 group-hover:text-[#292C6D] transition-colors">
-                      {rec.title}
-                    </h3>
-                    <div className="flex items-center gap-4 text-sm text-gray-500">
-                      <span className="flex items-center gap-1">
-                        <Calendar size={14} />
-                        {new Date(rec.endedAt || rec.createdAt).toLocaleDateString()}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock size={14} />
-                        {Math.floor(rec.duration / 60)}:{String(rec.duration % 60).padStart(2, '0')}
-                      </span>
-                      <span>{rec.totalViews} views</span>
-                      <div className="relative group/visibility">
-                        <div
-                          className={`h-7 w-7 rounded-full flex items-center justify-center border ${
-                            rec.isPublic
-                              ? 'bg-[#B45309] text-amber-50 border-amber-300/40'
-                              : 'bg-[#78350F] text-amber-100 border-amber-400/40'
-                          }`}
-                        >
-                          {rec.isPublic ? <Globe size={12} /> : <Lock size={12} />}
-                        </div>
-                        <span
-                          className={`pointer-events-none absolute left-9 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-0.5 text-[10px] font-semibold opacity-0 transition-opacity duration-200 group-hover/visibility:opacity-100 ${
-                            rec.isPublic
-                              ? 'bg-[#B45309] text-amber-50'
-                              : 'bg-[#78350F] text-amber-100'
-                          }`}
-                        >
-                          {rec.isPublic ? 'Public' : 'Private'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {currentMonthRecordings.map((rec) => (
-                <div
-                  key={rec.id}
-                  className="bg-white border border-slate-100 rounded-xl shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-all"
-                  onClick={() => router.push(`/teacher/${teacherId}/recordings/detail/${rec.id}`)}
-                >
-                  <div className="flex gap-4 p-4">
-                    <div className="relative w-48 h-28 shrink-0 rounded-lg overflow-hidden">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+              {currentMonthRecordings.map((rec) => {
+                const approvalState = getApprovalState(rec.isApprove);
+
+                return (
+                  <button
+                    key={rec.id}
+                    type="button"
+                    className="group overflow-hidden rounded-3xl border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-1 hover:shadow-[0_24px_60px_-34px_rgba(15,23,42,0.4)]"
+                    onClick={() => router.push(`/teacher/${teacherId}/recordings/detail/${rec.id}`)}
+                  >
+                    <div className="relative aspect-video overflow-hidden bg-slate-100">
                       <Image
                         src={rec.thumbnail || "/logo.png"}
                         alt={rec.title}
-                        width={192}
-                        height={112}
-                        className="w-full h-full object-cover"
+                        width={400}
+                        height={225}
+                        className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
                       />
-                      {/* Recording Badge */}
-                      {rec.recordingUrl ? (
-                        getApprovalState(rec.isApprove) === "true" ? (
-                          <div className="absolute top-1 right-1 bg-green-500 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-1">
-                            <FileVideo size={12} />
-                            Approved
-                          </div>
-                        ) : getApprovalState(rec.isApprove) === "rejected" ? (
-                          <div className="absolute top-1 right-1 bg-red-500 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-1">
-                            <Lock size={12} />
-                            Rejected
-                          </div>
-                        ) : (
-                          <div className="absolute top-1 right-1 bg-amber-500 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-1">
-                            <Clock size={12} />
-                            Waiting to approve
-                          </div>
-                        )
-                      ) : (
-                        <div className="absolute top-1 right-1 bg-gray-500 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-1">
-                          <Video size={12} />
-                          No Rec
+
+                      <div className="absolute inset-0 bg-linear-to-t from-slate-950/70 via-slate-950/10 to-transparent" />
+
+                      <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+                        <div
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold shadow-sm ${
+                            rec.recordingUrl
+                              ? approvalState === "true"
+                                ? "bg-emerald-500 text-white"
+                                : approvalState === "rejected"
+                                  ? "bg-rose-500 text-white"
+                                  : "bg-amber-500 text-white"
+                              : "bg-slate-700 text-white"
+                          }`}
+                        >
+                          {rec.recordingUrl ? (
+                            approvalState === "true" ? <FileVideo size={12} /> : approvalState === "rejected" ? <Lock size={12} /> : <Clock size={12} />
+                          ) : (
+                            <Video size={12} />
+                          )}
+                          {rec.recordingUrl
+                            ? approvalState === "true"
+                              ? "Approved"
+                              : approvalState === "rejected"
+                                ? "Rejected"
+                                : "Waiting"
+                            : "No recording"}
                         </div>
-                      )}
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                        <Play size={32} className="text-white" />
+                      </div>
+
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/40 bg-white/90 shadow-lg">
+                          <Play size={24} className="ml-1 text-slate-900" />
+                        </div>
                       </div>
                     </div>
-                    <div className="flex-1 flex flex-col justify-center">
-                      <h3 className="font-semibold text-gray-900 mb-2 hover:text-[#292C6D] transition-colors">
+
+                    <div className="space-y-4 p-5">
+                      <h3 className="line-clamp-2 text-base font-semibold leading-6 text-slate-950 transition group-hover:text-indigo-700">
                         {rec.title}
                       </h3>
-                      <div className="flex items-center gap-4 text-sm text-gray-500">
-                        <span className="flex items-center gap-1">
+
+                      {rec.description ? (
+                        <p className="line-clamp-2 text-sm leading-6 text-slate-500">{rec.description}</p>
+                      ) : null}
+
+                      <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
+                        <span className="flex items-center gap-1.5">
                           <Calendar size={14} />
                           {new Date(rec.endedAt || rec.createdAt).toLocaleDateString()}
                         </span>
-                        <span className="flex items-center gap-1">
+                        <span className="flex items-center gap-1.5">
                           <Clock size={14} />
-                          {Math.floor(rec.duration / 60)}:{String(rec.duration % 60).padStart(2, '0')}
+                          {Math.floor(rec.duration / 60)}:{String(rec.duration % 60).padStart(2, "0")}
                         </span>
-                        <span>{rec.totalViews} views</span>
-                        <div className="relative group/visibility-list">
-                          <div
-                            className={`h-7 w-7 rounded-full flex items-center justify-center border ${
-                              rec.isPublic
-                                  ? 'bg-[#B45309] text-amber-50 border-amber-300/40'
-                                  : 'bg-[#78350F] text-amber-100 border-amber-400/40'
-                            }`}
-                          >
-                            {rec.isPublic ? <Globe size={12} /> : <Lock size={12} />}
+                        <span className="rounded-full bg-slate-50 px-3 py-1.5">{rec.totalViews} views</span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {currentMonthRecordings.map((rec) => {
+                const approvalState = getApprovalState(rec.isApprove);
+
+                return (
+                  <button
+                    key={rec.id}
+                    type="button"
+                    className="group w-full overflow-hidden rounded-3xl border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_20px_50px_-30px_rgba(15,23,42,0.35)]"
+                    onClick={() => router.push(`/teacher/${teacherId}/recordings/detail/${rec.id}`)}
+                  >
+                    <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
+                      <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-2xl bg-slate-100 sm:w-52">
+                        <Image
+                          src={rec.thumbnail || "/logo.png"}
+                          alt={rec.title}
+                          width={400}
+                          height={118}
+                          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                        />
+                        <div className="absolute inset-0 bg-linear-to-t from-slate-950/60 to-transparent" />
+                        <div
+                          className={`absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm ${
+                            rec.recordingUrl
+                              ? approvalState === "true"
+                                ? "bg-emerald-500"
+                                : approvalState === "rejected"
+                                  ? "bg-rose-500"
+                                  : "bg-amber-500"
+                              : "bg-slate-700"
+                          }`}
+                        >
+                          {rec.recordingUrl ? (
+                            approvalState === "true" ? <FileVideo size={12} /> : approvalState === "rejected" ? <Lock size={12} /> : <Clock size={12} />
+                          ) : (
+                            <Video size={12} />
+                          )}
+                          {rec.recordingUrl
+                            ? approvalState === "true"
+                              ? "Approved"
+                              : approvalState === "rejected"
+                                ? "Rejected"
+                                : "Waiting"
+                            : "No recording"}
+                        </div>
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
+                          <Play size={34} className="text-white drop-shadow" />
+                        </div>
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <h3 className="line-clamp-2 text-base font-semibold text-slate-950 transition group-hover:text-indigo-700">
+                              {rec.title}
+                            </h3>
+                            {rec.description ? (
+                              <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-500">{rec.description}</p>
+                            ) : null}
+                            <p className="mt-1 text-sm text-slate-500">Tap to open details</p>
                           </div>
-                          <span
-                            className={`pointer-events-none absolute left-9 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-0.5 text-[10px] font-semibold opacity-0 transition-opacity duration-200 group-hover/visibility-list:opacity-100 ${
-                              rec.isPublic
-                                ? 'bg-[#B45309] text-amber-50'
-                                : 'bg-[#78350F] text-amber-100'
-                            }`}
-                          >
-                            {rec.isPublic ? 'Public' : 'Private'}
+                          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
+                            {rec.isPublic ? <Globe size={12} /> : <Lock size={12} />}
+                            {rec.isPublic ? "Public" : "Private"}
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-500">
+                          <span className="flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1.5">
+                            <Calendar size={14} />
+                            {new Date(rec.endedAt || rec.createdAt).toLocaleDateString()}
                           </span>
+                          <span className="flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1.5">
+                            <Clock size={14} />
+                            {Math.floor(rec.duration / 60)}:{String(rec.duration % 60).padStart(2, "0")}
+                          </span>
+                          <span className="rounded-full bg-slate-50 px-3 py-1.5">{rec.totalViews} views</span>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           )}
-          
-          {/* Pagination */}
+
           {filteredRecordings.length > 0 && (
-            <div className="mt-6">
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/80 p-3 sm:p-4">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                  <SlidersHorizontal size={16} className="text-slate-500" />
+                  <span className="text-sm font-medium text-slate-700">Per page</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => setItemsPerPage(Number(e.target.value) as 6 | 12 | 24 | 36)}
+                    className="bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                  >
+                    {[6, 12, 24, 36].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}

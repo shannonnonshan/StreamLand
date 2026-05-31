@@ -539,6 +539,81 @@ export default function ProcessingTracker({
   const runningStepLabel = runningStep ? STEP_META[runningStep.step].label : null;
   const lastUpdatedLabel = formatLastUpdated(status?.updatedAt, nowMs);
 
+  const statusNotice = (() => {
+    const retryButton = (label: string, step: ProcessingStep) => (
+      <button
+        type="button"
+        onClick={() => void handleRetry(step)}
+        disabled={Boolean(retryingStep) || retryCooldownRemainingSeconds > 0}
+        className="mt-3 inline-flex items-center gap-2 rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-70"
+      >
+        {retryingStep ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+        {retryingStep
+          ? 'Retrying...'
+          : retryCooldownRemainingSeconds > 0
+            ? `Wait ${Math.ceil(retryCooldownRemainingSeconds / 60)}m before retrying`
+            : label}
+      </button>
+    );
+
+    if (isRejected) {
+      return {
+        className: 'border-rose-200 bg-rose-50 text-rose-800',
+        title: 'This content was rejected.',
+        body: status?.rejectReason ? `Reason: ${status.rejectReason}` : 'The process has been terminated.',
+      };
+    }
+
+    if (isFailed) {
+      return {
+        className: 'border-rose-200 bg-rose-50 text-rose-800',
+        title: `Processing failed${failedStepLabel ? ` at ${failedStepLabel}` : ''}.`,
+        body: failedStepMessage ?? 'Review the failed step below and retry if needed.',
+        action: showRetry ? retryButton('Retry processing', retryFallbackStep) : null,
+      };
+    }
+
+    if (isWaitingForApproval) {
+      return {
+        className: 'border-amber-200 bg-amber-50 text-amber-800',
+        body: 'Waiting for approval. Processing results are complete, but final approval is still pending.',
+      };
+    }
+
+    if (isStaleProcessing) {
+      return {
+        className: 'border-amber-300 bg-amber-50 text-amber-900',
+        title: `No progress for about ${staleElapsedMinutes} minutes.`,
+        body: 'This process may be stuck. Retry will cancel the current pipeline and start again from the last safe step.',
+        action: showRetry ? retryButton('Retry now', retryFallbackStep) : null,
+      };
+    }
+
+    if (showIdleRetryButton) {
+      return {
+        className: 'border-amber-200 bg-amber-50 text-amber-800',
+        body: 'Processing is not running right now. You can retry to continue the pipeline.',
+        action: retryButton('Retry processing', retryFallbackStep),
+      };
+    }
+
+    if (isCompleted) {
+      return {
+        className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+        body: 'Processing is complete and the content is ready for review.',
+      };
+    }
+
+    if (status?.processingStatus === 'PROCESSING') {
+      return {
+        className: 'border-amber-200 bg-amber-50 text-amber-800',
+        body: `Processing is still running${runningStepLabel ? ` at ${runningStepLabel}` : ''}. You can keep this window open to follow each step in real time.`,
+      };
+    }
+
+    return null;
+  })();
+
   useEffect(() => {
     const timer = setInterval(() => {
       setNowMs(Date.now());
@@ -627,100 +702,11 @@ export default function ProcessingTracker({
                 </div>
               )}
 
-              {isRejected && (
-                <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">
-                  This content was rejected{status?.rejectReason ? `: ${status.rejectReason}` : '.'} The process has been terminated.
-                </div>
-              )}
-
-              {!isRejected && isWaitingForApproval && (
-                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-                  Waiting for approval. Processing results are complete, but final approval is still pending.
-                </div>
-              )}
-
-              {status?.processingStatus === 'PROCESSING' && (
-                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-                  Processing is still running{runningStepLabel ? ` at ${runningStepLabel}` : ''}. You can keep this window open to follow each step in real time.
-                </div>
-              )}
-
-              {isStaleProcessing && (
-                <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-                  <p className="font-semibold">No progress for about {staleElapsedMinutes} minutes.</p>
-                  <p className="mt-1 text-amber-800">
-                    This process may be stuck. Retry will cancel the current pipeline and start again from the last safe step.
-                  </p>
-                </div>
-              )}
-
-              {!isRejected && isCompleted && (
-                <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-                  Processing is complete and the content is ready for review.
-                </div>
-              )}
-
-              {!isRejected && isFailed && (
-                <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">
-                  <p className="font-semibold">Processing failed{failedStepLabel ? ` at ${failedStepLabel}` : ''}.</p>
-                  <p className="mt-1 text-rose-700">{failedStepMessage ?? 'Review the failed step below and retry if needed.'}</p>
-                  {showRetry && (
-                    <button
-                      type="button"
-                      onClick={() => void handleRetry(retryFallbackStep)}
-                      disabled={Boolean(retryingStep) || retryCooldownRemainingSeconds > 0}
-                      className="mt-3 inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-70"
-                    >
-                      {retryingStep ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                      {retryingStep
-                        ? 'Retrying...'
-                        : retryCooldownRemainingSeconds > 0
-                          ? `Wait ${Math.ceil(retryCooldownRemainingSeconds / 60)}m before retrying`
-                          : 'Retry processing'}
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {showIdleRetryButton && (
-                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-                  <p>Processing is not running right now. You can retry to continue the pipeline.</p>
-                  <button
-                    type="button"
-                    onClick={() => void handleRetry(retryFallbackStep)}
-                    disabled={Boolean(retryingStep) || retryCooldownRemainingSeconds > 0}
-                    className="mt-3 inline-flex items-center gap-2 rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    {retryingStep ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : (
-                      <RefreshCw size={16} />
-                    )}
-                    {retryingStep
-                      ? 'Retrying...'
-                      : retryCooldownRemainingSeconds > 0
-                        ? `Wait ${Math.ceil(retryCooldownRemainingSeconds / 60)}m before retrying`
-                        : 'Retry processing'}
-                  </button>
-                </div>
-              )}
-
-              {showStaleRetryButton && !showIdleRetryButton && !isFailed && (
-                <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-                  <p>Step has not progressed for more than 10 minutes.</p>
-                  <button
-                    type="button"
-                    onClick={() => void handleRetry(retryFallbackStep)}
-                    disabled={Boolean(retryingStep) || retryCooldownRemainingSeconds > 0}
-                    className="mt-3 inline-flex items-center gap-2 rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    {retryingStep ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                    {retryingStep
-                      ? 'Retrying...'
-                      : retryCooldownRemainingSeconds > 0
-                        ? `Wait ${Math.ceil(retryCooldownRemainingSeconds / 60)}m before retrying`
-                        : 'Retry now'}
-                  </button>
+              {statusNotice && (
+                <div className={`mb-4 rounded-2xl border px-4 py-3 text-sm font-medium ${statusNotice.className}`}>
+                  {statusNotice.title && <p className="font-semibold">{statusNotice.title}</p>}
+                  {statusNotice.body && <p className={statusNotice.title ? 'mt-1' : ''}>{statusNotice.body}</p>}
+                  {statusNotice.action}
                 </div>
               )}
 

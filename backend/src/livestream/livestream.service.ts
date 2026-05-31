@@ -24,9 +24,11 @@ const ffmpegStaticPath: string | null = (() => {
 import { pipeline } from 'stream/promises';
 import * as os from 'os';
 import * as path from 'path';
+import logFetch from '../utils/aiFetch';
 import { PROCESSING_STAGE_PROGRESS, ProcessingStage } from '../processing/processing.types';
+import { NotificationService } from '../notification/notification.service';
 
-interface AiTranscriptSummaryDocument {
+export interface AiTranscriptSummaryDocument {
   id?: string;
   type: 'LIVESTREAM' | 'DOCUMENT';
   recordingId?: string;
@@ -71,7 +73,12 @@ export class LivestreamService {
     private redisService: RedisService,
     private processingService: ProcessingService,
     private processingStateService: ProcessingStateService,
+    private notificationService: NotificationService,
   ) {}
+
+  private sleep(ms: number) {
+    return new Promise((res) => setTimeout(res, ms));
+  }
 
   private async invalidateTeacherScheduleCaches(teacherId: string) {
     await this.redisService.deleteByPattern(`teacher:${teacherId}:schedules:*`);
@@ -338,13 +345,14 @@ export class LivestreamService {
       );
 
       // REQUEST
-      const res = await fetch(api, {
+      const res = await logFetch(api, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
-      });
+        timeoutMs: 10 * 60 * 1000,
+      }, this.logger);
 
       const respText = await res.text();
 
@@ -417,7 +425,7 @@ export class LivestreamService {
       delete: this.aiTranscriptSummaryCollection,
       deletes: [
         {
-          q: { type: 'LIVESTREAM', recordingId },
+          q: this.getRecordingAnalysisQuery(recordingId),
           limit: 0,
         },
       ],
@@ -863,18 +871,22 @@ export class LivestreamService {
   }
 
   private async deleteRecordingAiAnalysis(recordingId: string): Promise<void> {
-    await this.prisma.mongo.$runCommandRaw({
-      delete: this.aiTranscriptSummaryCollection,
-      deletes: [
-        {
-          q: {
-            type: 'LIVESTREAM',
-            recordingId,
+    try {
+      const res = await this.prisma.mongo.$runCommandRaw({
+        delete: this.aiTranscriptSummaryCollection,
+        deletes: [
+          {
+            q: this.getRecordingAnalysisQuery(recordingId),
+            limit: 0,
           },
-          limit: 0,
-        },
-      ],
-    });
+        ],
+      });
+
+      this.logger.debug(`[Mongo] deleteRecordingAiAnalysis result for ${recordingId}: ${JSON.stringify(res)}`);
+    } catch (err) {
+      this.logger.warn(`[Mongo] deleteRecordingAiAnalysis failed for ${recordingId}: ${String(err)}`);
+      // swallow - deletion is best-effort
+    }
   }
 
   async deleteRecording(recordingId: string) {
@@ -2085,6 +2097,16 @@ export class LivestreamService {
     }
   }
 
+  private getRecordingAnalysisQuery(recordingId: string) {
+    return {
+      type: 'LIVESTREAM',
+      $or: [
+        { recordingId },
+        { id: recordingId },
+      ],
+    };
+  }
+
   private async getRecordingAiAnalysisDocument(recordingId: string): Promise<AiTranscriptSummaryDocument | null> {
     const result = await this.prisma.mongo.$runCommandRaw({
       find: this.aiTranscriptSummaryCollection,
@@ -2093,7 +2115,23 @@ export class LivestreamService {
     });
 
     const firstBatch = (result as { cursor?: { firstBatch?: AiTranscriptSummaryDocument[] } }).cursor?.firstBatch || [];
-    return firstBatch[0] || null;
+    if (firstBatch[0]) {
+      return firstBatch[0];
+    }
+
+    const legacyResult = await this.prisma.mongo.$runCommandRaw({
+      find: this.aiTranscriptSummaryCollection,
+      filter: { type: 'LIVESTREAM', id: recordingId },
+      limit: 1,
+    });
+
+    const legacyBatch = (legacyResult as { cursor?: { firstBatch?: AiTranscriptSummaryDocument[] } }).cursor?.firstBatch || [];
+    return legacyBatch[0] || null;
+  }
+
+  // Public helper for debugging: return raw Mongo document (if any)
+  async getRecordingAiAnalysisRaw(recordingId: string): Promise<AiTranscriptSummaryDocument | null> {
+    return await this.getRecordingAiAnalysisDocument(recordingId);
   }
 
   private async upsertRecordingAiAnalysis(
@@ -2108,32 +2146,91 @@ export class LivestreamService {
       ...mongoPayload
     } = payload;
 
-    await this.prisma.mongo.$runCommandRaw({
-      update: this.aiTranscriptSummaryCollection,
-      updates: [
-        {
-          q: { type: 'LIVESTREAM', recordingId },
-          u: {
-            $set: {
-              id: recordingId,
-              type: 'LIVESTREAM',
-              recordingId,
-              documentId: null,
-              ...mongoPayload,
-              updatedAt: new Date(),
+    const maxAttempts = 3;
+    let lastErr: any = null;
+
+    this.logger.debug(`[Mongo] upsertRecordingAiAnalysis start ${recordingId} payloadKeys=${Object.keys(mongoPayload).join(',')}`);
+
+    // Try update/upsert with retries
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await this.prisma.mongo.$runCommandRaw({
+          update: this.aiTranscriptSummaryCollection,
+          updates: [
+            {
+              q: this.getRecordingAnalysisQuery(recordingId),
+              u: {
+                $set: {
+                  ...mongoPayload,
+                  updatedAt: new Date(),
+                },
+                $setOnInsert: {
+                  id: recordingId,
+                  type: 'LIVESTREAM',
+                  recordingId,
+                  documentId: null,
+                  createdAt: new Date(),
+                },
+              },
+              upsert: true,
             },
-            $setOnInsert: {
-              id: recordingId,
-              type: 'LIVESTREAM',
-              recordingId,
-              documentId: null,
-              createdAt: new Date(),
-            },
-          },
-          upsert: true,
-        },
-      ],
-    });
+          ],
+        });
+
+        this.logger.debug(`[Mongo] upsertRecordingAiAnalysis result for ${recordingId} (attempt ${attempt}): ${JSON.stringify(res)}`);
+        return;
+      } catch (err) {
+        lastErr = err;
+        this.logger.warn(`[Mongo] upsertRecordingAiAnalysis attempt ${attempt} failed for ${recordingId}: ${String(err)}`);
+        if (attempt < maxAttempts) {
+          const backoff = 200 * Math.pow(2, attempt - 1);
+          await this.sleep(backoff);
+          continue;
+        }
+      }
+    }
+
+    // If update/upsert failed after retries, try delete+insert fallback with retries
+    this.logger.warn(`[Mongo] upsertRecordingAiAnalysis performing delete+insert fallback for ${recordingId}`);
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.prisma.mongo.$runCommandRaw({
+          delete: this.aiTranscriptSummaryCollection,
+          deletes: [
+            { q: this.getRecordingAnalysisQuery(recordingId), limit: 0 },
+          ],
+        });
+
+        const doc = {
+          id: recordingId,
+          type: 'LIVESTREAM',
+          recordingId,
+          documentId: null,
+          ...mongoPayload,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any;
+
+        const insertRes = await this.prisma.mongo.$runCommandRaw({
+          insert: this.aiTranscriptSummaryCollection,
+          documents: [doc],
+        });
+
+        this.logger.debug(`[Mongo] upsertRecordingAiAnalysis fallback insert result for ${recordingId} (attempt ${attempt}): ${JSON.stringify(insertRes)}`);
+        return;
+      } catch (err2) {
+        lastErr = err2;
+        this.logger.warn(`[Mongo] upsertRecordingAiAnalysis fallback attempt ${attempt} failed for ${recordingId}: ${String(err2)}`);
+        if (attempt < maxAttempts) {
+          const backoff = 300 * Math.pow(2, attempt - 1);
+          await this.sleep(backoff);
+          continue;
+        }
+      }
+    }
+
+    this.logger.error(`[Mongo] upsertRecordingAiAnalysis ultimately failed for ${recordingId}: ${String(lastErr)}`);
+    throw lastErr;
   }
 
   private async updateRecordingProcessingState(
@@ -2294,43 +2391,15 @@ export class LivestreamService {
     const existing = await this.getRecordingAiAnalysisDocument(recordingId);
     this.logger.debug(`[Transcribe] existing transcript present=${!!existing?.transcript} status=${existing?.transcriptStatus}`);
     if (!force && existing?.transcript) {
-      try {
-        await this.generateRecordingSummary(recordingId, false);
-      } catch (summaryErr) {
-        this.logger.warn('Summary failed for recording', String(summaryErr));
-      }
-
-      try {
-        const text = this.getTranscriptText(existing.transcript);
-        if (text) {
-          this.logger.log(`[Moderation] Recording ${recordingId} (existing) - invoking moderation API; textLen=${text.length}`);
-        }
-        const moderation = await this.callModerationApi(text || '');
-        if (moderation) {
-          await this.replaceRecordingAiAnalysisWithModeration(recordingId, moderation);
-        }
-      } catch (err) {
-        this.logger.warn('Moderation failed for recording', String(err));
-      }
-
-      return {
-        ...(await this.getRecordingAiAnalysis(recordingId)),
-        cached: true,
-      };
+      return await this.getRecordingAiAnalysis(recordingId);
     }
 
     if (!force && livestream?.processingStatus === 'PROCESSING') {
-      return {
-        ...(await this.getRecordingAiAnalysis(recordingId)),
-        cached: true,
-      };
+      return await this.getRecordingAiAnalysis(recordingId);
     }
 
     if (!force && existing?.transcriptStatus === 'processing') {
-      return {
-        ...(await this.getRecordingAiAnalysis(recordingId)),
-        cached: true,
-      };
+      return await this.getRecordingAiAnalysis(recordingId);
     }
 
     try {
@@ -2421,15 +2490,17 @@ export class LivestreamService {
         throw new BadRequestException('Recording audio URL is missing, cannot transcribe');
       }
 
-      // Call transcribe endpoint with a presigned R2 URL (do not re-download locally)
+      // Call transcribe endpoint using the same payload shape as document flow.
+      // The AI service expects multipart form-data with file_url.
       const res = await (await import('../utils/aiFetch')).default(
         `${this.requireAiServiceUrl()}/transcribe`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ file: presignedAudioUrl }),
+          body: (() => {
+            const formData = new FormData();
+            formData.append('file_url', presignedAudioUrl);
+            return formData;
+          })(),
           timeoutMs: 30 * 60 * 1000,
         },
         this.logger as any,
@@ -2439,8 +2510,20 @@ export class LivestreamService {
         throw new BadRequestException(`Transcribe service error (${res.status}): ${await res.text()}`);
       }
 
-      const payload = (await res.json()) as unknown;
-      const transcript = this.extractTranscriptFromPayload(payload);
+      const payloadText = await res.text();
+      try {
+        this.logger.debug(`[Transcribe] AI payload preview for ${recordingId}: ${payloadText.slice(0, 2000)}`);
+      } catch (e) {
+        this.logger.debug(`[Transcribe] AI payload preview unavailable for ${recordingId}`);
+      }
+      const transcript = this.extractTranscriptFromNdjson(payloadText);
+
+      try {
+        const textPreview = this.getTranscriptText(transcript) || '';
+        this.logger.log(`[Transcribe] Extracted transcript length=${textPreview.length} preview=${textPreview.substring(0,200)}`);
+      } catch (e) {
+        this.logger.warn(`[Transcribe] Failed to preview extracted transcript for ${recordingId}: ${String(e)}`);
+      }
 
       if (!transcript) {
         await this.upsertRecordingAiAnalysis(recordingId, {
@@ -2461,11 +2544,9 @@ export class LivestreamService {
         processingError: null,
       });
 
-      try {
-        await this.generateRecordingSummary(recordingId, false);
-      } catch (summaryErr) {
+      void this.generateRecordingSummary(recordingId, true).catch((summaryErr) => {
         this.logger.warn('Summary failed for recording', String(summaryErr));
-      }
+      });
 
       const analysis = await this.getRecordingAiAnalysis(recordingId);
       const transcriptText = this.getTranscriptText(transcript);
@@ -2482,10 +2563,23 @@ export class LivestreamService {
         status: 'success',
       });
 
-      return {
-        ...analysis,
-        cached: false,
-      };
+      // Notify teacher that transcript is ready (best-effort)
+      try {
+        const live = await this.prisma.postgres.liveStream.findUnique({ where: { id: recordingId }, select: { teacherId: true } });
+        if (live?.teacherId) {
+          await this.notificationService.createNotification({
+            userId: live.teacherId,
+            type: 'COURSE_UPDATE' as any,
+            title: 'Transcript Available',
+            content: `Transcript and summary are ready for your livestream (${recordingId}).`,
+            data: { livestreamId: recordingId, type: 'transcript_ready' },
+          }).catch((nErr) => this.logger.warn('[Notification] createNotification failed', String(nErr)));
+        }
+      } catch (notifyErr) {
+        this.logger.warn('[Notification] failed to send transcript-ready notification', String(notifyErr));
+      }
+
+      return await this.getRecordingAiAnalysis(recordingId);
     } catch (err: unknown) {
       await this.upsertRecordingAiAnalysis(recordingId, {
         transcriptStatus: 'error',
@@ -2496,12 +2590,59 @@ export class LivestreamService {
       await this.updateRecordingProcessingStatus(recordingId, 'FAILED').catch(() => undefined);
 
       this.logger.error(`[TRANSCRIPT ERROR] RecordingID: ${recordingId}, Error: ${err instanceof Error ? err.message : String(err)}`);
+      // Notify teacher about failure (best-effort)
+      try {
+        const live = await this.prisma.postgres.liveStream.findUnique({ where: { id: recordingId }, select: { teacherId: true } });
+        if (live?.teacherId) {
+          await this.notificationService.createNotification({
+            userId: live.teacherId,
+            type: 'COURSE_UPDATE' as any,
+            title: 'Transcript Failed',
+            content: `Transcript generation failed for your livestream (${recordingId}): ${err instanceof Error ? err.message : String(err)}`,
+            data: { livestreamId: recordingId, type: 'transcript_failed' },
+          }).catch((nErr) => this.logger.warn('[Notification] createNotification failed', String(nErr)));
+        }
+      } catch (notifyErr) {
+        this.logger.warn('[Notification] failed to send transcript-failed notification', String(notifyErr));
+      }
       throw err;
     }
   }
 
-  private extractTranscriptFromPayload(payload: unknown): Prisma.JsonValue | null {
-    return this.extractTranscriptValue(payload);
+  private extractTranscriptFromNdjson(payloadText: string): Prisma.JsonValue | null {
+    const lines = payloadText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        if (parsed.status !== 'success') {
+          continue;
+        }
+
+        // AI response shape: { status, data: { filename, result: { text, segments, language, ... } } }
+        // We want to preserve the full result object (with segments/timestamps) not just the text string.
+        const dataField = parsed.data as Record<string, unknown> | null | undefined;
+        const resultField = dataField?.result ?? parsed.result;
+
+        if (resultField && typeof resultField === 'object' && !Array.isArray(resultField)) {
+          return resultField as Prisma.JsonValue;
+        }
+
+        // Fallback for other response shapes
+        const candidate = parsed.data ?? parsed.result ?? parsed.text ?? parsed.transcript;
+        const transcript = this.extractTranscriptValue(candidate);
+        if (transcript) {
+          return transcript;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
   }
 
   private extractTranscriptValue(value: unknown, depth = 0): Prisma.JsonValue | null {
@@ -2526,28 +2667,27 @@ export class LivestreamService {
     }
 
     const data = value as Record<string, unknown>;
-    const directText = data.full_text ?? data.text ?? data.transcript;
 
+    // If the object has segments or timestamps alongside text, preserve the whole object
+    // so callers get timestamps for subtitle rendering. Return plain text only as last resort.
+    if (Array.isArray(data.segments) || Array.isArray(data.timestamps)) {
+      return data as Prisma.JsonValue;
+    }
+
+    // Try nested result/data containers first before falling back to plain text
+    for (const key of ['result', 'data', 'payload', 'output']) {
+      const nested = data[key];
+      if (nested && typeof nested === 'object') {
+        const nestedValue = this.extractTranscriptValue(nested, depth + 1);
+        if (nestedValue) {
+          return nestedValue;
+        }
+      }
+    }
+
+    const directText = data.full_text ?? data.text ?? data.transcript;
     if (typeof directText === 'string') {
       return directText.trim() || null;
-    }
-
-    if (directText && typeof directText === 'object') {
-      const nestedDirect = this.extractTranscriptValue(directText, depth + 1);
-      if (nestedDirect) {
-        return nestedDirect;
-      }
-    }
-
-    for (const key of ['result', 'data', 'payload', 'output']) {
-      const nestedValue = this.extractTranscriptValue(data[key], depth + 1);
-      if (nestedValue) {
-        return nestedValue;
-      }
-    }
-
-    if (Array.isArray(data.timestamps) || Array.isArray(data.segments)) {
-      return data as Prisma.JsonValue;
     }
 
     return data as Prisma.JsonValue;
@@ -2692,17 +2832,7 @@ export class LivestreamService {
 
     let transcript = existing?.transcript || null;
     if (!force && existing?.summary) {
-      return {
-        ...(await this.getRecordingAiAnalysis(recordingId)),
-        cached: true,
-      };
-    }
-
-    if (!force && livestream?.processingStatus === 'PROCESSING') {
-      return {
-        ...(await this.getRecordingAiAnalysis(recordingId)),
-        cached: true,
-      };
+      return await this.getRecordingAiAnalysis(recordingId);
     }
 
     if (!transcript) {
@@ -2790,10 +2920,6 @@ export class LivestreamService {
       await this.updateRecordingProcessingStatus(recordingId, 'FAILED').catch(() => undefined);
     }
 
-    return {
-      ...(await this.getRecordingAiAnalysis(recordingId)),
-      cached: false,
-    };
+    return await this.getRecordingAiAnalysis(recordingId);
   }
 }
-

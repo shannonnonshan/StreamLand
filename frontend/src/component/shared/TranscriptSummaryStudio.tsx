@@ -21,6 +21,7 @@ type TranscriptPayload =
       result?: unknown;
       payload?: unknown;
       data?: unknown;
+      language?: unknown;
       timestamps?: unknown[];
       segments?: unknown[];
     };
@@ -39,13 +40,9 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => {
 };
 
 const extractTranscriptTextValue = (value: unknown, depth = 0): string => {
-  if (depth > 8 || value == null) {
-    return '';
-  }
+  if (depth > 8 || value == null) return '';
 
-  if (typeof value === 'string') {
-    return value.trim();
-  }
+  if (typeof value === 'string') return value.trim();
 
   if (Array.isArray(value)) {
     return value
@@ -55,87 +52,62 @@ const extractTranscriptTextValue = (value: unknown, depth = 0): string => {
       .trim();
   }
 
-  if (!isPlainObject(value)) {
-    return '';
-  }
+  if (!isPlainObject(value)) return '';
 
   const data = value as Record<string, unknown>;
-  const directCandidates = [
-    data.full_text,
-    data.text,
-    data.transcript,
-    data.result,
-    data.payload,
-    data.data,
-  ];
+  const directCandidates = [data.text, data.full_text, data.transcript, data.result, data.payload, data.data];
 
   for (const candidate of directCandidates) {
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate.trim();
-    }
-
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
     if (candidate && typeof candidate === 'object') {
-      const nestedText = extractTranscriptTextValue(candidate, depth + 1);
-      if (nestedText) {
-        return nestedText;
-      }
+      const nested = extractTranscriptTextValue(candidate, depth + 1);
+      if (nested) return nested;
     }
   }
 
-  for (const key of ['timestamps', 'segments']) {
-    const blocks = data[key];
-    if (!Array.isArray(blocks)) {
-      continue;
-    }
+  const topLevelBlocks = Array.isArray(data.timestamps)
+    ? data.timestamps
+    : Array.isArray(data.segments)
+      ? data.segments
+      : null;
 
-    const text = blocks
+  if (topLevelBlocks) {
+    const text = topLevelBlocks
       .map((item) => extractTranscriptTextValue(item, depth + 1))
       .filter(Boolean)
       .join('\n')
       .trim();
-
-    if (text) {
-      return text;
-    }
+    if (text) return text;
   }
 
   for (const nestedValue of Object.values(data)) {
-    const nestedText = extractTranscriptTextValue(nestedValue, depth + 1);
-    if (nestedText) {
-      return nestedText;
-    }
+    const nested = extractTranscriptTextValue(nestedValue, depth + 1);
+    if (nested) return nested;
   }
 
   return '';
 };
 
 const collectTranscriptSegments = (payload: unknown, depth = 0): Array<Record<string, unknown>> => {
-  if (depth > 8 || payload == null) {
-    return [];
-  }
+  if (depth > 8 || payload == null) return [];
 
   if (Array.isArray(payload)) {
     return payload.flatMap((item) => collectTranscriptSegments(item, depth + 1));
   }
 
-  if (!isPlainObject(payload)) {
-    return [];
-  }
+  if (!isPlainObject(payload)) return [];
 
   const data = payload as Record<string, unknown>;
   const collected: Array<Record<string, unknown>> = [];
 
-  for (const key of ['timestamps', 'segments']) {
-    const blocks = data[key];
-    if (!Array.isArray(blocks)) {
-      continue;
-    }
+  const blocks = Array.isArray(data.timestamps)
+    ? data.timestamps
+    : Array.isArray(data.segments)
+      ? data.segments
+      : [];
 
-    for (const block of blocks) {
-      if (isPlainObject(block)) {
-        collected.push(block);
-      }
-    }
+  for (const block of blocks) {
+    if (isPlainObject(block)) collected.push(block);
   }
 
   for (const key of ['transcript', 'result', 'payload', 'data']) {
@@ -156,15 +128,38 @@ const extractCueText = (segment: Record<string, unknown>): string => {
     segment.result,
     segment.payload,
   ].find((value) => typeof value === 'string');
-
   return typeof textCandidate === 'string' ? textCandidate.trim() : '';
+};
+
+const extractCueStart = (segment: Record<string, unknown>, fallbackStart: number): number => {
+  const start =
+    typeof segment.start === 'number'
+      ? segment.start
+      : typeof segment.start_time === 'number'
+        ? segment.start_time
+        : typeof segment.startTime === 'number'
+          ? segment.startTime
+          : Number.NaN;
+
+  return Number.isFinite(start) ? Math.max(0, start) : fallbackStart;
+};
+
+const extractCueEnd = (segment: Record<string, unknown>): number | null => {
+  const end =
+    typeof segment.end === 'number'
+      ? segment.end
+      : typeof segment.end_time === 'number'
+        ? segment.end_time
+        : typeof segment.endTime === 'number'
+          ? segment.endTime
+          : Number.NaN;
+
+  return Number.isFinite(end) ? Math.max(0, end) : null;
 };
 
 const normalizeTranscriptContent = (transcript: TranscriptPayload | null | undefined): string => {
   return extractTranscriptTextValue(transcript);
 };
-
-
 
 interface TranscriptSummaryStudioProps {
   transcriptSeedMessage: string;
@@ -199,9 +194,13 @@ export default function TranscriptSummaryStudio({
   const [isRetrying, setIsRetrying] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [activeCueId, setActiveCueId] = useState<string | null>(null);
+  const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([]);
+
   const transcriptPanelRef = useRef<HTMLDivElement | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Prevents concurrent generate calls (double-click, React StrictMode, etc.)
+  const isGeneratingRef = useRef(false);
 
   const isDocumentMode = !!documentId && !recordingId;
   const canSummarize = !isDocumentMode && transcriptContent.trim().length > 0;
@@ -210,17 +209,31 @@ export default function TranscriptSummaryStudio({
   const canRegenerateTranscript = hasTranscript || hasSummary;
   const canRetry = transcriptStatus === 'error' || !!processingError || processingStage === 'error';
 
-  const normalizeProgress = (value: unknown): number => {
-    if (typeof value !== 'number' || Number.isNaN(value)) {
-      return 0;
+  const transcriptStatusNotice = (() => {
+    if (transcriptStatus === 'processing') {
+      return {
+        className: 'border-sky-200 bg-sky-50 text-sky-700',
+        text: `We are still working on your transcript (${elapsedSeconds}s). You can leave this page and come back later.`,
+      };
     }
 
+    if (hasTranscript && !canRetry) {
+      return {
+        className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        text: 'Transcript already exists.',
+      };
+    }
+
+    return null;
+  })();
+
+  const normalizeProgress = (value: unknown): number => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return 0;
     return Math.max(0, Math.min(100, Math.round(value)));
   };
 
   const normalizeStage = (value: unknown): ProcessingStage | null => {
     const stage = typeof value === 'string' ? value.trim().toLowerCase() : '';
-
     if (stage === 'queued') return 'queued';
     if (stage === 'preparing') return 'preparing';
     if (stage === 'transcribing') return 'transcribing';
@@ -239,10 +252,7 @@ export default function TranscriptSummaryStudio({
     processingProgress?: number | null;
     processingError?: string | null;
   }) => {
-    if (typeof analysis.processingProgress === 'number') {
-      return normalizeProgress(analysis.processingProgress);
-    }
-
+    if (typeof analysis.processingProgress === 'number') return normalizeProgress(analysis.processingProgress);
     if (analysis.processingStage === 'done') return 100;
     if (analysis.processingStage === 'moderating') return 85;
     if (analysis.processingStage === 'summarizing') return 60;
@@ -252,19 +262,7 @@ export default function TranscriptSummaryStudio({
     if (analysis.transcriptStatus === 'success' && analysis.transcript) return 60;
     if (analysis.transcriptStatus === 'processing') return 35;
     if (analysis.transcriptStatus === 'error' || analysis.processingError) return 0;
-
     return 0;
-  };
-
-  const getStageLabel = (value: ProcessingStage | null) => {
-    if (value === 'queued') return 'Waiting to start';
-    if (value === 'preparing') return 'Getting things ready';
-    if (value === 'transcribing') return 'Turning speech into text';
-    if (value === 'summarizing') return 'Writing a short summary';
-    if (value === 'moderating') return 'Checking for quality';
-    if (value === 'done') return 'All done';
-    if (value === 'error') return 'Something went wrong';
-    return 'Waiting';
   };
 
   const stopPolling = () => {
@@ -284,6 +282,88 @@ export default function TranscriptSummaryStudio({
     elapsedTimerRef.current = setInterval(() => {
       setElapsedSeconds(prev => prev + 1);
     }, 1000);
+  };
+
+  const coerceNumber = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const parsed = Number.parseFloat(value.trim());
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
+  const formatTime = (seconds: number) => {
+    if (!seconds || Number.isNaN(seconds) || !isFinite(seconds) || seconds < 0) return '0:00';
+    const s = Math.round(seconds);
+    const minutes = Math.floor(s / 60);
+    const secs = s % 60;
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const splitTextToCues = (text: string, totalDuration: number): SubtitleCue[] => {
+    const source = (text || '').replace(/\s+/g, ' ').trim();
+    if (!source) return [];
+    const parts = source.split(/(?<=[.!?])\s+/).filter(Boolean);
+    const safeDuration = totalDuration > 0 ? totalDuration : parts.length * 4;
+    const cueDuration = Math.max(2.5, Math.floor(safeDuration / Math.max(1, parts.length)));
+    return parts.map((part, index) => ({
+      id: `cue-${index + 1}`,
+      start: index * cueDuration,
+      end: (index + 1) * cueDuration,
+      text: part,
+    }));
+  };
+
+  const buildCuesFromTranscript = (payload: TranscriptPayload | null | undefined, totalDuration: number): SubtitleCue[] => {
+    if (!payload) return [];
+    if (typeof payload === 'string') return splitTextToCues(payload, totalDuration);
+
+    if (typeof payload !== 'object' || Array.isArray(payload)) {
+      return splitTextToCues(extractTranscriptTextValue(payload), totalDuration);
+    }
+
+    const transcript = payload as Record<string, unknown>;
+    const blocks = Array.isArray(transcript.timestamps)
+      ? transcript.timestamps
+      : Array.isArray(transcript.segments)
+        ? transcript.segments
+        : [];
+
+    if (blocks.length === 0) {
+      return splitTextToCues(extractTranscriptTextValue(payload), totalDuration);
+    }
+
+    const normalized = blocks
+      .map((block, index) => {
+        if (!isPlainObject(block)) return null;
+        const text = extractCueText(block);
+        if (!text) return null;
+
+        return {
+          id: `cue-${index + 1}`,
+          start: extractCueStart(block, index * 4),
+          end: extractCueEnd(block),
+          text,
+        };
+      })
+      .filter((item): item is { id: string; start: number; end: number | null; text: string } => !!item);
+
+    if (normalized.length === 0) {
+      return splitTextToCues(extractTranscriptTextValue(payload), totalDuration);
+    }
+
+    return normalized.map((segment, index) => {
+      const nextStart = normalized[index + 1]?.start ?? null;
+      const end = segment.end ?? (nextStart != null ? nextStart : segment.start + 4);
+
+      return {
+        id: segment.id,
+        start: segment.start,
+        end,
+        text: segment.text,
+      };
+    });
   };
 
   const applyAnalysis = (analysis: {
@@ -308,135 +388,37 @@ export default function TranscriptSummaryStudio({
     setTranscriptError(nextStatus === 'error' ? analysis.transcriptError || "Cannot generate transcript right now." : null);
 
     const isProcessing = nextStatus === 'processing';
+
+    // Always sync isTranscribing with the actual server status.
+    // applyAnalysis is the single source of truth — the finally block in
+    // handleGenerateTranscript must NOT override this.
     setIsTranscribing(isProcessing);
 
     if (!isProcessing) {
       stopPolling();
-      // Log success data when transcription completes
       if (nextStatus === 'success' && analysis.transcript) {
-        const logData = {
-          recordingId: recordingId,
-          documentId: documentId,
+        console.log('[Transcription Success]', {
+          recordingId,
+          documentId,
           transcriptLength: transcriptText.length,
           hasTranscript: !!transcriptText,
           hasSummary: !!analysis.summary,
           status: nextStatus,
           timestamp: new Date().toISOString(),
-          elapsedSeconds: elapsedSeconds,
-        };
-        console.log('[Transcription Success]', logData);
-        console.log('[Transcript Data]', transcriptText.substring(0, 500) + (transcriptText.length > 500 ? '...' : ''));
+        });
       }
     } else {
       startElapsedTimer();
     }
 
-    // Build subtitle cues from raw transcript payload to match student parsing logic
     try {
-      const effectiveDuration = 0; // unknown here; student uses video duration when available
-      const cues = buildCuesFromTranscript(analysis.transcript as TranscriptPayload | null | undefined, effectiveDuration);
+      const cues = buildCuesFromTranscript(analysis.transcript as TranscriptPayload | null | undefined, 0);
       setSubtitleCues(cues);
-      if (cues.length > 0) {
-        console.log('[Transcript cues generated]', cues.length, 'cues');
-      }
-    } catch (err) {
+    } catch {
       // non-fatal
     }
 
     return isProcessing;
-  };
-
-  const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([]);
-
-  const coerceNumber = (value: unknown): number | null => {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value;
-    }
-
-    if (typeof value === 'string') {
-      const parsed = Number.parseFloat(value.trim());
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-
-    return null;
-  };
-
-  const formatTime = (seconds: number) => {
-    if (!seconds || Number.isNaN(seconds) || !isFinite(seconds) || seconds < 0) return '0:00';
-    const s = Math.floor(seconds);
-    const minutes = Math.floor(s / 60);
-    const secs = s % 60;
-    return `${minutes}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const splitTextToCues = (text: string, totalDuration: number): SubtitleCue[] => {
-    const source = (text || '').replace(/\s+/g, ' ').trim();
-    if (!source) return [];
-    const parts = source.split(/(?<=[.!?])\s+/).filter(Boolean);
-    const safeDuration = totalDuration > 0 ? totalDuration : parts.length * 4;
-    const cueDuration = Math.max(2.5, Math.floor(safeDuration / Math.max(1, parts.length)));
-    return parts.map((part, index) => ({
-      id: `cue-${index + 1}`,
-      start: index * cueDuration,
-      end: (index + 1) * cueDuration,
-      text: part,
-    }));
-  };
-
-  const extractTranscriptText = (payload: TranscriptPayload | null | undefined): string => {
-    return extractTranscriptTextValue(payload);
-  };
-
-  const buildCuesFromTranscript = (payload: TranscriptPayload | null | undefined, totalDuration: number): SubtitleCue[] => {
-    if (!payload) return [];
-    if (typeof payload === 'string') return splitTextToCues(payload, totalDuration);
-
-    const safeDuration = totalDuration > 0 ? totalDuration : 0;
-    const rawSegments: Array<{ id: string; start: number | null; end: number | null; text: string }> = [];
-    const tryAddSegment = (segment: Record<string, unknown>, index: number) => {
-      const startRaw = coerceNumber(segment.start ?? segment.start_time ?? segment.startTime);
-      const endRaw = coerceNumber(segment.end ?? segment.end_time ?? segment.endTime);
-      const text = extractCueText(segment);
-      if (!text) return;
-
-      rawSegments.push({
-        id: `cue-${index + 1}`,
-        start: startRaw,
-        end: endRaw,
-        text,
-      });
-    };
-
-    const candidates = collectTranscriptSegments(payload);
-    candidates.forEach((item, index) => {
-      tryAddSegment(item, index);
-    });
-
-    if (rawSegments.length > 0) {
-      // Normalize timeline when some segments lack end times
-      const filled = rawSegments.map((seg, idx) => ({ ...seg }));
-      for (let i = 0; i < filled.length; i++) {
-        const seg = filled[i];
-        if (seg.end == null) {
-          const nextStart = filled[i + 1]?.start ?? null;
-          if (nextStart != null) seg.end = nextStart;
-        }
-      }
-
-      // Fallback durations
-      const defaultSegDuration = safeDuration > 0 ? Math.max(0.5, Math.floor(safeDuration / filled.length)) : 4;
-      const cues = filled.map((seg, idx) => ({
-        id: seg.id,
-        start: seg.start ?? idx * defaultSegDuration,
-        end: seg.end ?? (seg.start != null ? seg.start + defaultSegDuration : (idx + 1) * defaultSegDuration),
-        text: seg.text,
-      }));
-
-      return cues;
-    }
-
-    const fallbackText = extractTranscriptText(payload);
-    return splitTextToCues(fallbackText, totalDuration);
   };
 
   const fetchCurrentAnalysis = async () => {
@@ -444,25 +426,20 @@ export default function TranscriptSummaryStudio({
       const analysis = await getRecordingAiAnalysis(recordingId);
       return applyAnalysis(analysis);
     }
-
     if (documentId) {
       const analysis = await getDocumentAiAnalysis(documentId);
       return applyAnalysis(analysis);
     }
-
     return false;
   };
 
   const startPolling = () => {
     if (pollTimerRef.current) return;
     startElapsedTimer();
-
     pollTimerRef.current = setInterval(async () => {
       try {
         const isProcessing = await fetchCurrentAnalysis();
-        if (!isProcessing) {
-          stopPolling();
-        }
+        if (!isProcessing) stopPolling();
       } catch (err) {
         console.error("Failed to refresh AI analysis:", err);
       }
@@ -472,13 +449,10 @@ export default function TranscriptSummaryStudio({
   useEffect(() => {
     const loadExistingAnalysis = async () => {
       if (!recordingId && !documentId) return;
-
       try {
         setIsLoadingExisting(true);
         const isProcessing = await fetchCurrentAnalysis();
-        if (isProcessing) {
-          startPolling();
-        }
+        if (isProcessing) startPolling();
       } catch (err) {
         console.error("Failed to load existing AI analysis:", err);
       } finally {
@@ -498,34 +472,28 @@ export default function TranscriptSummaryStudio({
       setActiveCueId(null);
       return;
     }
-
     const timer = setInterval(() => {
       const video = document.querySelector('video[controls]') as HTMLVideoElement | null;
       if (!video || Number.isNaN(video.currentTime)) return;
-
       const cue = subtitleCues.find((item) => video.currentTime >= item.start && video.currentTime < item.end) || null;
       setActiveCueId(cue?.id || null);
     }, 250);
-
     return () => clearInterval(timer);
   }, [subtitleCues]);
 
   useEffect(() => {
     if (!transcriptPanelRef.current || !activeCueId) return;
-
     const activeEl = transcriptPanelRef.current.querySelector(`[data-cue-id="${activeCueId}"]`);
     activeEl?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [activeCueId]);
 
   const handleGenerateTranscript = async () => {
-    // Allow manual status check even while transcribing
+    // When already processing, clicking refreshes the status from the server.
     if (isTranscribing && transcriptStatus === 'processing') {
       setIsCheckingStatus(true);
       try {
         const isProcessing = await fetchCurrentAnalysis();
-        if (!isProcessing) {
-          stopPolling();
-        }
+        if (!isProcessing) stopPolling();
       } catch (err) {
         console.error("Failed to check status:", err);
       } finally {
@@ -536,6 +504,10 @@ export default function TranscriptSummaryStudio({
 
     if (isTranscribing || isCheckingStatus) return;
 
+    // Prevent concurrent calls: double-click, React StrictMode double-invoke, etc.
+    if (isGeneratingRef.current) return;
+    isGeneratingRef.current = true;
+
     const shouldRetry = canRetry || canRegenerateTranscript;
 
     try {
@@ -543,52 +515,51 @@ export default function TranscriptSummaryStudio({
       setProcessingError(null);
       setIsRetrying(shouldRetry);
       setIsTranscribing(true);
+      if (recordingId || documentId) setTranscriptStatus('processing');
       startElapsedTimer();
 
       if (recordingId) {
-        const result = await generateRecordingTranscript(recordingId, shouldRetry);
-        const isProcessing = applyAnalysis(result);
-        if (isProcessing) {
-          startPolling();
-        }
+        await generateRecordingTranscript(recordingId, shouldRetry);
+        const isProcessing = await fetchCurrentAnalysis();
+        if (isProcessing) startPolling();
       } else if (documentId) {
-        const result = await generateDocumentTranscript(documentId, shouldRetry);
-        const isProcessing = applyAnalysis(result);
-        if (isProcessing) {
-          startPolling();
-        }
+        await generateDocumentTranscript(documentId, shouldRetry);
+        const isProcessing = await fetchCurrentAnalysis();
+        if (isProcessing) startPolling();
       } else {
-        // Placeholder flow until AI backend is connected.
         await new Promise((resolve) => setTimeout(resolve, 900));
         setTranscriptContent(transcriptSeedMessage);
         setSummaryContent("");
         setTranscriptStatus('success');
+        setIsTranscribing(false);
       }
     } catch (err) {
       console.error("Failed to generate transcript:", err);
       const message = err instanceof Error ? err.message : "Cannot generate transcript right now.";
       setTranscriptError(message);
-    } finally {
+      // Only reset on error — applyAnalysis handles the success/processing path.
       setIsTranscribing(false);
+    } finally {
+      isGeneratingRef.current = false;
       setIsRetrying(false);
+      // Do NOT call setIsTranscribing(false) here.
+      // applyAnalysis is the sole controller of isTranscribing based on actual server state.
+      // Setting it here would override applyAnalysis and re-enable the button prematurely,
+      // causing repeated concurrent calls while the server is still processing.
     }
   };
 
   const handleSummarize = async () => {
     if (!canSummarize || isSummarizing) return;
-
     try {
       setIsSummarizing(true);
-
       if (recordingId) {
-        const result = await generateRecordingSummary(recordingId, !!summaryContent.trim());
-        setTranscriptContent(result.transcript || transcriptContent);
-        setSummaryContent(result.summary || "");
+        await generateRecordingSummary(recordingId, !!summaryContent.trim());
+        await fetchCurrentAnalysis();
       } else if (documentId) {
         setSummaryContent("Document summary is not available yet.");
       } else {
-        // Placeholder UI-only behavior. AI backend integration will replace this.
-        setSummaryContent("AI summarization service is not connected yet. The button is enabled and ready for backend integration.");
+        setSummaryContent("AI summarization service is not connected yet.");
       }
     } catch (err) {
       console.error("Failed to summarize transcript:", err);
@@ -639,6 +610,11 @@ export default function TranscriptSummaryStudio({
               <Loader2 size={16} className="animate-spin" />
               Checking status...
             </>
+          ) : isTranscribing && transcriptStatus !== 'processing' ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Generating transcript...
+            </>
           ) : isRetrying ? (
             <>
               <RefreshCw size={16} className="animate-spin" />
@@ -677,17 +653,14 @@ export default function TranscriptSummaryStudio({
           </p>
         )}
 
-        {hasTranscript && !canRetry && (
-          <p className="mt-2 text-xs font-medium text-emerald-700">Transcript already exists.</p>
+        {transcriptStatusNotice && (
+          <p className={`mt-2 text-xs font-medium ${transcriptStatusNotice.className}`}>{transcriptStatusNotice.text}</p>
         )}
 
-        {transcriptStatus === 'processing' && !canRetry && (
-          <p className="mt-2 text-xs font-medium text-sky-700">
-            We are still working on your transcript ({elapsedSeconds}s). You can leave this page and come back later.
-          </p>
-        )}
-
-        <div ref={transcriptPanelRef} className="mt-3 h-52 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm leading-relaxed text-gray-700">
+        <div
+          ref={transcriptPanelRef}
+          className="mt-3 h-52 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm leading-relaxed text-gray-700"
+        >
           {isLoadingExisting && !transcriptContent ? (
             "Loading saved transcript..."
           ) : subtitleCues.length > 0 ? (
@@ -702,13 +675,15 @@ export default function TranscriptSummaryStudio({
                     try {
                       const ev = new CustomEvent('streamland:transcript-seek', { detail: { start: item.start } });
                       window.dispatchEvent(ev);
-                    } catch (e) {
-                      try {
-                        navigator.clipboard?.writeText(String(item.start));
-                      } catch {}
+                    } catch {
+                      try { navigator.clipboard?.writeText(String(item.start)); } catch {}
                     }
                   }}
-                  className={`transcript-cue-button w-full rounded-sm px-2 py-2 text-left leading-relaxed transition ${activeCueId === item.id ? 'bg-[#292C6D]/10 text-[#1F2350]' : 'text-slate-700 hover:bg-white hover:text-slate-900'}`}
+                  className={`transcript-cue-button w-full rounded-sm px-2 py-2 text-left leading-relaxed transition ${
+                    activeCueId === item.id
+                      ? 'bg-[#292C6D]/10 text-[#1F2350]'
+                      : 'text-slate-700 hover:bg-white hover:text-slate-900'
+                  }`}
                 >
                   <div className="inline-flex min-w-14 items-center justify-center rounded bg-slate-200 px-2 py-0.5 text-sm font-semibold text-slate-700">
                     {formatTime(item.start)}
@@ -718,7 +693,7 @@ export default function TranscriptSummaryStudio({
               ))}
             </div>
           ) : (
-            (transcriptContent || transcriptEmptyText)
+            transcriptContent || transcriptEmptyText
           )}
         </div>
 
@@ -741,9 +716,7 @@ export default function TranscriptSummaryStudio({
         )}
 
         {!canSummarize && !isDocumentMode && (
-          <p className="mt-2 text-xs font-medium text-amber-700">
-            Generate transcript first.
-          </p>
+          <p className="mt-2 text-xs font-medium text-amber-700">Generate transcript first.</p>
         )}
 
         {isDocumentMode && !hasSummary && (

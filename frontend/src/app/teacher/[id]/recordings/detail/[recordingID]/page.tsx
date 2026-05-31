@@ -351,7 +351,8 @@ export default function RecordingDetailPage() {
             {/* Transcript Studio */}
             <TranscriptSummaryStudio
               recordingId={recordingID}
-              transcriptSeedMessage="[Transcript preview] AI transcription endpoint is pending backend integration. Your generated transcript will appear here."
+              transcriptSeedMessage="Transcript will appear here after processing."
+              transcriptHint="Transcript can show plain text or timestamped segments. Click a line to jump in the video."
             />
 
             {/* Recording Info Card */}

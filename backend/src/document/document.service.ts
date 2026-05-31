@@ -17,6 +17,7 @@ import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 import * as os from 'os';
 import * as path from 'path';
+import logFetch from '../utils/aiFetch';
 import { PROCESSING_STAGE_PROGRESS, ProcessingStage } from '../processing/processing.types';
 
 interface AiTranscriptSummaryDocument {
@@ -104,11 +105,9 @@ export class DocumentService {
       transcriptError: null,
       transcript,
       transcriptGeneratedAt: new Date(),
-      processingProgress: PROCESSING_STAGE_PROGRESS.done,
+      processingProgress: PROCESSING_STAGE_PROGRESS.summarizing,
       processingError: null,
     });
-
-    await this.updateDocumentProcessingStatus(documentId, 'DONE');
   }
 
   private async invalidateTeacherDocumentCache(teacherId: string) {
@@ -353,10 +352,6 @@ export class DocumentService {
           q: { type: 'DOCUMENT', documentId },
           u: {
             $set: {
-              id: documentId,
-              type: 'DOCUMENT',
-              documentId,
-              recordingId: null,
               ...mongoPayload,
               updatedAt: new Date(),
             },
@@ -803,31 +798,19 @@ export class DocumentService {
     const existing = await this.getDocumentAiAnalysisDocument(documentId);
     this.logger.debug(`[Transcribe] existing transcript present=${!!existing?.transcript} status=${existing?.transcriptStatus}`);
     if (!force && existing?.transcript) {
-      return {
-        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
-        cached: true,
-      };
+      return await this.getDocumentAiAnalysis(documentId, user, false);
     }
 
     if (!force && document.processingStatus === 'PROCESSING') {
-      return {
-        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
-        cached: true,
-      };
+      return await this.getDocumentAiAnalysis(documentId, user, false);
     }
 
     if (!force && existing?.transcriptStatus === 'success' && existing?.transcript) {
-      return {
-        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
-        cached: true,
-      };
+      return await this.getDocumentAiAnalysis(documentId, user, false);
     }
 
     if (!force && existing?.transcriptStatus === 'processing') {
-      return {
-        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
-        cached: true,
-      };
+      return await this.getDocumentAiAnalysis(documentId, user, false);
     }
 
     try {
@@ -879,16 +862,11 @@ export class DocumentService {
 
       await this.saveTranscriptAndMarkCompleted(documentId, transcript);
 
-      try {
-        await this.generateDocumentSummary(documentId, true, user);
-      } catch (summaryErr) {
+      void this.generateDocumentSummary(documentId, true, user).catch((summaryErr) => {
         this.logger.warn('Summary failed for document', String(summaryErr));
-      }
+      });
 
-      return {
-        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
-        cached: false,
-      };
+      return await this.getDocumentAiAnalysis(documentId, user, false);
     } catch (err: unknown) {
       await this.upsertDocumentAiAnalysis(documentId, {
         transcriptStatus: 'error',
@@ -917,17 +895,11 @@ export class DocumentService {
 
     let transcript = existing?.transcript || null;
     if (!force && existing?.summary) {
-      return {
-        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
-        cached: true,
-      };
+      return await this.getDocumentAiAnalysis(documentId, user, false);
     }
 
     if (!force && document.processingStatus === 'PROCESSING') {
-      return {
-        ...(await this.getDocumentAiAnalysis(documentId, user, false)),
-        cached: true,
-      };
+      return await this.getDocumentAiAnalysis(documentId, user, false);
     }
 
     if (!transcript) {
@@ -1014,10 +986,7 @@ export class DocumentService {
       }
     }
 
-    return {
-      ...(await this.getDocumentAiAnalysis(documentId, user, false)),
-      cached: false,
-    };
+    return await this.getDocumentAiAnalysis(documentId, user, false);
   }
 
   private extractTranscriptFromNdjson(payloadText: string): Prisma.JsonValue | null {
@@ -1266,13 +1235,14 @@ export class DocumentService {
       );
 
       // REQUEST
-      const res = await fetch(api, {
+      const res = await logFetch(api, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
-      });
+        timeoutMs: 10 * 60 * 1000,
+      }, this.logger);
 
       const respText = await res.text();
 

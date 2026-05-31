@@ -164,7 +164,7 @@ export class ProcessingProcessor {
         processingProgress: latestProgress,
       });
 
-      this.logger.log(`[4/5] Summarizing transcript...`);
+      this.logger.log(`[4/5] Summarizing transcript... (detected language: ${transcript.language})`);
       const summary = await this.summarise(transcript.text, transcript.language);
 
       latestProgress = PROCESSING_STAGE_PROGRESS.moderating;
@@ -298,8 +298,6 @@ export class ProcessingProcessor {
           },
           u: {
             $set: {
-              type,
-              ...itemField,
               transcript: transcript as unknown as Prisma.InputJsonValue,
               summary: summary.summary,
               moderationResult: moderation as unknown as Prisma.InputJsonValue,
@@ -309,6 +307,8 @@ export class ProcessingProcessor {
               updatedAt: new Date(),
             },
             $setOnInsert: {
+              type,
+              ...itemField,
               createdAt: new Date(),
             },
           },
@@ -403,7 +403,34 @@ export class ProcessingProcessor {
     return { text: parsed.text, language: parsed.language, timestamps: parsed.timestamps, payload: parsed.payload };
   }
 
-  private async summarise(text: string, language: string): Promise<SummariseResponse> {
+  /**
+   * Detect whether text is more likely Vietnamese or English.
+   *
+   * Strategy:
+   *  1. If Whisper already returned a supported language, trust it.
+   *  2. Otherwise count Vietnamese diacritic characters in the text.
+   *     Vietnamese has a high density of tone marks (à á ả ã ạ ă â ê ô ơ ư đ …).
+   *     A ratio > 8 % of total chars strongly suggests Vietnamese.
+   *  3. If still ambiguous (ratio 2–8 %), call the summarize API with both
+   *     languages concurrently and pick the longer (more coherent) result.
+   */
+  private detectLanguage(whisperLang: string, text: string): 'en' | 'vi' | 'ambiguous' {
+    const lang = whisperLang.trim().toLowerCase();
+    if (lang === 'vi' || lang === 'vietnamese') return 'vi';
+    if (lang === 'en' || lang === 'english') return 'en';
+
+    // Heuristic: Vietnamese-specific characters (incl. tone marks and special vowels)
+    const viChars = (text.match(/[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴĐ]/g) || []).length;
+    const ratio = text.length > 0 ? viChars / text.length : 0;
+
+    this.logger.log(`[Summarise] Language detection: whisper="${whisperLang}" viCharRatio=${(ratio * 100).toFixed(1)}%`);
+
+    if (ratio > 0.08) return 'vi';
+    if (ratio < 0.02) return 'en';
+    return 'ambiguous';
+  }
+
+  private async summariseWithLanguage(text: string, language: 'en' | 'vi'): Promise<string | null> {
     const response = await logFetch(`${this.requireAiServiceUrl()}/summarize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -411,14 +438,54 @@ export class ProcessingProcessor {
     }, this.logger as any);
 
     if (!response.ok) {
-      throw new BadRequestException(`Summarise service error (${response.status}): ${await response.text()}`);
+      this.logger.warn(`[Summarise] ${language} attempt failed (${response.status})`);
+      return null;
     }
 
     const payload = (await response.json()) as unknown;
-    const summary = this.parseSummaryPayload(payload);
-    if (!summary) {
-      throw new BadRequestException('Summarise service returned an empty summary');
+    return this.parseSummaryPayload(payload) || null;
+  }
+
+  private async summarise(text: string, whisperLanguage: string): Promise<SummariseResponse> {
+    const detected = this.detectLanguage(whisperLanguage, text);
+
+    if (detected !== 'ambiguous') {
+      this.logger.log(`[Summarise] Using language "${detected}" (detected from whisper="${whisperLanguage}")`);
+      const response = await logFetch(`${this.requireAiServiceUrl()}/summarize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, language: detected }),
+      }, this.logger as any);
+
+      if (!response.ok) {
+        throw new BadRequestException(`Summarise service error (${response.status}): ${await response.text()}`);
+      }
+
+      const payload = (await response.json()) as unknown;
+      const summary = this.parseSummaryPayload(payload);
+      if (!summary) {
+        throw new BadRequestException('Summarise service returned an empty summary');
+      }
+      return { summary };
     }
+
+    // Ambiguous language: call both concurrently and pick the better (longer) result
+    this.logger.log(`[Summarise] Ambiguous language — calling both "en" and "vi" concurrently`);
+    const [enSummary, viSummary] = await Promise.all([
+      this.summariseWithLanguage(text, 'en'),
+      this.summariseWithLanguage(text, 'vi'),
+    ]);
+
+    this.logger.log(`[Summarise] Dual-call results — en=${enSummary?.length ?? 0} chars, vi=${viSummary?.length ?? 0} chars`);
+
+    const summary = (enSummary?.length ?? 0) >= (viSummary?.length ?? 0)
+      ? enSummary
+      : viSummary;
+
+    if (!summary) {
+      throw new BadRequestException('Summarise service returned empty results for both en and vi');
+    }
+
     return { summary };
   }
 

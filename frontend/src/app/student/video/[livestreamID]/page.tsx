@@ -76,6 +76,10 @@ type TranscriptPayload =
       text?: unknown;
       transcript?: unknown;
       result?: unknown;
+      payload?: unknown;
+      data?: unknown;
+      language?: unknown;
+      timestamps?: unknown[];
       segments?: unknown[];
     }
   | unknown[];
@@ -217,10 +221,22 @@ export default function VideoPlayerPage() {
 
     if (typeof payload === 'object') {
       const data = payload as Record<string, unknown>;
-      const directText = [data.full_text, data.text, data.transcript, data.result].find(
+      const directText = [data.text, data.full_text, data.transcript, data.result].find(
         (value) => typeof value === 'string',
       );
       if (typeof directText === 'string') return directText.trim();
+
+      if (Array.isArray(data.timestamps)) {
+        return data.timestamps
+          .map((timestamp) => {
+            if (!timestamp || typeof timestamp !== 'object') return '';
+            const item = timestamp as Record<string, unknown>;
+            const textValue = item.text ?? item.full_text ?? item.transcript ?? item.result;
+            return typeof textValue === 'string' ? textValue.trim() : '';
+          })
+          .filter(Boolean)
+          .join('\n');
+      }
 
       if (Array.isArray(data.segments)) {
         return data.segments
@@ -256,97 +272,57 @@ export default function VideoPlayerPage() {
     if (!payload) return [];
     if (typeof payload === 'string') return splitTextToCues(payload, totalDuration);
 
-    const safeDuration = totalDuration > 0 ? totalDuration : 0;
-    const rawSegments: Array<{ id: string; start: number | null; end: number | null; text: string }> = [];
-    const tryAddSegment = (segment: Record<string, unknown>, index: number) => {
-      const startRaw = coerceNumber(segment.start ?? segment.start_time ?? segment.startTime);
-      const endRaw = coerceNumber(segment.end ?? segment.end_time ?? segment.endTime);
-      const textValue = segment.text ?? segment.full_text ?? segment.transcript ?? segment.result;
-      const text = typeof textValue === 'string' ? textValue.trim() : '';
-      if (!text) return;
-
-      rawSegments.push({
-        id: `cue-${index + 1}`,
-        start: startRaw,
-        end: endRaw,
-        text,
-      });
-    };
-
-    if (Array.isArray(payload)) {
-      payload.forEach((item, index) => {
-        if (item && typeof item === 'object') {
-          tryAddSegment(item as Record<string, unknown>, index);
-        }
-      });
-    } else if (typeof payload === 'object') {
-      const data = payload as Record<string, unknown>;
-      const nestedTranscript = data.transcript && typeof data.transcript === 'object'
-        ? (data.transcript as Record<string, unknown>)
-        : null;
-      const nestedResult = data.result && typeof data.result === 'object'
-        ? (data.result as Record<string, unknown>)
-        : null;
-      const nestedData = data.data && typeof data.data === 'object'
-        ? (data.data as Record<string, unknown>)
-        : null;
-
-      const candidates = [
-        data.segments,
-        nestedTranscript?.segments,
-        nestedResult?.segments,
-        nestedData?.segments,
-      ].filter(Array.isArray) as unknown[][];
-
-      const segmentsSource = candidates[0] || [];
-      segmentsSource.forEach((segment, index) => {
-        if (segment && typeof segment === 'object') {
-          tryAddSegment(segment as Record<string, unknown>, index);
-        }
-      });
+    if (typeof payload !== 'object' || Array.isArray(payload)) {
+      return splitTextToCues(extractTranscriptText(payload), totalDuration);
     }
 
-    if (rawSegments.length > 0) {
-      const maxEnd = rawSegments.reduce((max, segment) => {
-        const value = typeof segment.end === 'number' ? segment.end : 0;
-        return Math.max(max, value);
-      }, 0);
-      const scaleFactor = safeDuration > 0 && maxEnd > safeDuration * 2 ? 0.001 : 1;
+    const transcript = payload as Record<string, unknown>;
+    const blocks = Array.isArray(transcript.timestamps)
+      ? transcript.timestamps
+      : Array.isArray(transcript.segments)
+        ? transcript.segments
+        : [];
 
-      const normalized = rawSegments
-        .map((segment, index) => {
-          const fallbackStart = index * 4;
-          const start = (segment.start ?? fallbackStart) * scaleFactor;
-          const end = typeof segment.end === 'number' ? segment.end * scaleFactor : null;
-          return {
-            id: segment.id,
-            start: Math.max(0, start),
-            end,
-            text: segment.text,
-          };
-        })
-        .sort((a, b) => a.start - b.start);
+    if (blocks.length === 0) {
+      return splitTextToCues(extractTranscriptText(payload), totalDuration);
+    }
 
-      const cues: SubtitleCue[] = normalized.map((segment, index) => {
-        const next = normalized[index + 1];
-        const nextStart = next ? next.start : null;
-        let end = segment.end ?? (nextStart !== null ? Math.max(segment.start + 0.5, nextStart) : segment.start + 3);
-        if (end <= segment.start) {
-          end = segment.start + 2.5;
-        }
+    const normalized = blocks
+      .map((block, index) => {
+        if (!block || typeof block !== 'object') return null;
+        const item = block as Record<string, unknown>;
+        const textValue = item.text ?? item.full_text ?? item.transcript ?? item.result;
+        const text = typeof textValue === 'string' ? textValue.trim() : '';
+        if (!text) return null;
+
+        const startRaw = coerceNumber(item.start ?? item.start_time ?? item.startTime);
+        const endRaw = coerceNumber(item.end ?? item.end_time ?? item.endTime);
+
         return {
           id: `cue-${index + 1}`,
-          start: segment.start,
-          end,
-          text: segment.text,
+          start: typeof startRaw === 'number' ? startRaw : index * 4,
+          end: endRaw,
+          text,
         };
-      });
+      })
+      .filter((item): item is { id: string; start: number; end: number | null; text: string } => !!item)
+      .sort((a, b) => a.start - b.start);
 
-      return cues;
+    if (normalized.length === 0) {
+      return splitTextToCues(extractTranscriptText(payload), totalDuration);
     }
 
-    const fallbackText = extractTranscriptText(payload);
-    return splitTextToCues(fallbackText, totalDuration);
+    return normalized.map((segment, index) => {
+      const nextStart = normalized[index + 1]?.start ?? null;
+      const end = segment.end ?? (nextStart != null ? nextStart : segment.start + 4);
+
+      return {
+        id: segment.id,
+        start: segment.start,
+        end,
+        text: segment.text,
+      };
+    });
   };
 
   const getViewerIdForStorage = () => {

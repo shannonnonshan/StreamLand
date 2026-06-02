@@ -30,6 +30,8 @@ import ConfirmDialog from '@/component/ConfirmDialog';
 import { useConfirm } from '@/hooks/useConfirm';
 import toast, { Toaster } from 'react-hot-toast';
 import { getUserStats } from '@/lib/userStatsCache';
+import { submitProfileReport } from '@/lib/api/report';
+import ProfileReportModal from '@/component/(modal)/ProfileReportModal';
 
 const PrimaryColor = '161853';
 const SecondaryColor = 'EC255A';
@@ -215,6 +217,8 @@ export default function StudentProfilePage() {
   const [streakCalendar, setStreakCalendar] = useState<StreakCalendarResponse | null>(null);
   const [streakLeaderboard, setStreakLeaderboard] = useState<StreakLeaderboardEntry[]>([]);
   const [isLoadingStreak, setIsLoadingStreak] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   
   const [followedTeachers, setFollowedTeachers] = useState<FollowedTeacher[]>([]);
   const [recentActivity, setRecentActivity] = useState<ProfileJournalEntry[]>([]);
@@ -1100,6 +1104,47 @@ export default function StudentProfilePage() {
     router.push(`/student/${studentId}/message?userId=${id}`);
   };
 
+  const handleOpenReportModal = () => {
+    if (isOwnProfile) return;
+    setIsReportModalOpen(true);
+  };
+
+  const handleSubmitReport = async (formData: {
+    category: string;
+    reason: string;
+    description: string;
+    screenshots: string[];
+  }) => {
+    if (!currentUser) {
+      toast.error('Please sign in to report this profile.');
+      return;
+    }
+
+    try {
+      setIsSubmittingReport(true);
+      await submitProfileReport({
+        reportedId: id as string,
+        targetType: 'student',
+        category: formData.category.trim(),
+        reason: formData.reason.trim(),
+        description: formData.description.trim() || undefined,
+        screenshots: formData.screenshots,
+        metadata: {
+          pageUrl: window.location.href,
+          reportedRole: 'student',
+          reporterName: currentUser.fullName || currentUser.email || 'Unknown user',
+        },
+      });
+      setIsReportModalOpen(false);
+      toast.success('Report submitted to admin review.');
+    } catch (error) {
+      console.error('Error submitting report:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to submit report.');
+    } finally {
+      setIsSubmittingReport(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       <Headerbar />
@@ -1256,6 +1301,12 @@ export default function StudentProfilePage() {
                         <ChatBubbleLeftRightIcon className="h-4 w-4" />
                         Message
                       </button>
+                      <button
+                        onClick={handleOpenReportModal}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-rose-300 bg-white text-rose-600 font-semibold text-xs transition-all hover:bg-rose-50 hover:border-rose-400"
+                      >
+                        Report
+                      </button>
                     </>
                   )}
                 </div>
@@ -1281,6 +1332,14 @@ export default function StudentProfilePage() {
                 <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-lg border border-blue-200">
                   <BuildingOffice2Icon className="h-5 w-5 text-blue-600" />
                   <div>
+                  <ProfileReportModal
+                    open={isReportModalOpen}
+                    title="Report this student profile"
+                    targetLabel={profileData ? `${profileData.fullName} • ${profileData.role}` : 'Student profile'}
+                    onClose={() => setIsReportModalOpen(false)}
+                    onSubmit={handleSubmitReport}
+                    loading={isSubmittingReport}
+                  />
                     <div className="text-xs text-gray-600">School</div>
                     {isEditMode ? (
                       <input

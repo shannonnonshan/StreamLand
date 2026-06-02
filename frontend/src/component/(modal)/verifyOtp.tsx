@@ -4,6 +4,7 @@ import { Fragment, useState, useRef } from 'react';
 import { ShieldCheckIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
+import { normalizeVideoCategory } from '@/lib/constants/videoCategories';
 
 const PrimaryColor = '161853'; // Dark Blue (primary color)
 const SecondaryColor = 'EC255A'; // Red/Pink
@@ -86,6 +87,10 @@ export default function OTPModal({
           grade?: string;
         };
 
+        const interests = (payload.interests || [])
+          .map((interest) => normalizeVideoCategory(interest))
+          .filter((interest) => interest.length > 0);
+
         await fetch(`${API_URL}/auth/profile/student`, {
           method: 'PATCH',
           headers: {
@@ -93,7 +98,7 @@ export default function OTPModal({
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            interests: payload.interests || [],
+            interests,
             school: payload.school || '',
             grade: payload.grade || '',
           }),

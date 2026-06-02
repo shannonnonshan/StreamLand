@@ -6,7 +6,7 @@ import { ArrowLeft, Calendar, Clock, Download, Share2, MessageCircle, Globe, Loc
 import { useEffect, useState } from "react";
 import { getLivestreamById, updateLivestreamVisibility } from "@/lib/api/teacher";
 import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
-import ProcessingTracker from "@/components/shared/ProcessingTracker";
+import ProcessingTracker from "@/component/shared/ProcessingTracker";
 import TranscriptSummaryStudio from "@/component/shared/TranscriptSummaryStudio";
 
 const recordingDateFormatter = new Intl.DateTimeFormat("en-US", {

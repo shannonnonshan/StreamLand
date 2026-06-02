@@ -8,7 +8,7 @@ import { ArrowDownToLine, Upload, Trash2, Search, Filter, FileText, ChevronLeft,
 import { getTeacherDocuments, uploadDocument, deleteDocument, Document, mapDocumentTypeToFileType } from "@/lib/api/teacher";
 import { formatDate, formatDateTime } from "@/utils/dateFormat";
 import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
-import ProcessingTracker from "@/components/shared/ProcessingTracker";
+import ProcessingTracker from "@/component/shared/ProcessingTracker";
 import TranscriptSummaryStudio from "@/component/shared/TranscriptSummaryStudio";
 import { useDocumentsContext } from "../DocumentsContext";
 

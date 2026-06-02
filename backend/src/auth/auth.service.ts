@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
+import { normalizeVideoCategory } from '../common/constants/video-categories';
 import {
   LoginDto,
   RegisterDto,
@@ -36,6 +37,19 @@ export class AuthService {
     private mailService: MailService,
     private r2StorageService: R2StorageService,
   ) {}
+
+  private normalizeStudentInterests(interests?: string[] | null) {
+    if (!interests || interests.length === 0) {
+      return undefined;
+    }
+
+    const normalized = interests
+      .map((interest) => normalizeVideoCategory(interest))
+      .map((interest) => interest.trim())
+      .filter((interest) => interest.length > 0)
+
+    return Array.from(new Set(normalized));
+  }
 
   private async assertUserNotBanned(userId: string, banUntil?: Date | null) {
     if (!banUntil) {
@@ -602,6 +616,16 @@ export class AuthService {
       throw new BadRequestException('User profile not found. Please login again.');
     }
 
+    if (user.studentProfile?.interests) {
+      return {
+        ...user,
+        studentProfile: {
+          ...user.studentProfile,
+          interests: this.normalizeStudentInterests(user.studentProfile.interests) || [],
+        },
+      };
+    }
+
     return user;
   }
 
@@ -916,6 +940,8 @@ export class AuthService {
     userId: string,
     updateDto: UpdateStudentProfileDto,
   ) {
+    const normalizedInterests = this.normalizeStudentInterests(updateDto.interests);
+
     const user = await this.prisma.postgres.user.findUnique({
       where: { id: userId },
       include: { studentProfile: true },
@@ -935,12 +961,16 @@ export class AuthService {
         data: {
           userId: user.id,
           ...updateDto,
+          ...(normalizedInterests ? { interests: normalizedInterests } : {}),
         },
       });
     } else {
       await this.prisma.postgres.studentProfile.update({
         where: { userId: user.id },
-        data: updateDto,
+        data: {
+          ...updateDto,
+          ...(normalizedInterests ? { interests: normalizedInterests } : {}),
+        },
       });
     }
 

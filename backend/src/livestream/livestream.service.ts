@@ -27,6 +27,7 @@ import * as path from 'path';
 import logFetch from '../utils/aiFetch';
 import { PROCESSING_STAGE_PROGRESS, ProcessingStage } from '../processing/processing.types';
 import { NotificationService } from '../notification/notification.service';
+import { normalizeVideoCategory } from '../common/constants/video-categories';
 
 export interface AiTranscriptSummaryDocument {
   id?: string;
@@ -1388,7 +1389,7 @@ export class LivestreamService {
 
   // Get recorded livestreams (ENDED with recordingUrl) - public
   async getRecordedLivestreams(limit: number = 20, category?: string) {
-    const normalizedCategory = category?.trim();
+    const normalizedCategory = normalizeVideoCategory(category || '');
 
     const videos = await this.prisma.postgres.liveStream.findMany({
       where: {
@@ -1450,6 +1451,46 @@ export class LivestreamService {
       status: video.status,
       category: video.category,
     }));
+  }
+
+  async getAvailableCategories(limit: number = 100) {
+    const livestreamCategories = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        category: { not: null },
+      },
+      distinct: ['category'],
+      select: {
+        category: true,
+      },
+      take: limit,
+    });
+
+    const studentProfiles = await this.prisma.postgres.studentProfile.findMany({
+      select: {
+        interests: true,
+      },
+    });
+
+    const categories = new Set<string>();
+
+    for (const item of livestreamCategories) {
+      if (!item.category) continue;
+      const normalized = normalizeVideoCategory(item.category);
+      if (normalized) {
+        categories.add(normalized);
+      }
+    }
+
+    for (const profile of studentProfiles) {
+      for (const interest of profile.interests || []) {
+        const normalized = normalizeVideoCategory(interest);
+        if (normalized) {
+          categories.add(normalized);
+        }
+      }
+    }
+
+    return Array.from(categories).sort((left, right) => left.localeCompare(right));
   }
 
   // Get teacher's recorded livestreams (ENDED with recordingUrl)

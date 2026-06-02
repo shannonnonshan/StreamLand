@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { FriendStatus, Prisma } from '@prisma/client';
 import { SendFriendRequestDto, UpdateFriendRequestDto, FollowTeacherDto, UnfollowTeacherDto } from './dto';
 import { NotificationService } from '../notification/notification.service';
+import { normalizeVideoCategory } from '../common/constants/video-categories';
 
 type RecommendationCandidate = {
   id: string;
@@ -2483,6 +2484,9 @@ export class StudentService {
       .map((x) => x.trim())
       .filter((x) => x.length > 0)
       .slice(0, 5);
+    const normalizedInterests = interests
+      .map((interest) => this.normalizeTopic(interest))
+      .filter((interest) => interest.length > 0);
 
     const watchHistory = await this.prisma.mongo.watchHistory.findMany({
       where: { userId },
@@ -2518,7 +2522,7 @@ export class StudentService {
         })
       : [];
 
-    const interestSet = new Set(interests.map((x) => this.normalizeTopic(x)));
+    const interestSet = new Set(normalizedInterests);
     const categorySignal = new Map<string, number>();
     const teacherSignal = new Map<string, number>();
 
@@ -2594,8 +2598,8 @@ export class StudentService {
     ]).slice(0, safeLimit);
 
     return {
-      onboardingNeeded: interests.length === 0,
-      interests,
+      onboardingNeeded: normalizedInterests.length === 0,
+      interests: normalizedInterests,
       byInterests,
       continueWatching,
       recommendations: merged,
@@ -2713,7 +2717,7 @@ export class StudentService {
   }
 
   private normalizeTopic(value: string): string {
-    return value.trim().toLowerCase();
+    return normalizeVideoCategory(value).trim().toLowerCase();
   }
 
   private uniqueById<T extends { id: string }>(items: T[]): T[] {

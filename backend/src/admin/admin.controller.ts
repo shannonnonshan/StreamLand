@@ -90,6 +90,26 @@ export class AdminController {
     return this.adminService.getAllUsers(role, pageNum, limitNum);
   }
 
+  @Post('reports')
+  async createReport(
+    @Body() body: {
+      reportedId: string;
+      reason: string;
+      description?: string;
+      category?: string;
+      type?: 'USER' | 'LIVESTREAM' | 'COMMENT' | 'MESSAGE' | 'OTHER';
+      screenshots?: string[];
+      metadata?: Record<string, unknown>;
+    },
+    @Request() req: { user: { sub: string; role: string } },
+  ) {
+    if (!req.user?.sub) {
+      throw new BadRequestException('Authentication required');
+    }
+
+    return this.adminService.createReport(req.user.sub, body);
+  }
+
   @Get('reports')
   async getReports(
     @Request() req: { user: { sub: string; role: string } }

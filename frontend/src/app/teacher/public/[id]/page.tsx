@@ -22,6 +22,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { getStudentRoute } from "@/utils/student";
 import toast, { Toaster } from 'react-hot-toast';
 import { useConfirmDialog } from "@/component/teacher/useConfirmDialog";
+import { submitProfileReport } from '@/lib/api/report';
+import ProfileReportModal from '@/component/(modal)/ProfileReportModal';
 
 interface TeacherProfile {
   id: string;
@@ -83,6 +85,8 @@ export default function PublicTeacherProfilePage() {
   const [videos, setVideos] = useState<VideoData[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(true);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const { showDialog, DialogComponent } = useConfirmDialog();
 
   // Handle scroll for sticky header
@@ -239,6 +243,46 @@ export default function PublicTeacherProfilePage() {
       type: 'info',
       confirmText: 'OK'
     });
+  };
+
+  const handleOpenReportModal = () => {
+    if (!isAuthenticated) {
+      toast.error('Please sign in to report this profile.');
+      return;
+    }
+
+    setIsReportModalOpen(true);
+  };
+
+  const handleSubmitReport = async (formData: {
+    category: string;
+    reason: string;
+    description: string;
+    screenshots: string[];
+  }) => {
+    try {
+      setIsSubmittingReport(true);
+      await submitProfileReport({
+        reportedId: teacherId,
+        targetType: 'teacher',
+        category: formData.category.trim(),
+        reason: formData.reason.trim(),
+        description: formData.description.trim() || undefined,
+        screenshots: formData.screenshots,
+        metadata: {
+          pageUrl: window.location.href,
+          reportedRole: 'teacher',
+          reporterType: isAuthenticated ? 'authenticated-user' : 'guest',
+        },
+      });
+      setIsReportModalOpen(false);
+      toast.success('Report submitted to admin review.');
+    } catch (error) {
+      console.error('Error submitting report:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to submit report.');
+    } finally {
+      setIsSubmittingReport(false);
+    }
   };
 
   const handleVideoClick = (video: VideoData) => {
@@ -449,6 +493,12 @@ export default function PublicTeacherProfilePage() {
                     <Share2 size={18} />
                     Share
                   </button>
+                  <button
+                    onClick={handleOpenReportModal}
+                    className="flex items-center gap-2 px-4 py-2 border border-rose-300 text-rose-600 rounded-lg hover:bg-rose-50 transition-colors"
+                  >
+                    Report
+                  </button>
                 </div>
               </div>
             </div>
@@ -623,6 +673,14 @@ export default function PublicTeacherProfilePage() {
         </div>
       </div>
       {DialogComponent}
+      <ProfileReportModal
+        open={isReportModalOpen}
+        title="Report this teacher profile"
+        targetLabel={teacher ? `${teacher.fullName || teacher.name} • Teacher` : 'Teacher profile'}
+        onClose={() => setIsReportModalOpen(false)}
+        onSubmit={handleSubmitReport}
+        loading={isSubmittingReport}
+      />
     </div>
   );
 }

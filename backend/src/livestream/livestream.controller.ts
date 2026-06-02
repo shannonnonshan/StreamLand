@@ -15,6 +15,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { Public } from '../auth/decorators/public.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { LivestreamService } from './livestream.service';
@@ -121,6 +122,13 @@ export class LivestreamController {
   @Get('active/all')
   async getActiveLivestreams() {
     return await this.livestreamService.getActiveLivestreams();
+  }
+
+  @Public()
+  @Get('categories')
+  async getAvailableCategories(@Query('limit') limit: string) {
+    const limitNum = limit ? parseInt(limit, 10) : 100;
+    return await this.livestreamService.getAvailableCategories(limitNum);
   }
 
   @Get('top/livestreams')

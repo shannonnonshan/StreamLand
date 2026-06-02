@@ -356,6 +356,79 @@ export class AdminService {
     };
   }
 
+  async createReport(reporterId: string, payload: {
+    reportedId: string;
+    reason: string;
+    description?: string;
+    category?: string;
+    type?: 'USER' | 'LIVESTREAM' | 'COMMENT' | 'MESSAGE' | 'OTHER';
+    screenshots?: string[];
+    metadata?: Record<string, unknown>;
+  }) {
+    if (reporterId === payload.reportedId) {
+      throw new BadRequestException('You cannot report your own profile');
+    }
+
+    const [reporter, reported] = await Promise.all([
+      this.prisma.postgres.user.findUnique({
+        where: { id: reporterId },
+        select: { id: true, role: true, fullName: true, avatar: true },
+      }),
+      this.prisma.postgres.user.findUnique({
+        where: { id: payload.reportedId },
+        select: { id: true, role: true, fullName: true, avatar: true },
+      }),
+    ]);
+
+    if (!reporter) {
+      throw new NotFoundException('Reporter not found');
+    }
+
+    if (!reported) {
+      throw new NotFoundException('Reported user not found');
+    }
+
+    const reason = payload.reason.trim();
+    if (!reason) {
+      throw new BadRequestException('Report reason is required');
+    }
+
+    const report = await this.prisma.postgres.report.create({
+      data: {
+        reporterId,
+        reportedId: payload.reportedId,
+        type: payload.type || 'USER',
+        category: payload.category?.trim() || 'Profile',
+        reason,
+        description: payload.description?.trim() || null,
+        status: 'PENDING',
+        screenshots: payload.screenshots || [],
+        metadata: payload.metadata ? (payload.metadata as any) : undefined,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Report submitted successfully',
+      report: {
+        id: report.id,
+        reporterId: report.reporterId,
+        reporterType: reporter.role === 'TEACHER' ? 'teacher' : 'student',
+        reporterName: reporter.fullName,
+        reporterAvatar: reporter.avatar || undefined,
+        targetId: report.reportedId,
+        targetName: reported.fullName,
+        targetType: reported.role === 'TEACHER' ? 'teacher' : 'student',
+        targetAvatar: reported.avatar || undefined,
+        reason: report.reason,
+        details: report.description || report.reason,
+        evidence: report.screenshots.length > 0 ? report.screenshots : undefined,
+        status: 'waiting',
+        createdAt: report.createdAt.toISOString(),
+      },
+    };
+  }
+
   async getReports() {
     const reports = await this.prisma.postgres.report.findMany({
       include: {

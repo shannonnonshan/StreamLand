@@ -1,8 +1,9 @@
 'use client';
 
 import { Dialog, Transition } from '@headlessui/react';
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { XMarkIcon, VideoCameraIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import { useVideoCategories } from '@/hooks/useVideoCategories';
 
 const PrimaryColor = '161853';
 
@@ -22,29 +23,16 @@ export interface LivestreamData {
   allowComments: boolean;
 }
 
-const categories = [
-  'Mathematics',
-  'Physics',
-  'Chemistry',
-  'Biology',
-  'English',
-  'Literature',
-  'History',
-  'Geography',
-  'Computer Science',
-  'Economics',
-  'Other'
-];
-
 export default function StartLivestreamModal({
   isOpen,
   closeModal,
   onStartLivestream,
 }: StartLivestreamModalProps) {
+  const { categories: availableCategories, isLoading: isLoadingCategories } = useVideoCategories();
   const [formData, setFormData] = useState<LivestreamData>({
     title: '',
     description: '',
-    category: 'Mathematics',
+    category: '',
     isPublic: true,
     allowComments: true,
   });
@@ -52,9 +40,19 @@ export default function StartLivestreamModal({
   const [errors, setErrors] = useState<{
     title?: string;
     description?: string;
+    category?: string;
   }>({});
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!formData.category && availableCategories.length > 0) {
+      setFormData((prev) => ({
+        ...prev,
+        category: availableCategories[0],
+      }));
+    }
+  }, [availableCategories, formData.category]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
@@ -81,6 +79,10 @@ export default function StartLivestreamModal({
       newErrors.title = 'Title must be at least 5 characters';
     } else if (formData.title.length > 100) {
       newErrors.title = 'Title must be less than 100 characters';
+    }
+
+    if (!formData.category.trim()) {
+      newErrors.category = 'Category is required';
     }
     
     if (formData.description && formData.description.length > 500) {
@@ -111,7 +113,7 @@ export default function StartLivestreamModal({
       setFormData({
         title: '',
         description: '',
-        category: 'Mathematics',
+        category: '',
         isPublic: true,
         allowComments: true,
       });
@@ -223,20 +225,32 @@ export default function StartLivestreamModal({
                     <label htmlFor="category" className="block text-sm font-semibold text-gray-700 mb-2">
                       Category <span className="text-red-500">*</span>
                     </label>
-                    <select
+                    <input
                       id="category"
                       name="category"
+                      type="text"
+                      list="video-category-options"
                       value={formData.category}
                       onChange={handleChange}
                       disabled={isSubmitting}
-                      className={`block w-full rounded-lg border-0 py-3 px-4 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-[#${PrimaryColor}] disabled:opacity-50`}
-                    >
-                      {categories.map((cat) => (
-                        <option key={cat} value={cat}>
-                          {cat}
-                        </option>
+                      placeholder="Type or choose a category"
+                      className={`block w-full rounded-lg border-0 py-3 px-4 ring-1 ring-inset ${
+                        errors.category ? 'ring-red-500' : 'ring-gray-300'
+                      } focus:ring-2 focus:ring-[#${PrimaryColor}] disabled:opacity-50`}
+                    />
+                    <datalist id="video-category-options">
+                      {availableCategories.map((cat) => (
+                        <option key={cat} value={cat} />
                       ))}
-                    </select>
+                    </datalist>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {isLoadingCategories
+                        ? 'Loading shared categories...'
+                        : 'Suggestions sync from livestreams and student interests, but you can type a new category too.'}
+                    </p>
+                    {errors.category && (
+                      <p className="mt-1 text-sm text-red-600">{errors.category}</p>
+                    )}
                   </div>
 
                   {/* Description */}

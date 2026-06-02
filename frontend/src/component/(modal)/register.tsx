@@ -2,6 +2,8 @@
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { normalizeVideoCategory } from '@/lib/constants/videoCategories';
+import { useVideoCategories } from '@/hooks/useVideoCategories';
 import { 
   AtSymbolIcon, 
   LockClosedIcon, 
@@ -19,24 +21,9 @@ import {
   IdentificationIcon
 } from '@heroicons/react/24/outline';
 
-const PrimaryColor = '161853'; // Xanh Đậm (màu chủ đạo mới)
-const SecondaryColor = 'EC255A'; // Đỏ/Hồng
-const STUDENT_INTEREST_OPTIONS = [
-  'Toan hoc',
-  'Lap trinh',
-  'Tieng Anh',
-  'Vat ly',
-  'Hoa hoc',
-  'Sinh hoc',
-  'Lich su',
-  'Dia ly',
-  'Van hoc',
-  'Ky nang mem',
-  'Data Science',
-  'AI/ML',
-];
+const PrimaryColor = '161853';
+const SecondaryColor = 'EC255A';
 
-// Component cho các bước
 const steps = [
   { id: 'Step 1', name: 'Personal Info', fields: ['fullName', 'email', 'password', 'confirmPassword'] },
   { id: 'Step 2', name: 'Role', fields: ['role'] },
@@ -86,26 +73,26 @@ export default function RegisterModal({
   openLoginModal: () => void;
   openOTPModal: (email?: string, purpose?: 'registration' | 'password-reset') => void;
 }) {
+  const { categories: availableCategories, isLoading: isLoadingCategories } = useVideoCategories();
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
     password: '',
     confirmPassword: '',
-    role: '', // 'teacher' hoặc 'student'
-    // Thông tin bổ sung cho giáo viên
+    role: '',
     teacherCV: null as File | null,
     teacherCertificates: [] as File[],
     teacherSubjects: '',
     teacherExperience: '',
     teacherIntroduction: '',
     teacherSpecialty: '',
-    // Thông tin bổ sung cho học sinh
     studentID: '',
     studentSchool: '',
     studentClass: '',
     studentInterests: [] as string[],
   });
+  const [interestInput, setInterestInput] = useState('');
   const [formErrors, setFormErrors] = useState({
     fullName: '',
     email: '',
@@ -249,7 +236,7 @@ export default function RegisterModal({
       const studentSchoolError = !formData.studentSchool ? 'Please enter your school name' : '';
       const studentClassError = !formData.studentClass ? 'Please enter your class' : '';
       const studentInterestsError = formData.studentInterests.length === 0
-        ? 'Please choose at least 1 interest for personalization'
+        ? 'Please choose at least 1 category for personalization'
         : '';
       
       setFormErrors({
@@ -265,28 +252,44 @@ export default function RegisterModal({
     return false;
   };
 
-  const toggleStudentInterest = (topic: string) => {
-    const selected = formData.studentInterests;
-    const hasTopic = selected.includes(topic);
-
-    if (hasTopic) {
-      setFormData({
-        ...formData,
-        studentInterests: selected.filter((item) => item !== topic),
-      });
-      setFormErrors({ ...formErrors, studentInterests: '' });
+  const addStudentInterest = (rawTopic: string) => {
+    const topic = normalizeVideoCategory(rawTopic);
+    if (!topic) {
       return;
     }
 
-    if (selected.length >= 5) {
-      return;
-    }
+    setFormData((prev) => {
+      if (prev.studentInterests.some((item) => item.toLowerCase() === topic.toLowerCase())) {
+        return prev;
+      }
 
-    setFormData({
-      ...formData,
-      studentInterests: [...selected, topic],
+      if (prev.studentInterests.length >= 5) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        studentInterests: [...prev.studentInterests, topic],
+      };
     });
+
+    setInterestInput('');
     setFormErrors({ ...formErrors, studentInterests: '' });
+  };
+
+  const removeStudentInterest = (topic: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      studentInterests: prev.studentInterests.filter((item) => item.toLowerCase() !== topic.toLowerCase()),
+    }));
+    setFormErrors({ ...formErrors, studentInterests: '' });
+  };
+
+  const handleInterestInputKeyDown = (event: { key: string; preventDefault: () => void }) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      addStudentInterest(interestInput);
+    }
   };
 
   const handleNext = async () => {
@@ -322,7 +325,7 @@ export default function RegisterModal({
         if (result.success) {
           if (role === 'STUDENT') {
             const pendingStudentProfile = {
-              interests: formData.studentInterests,
+              interests: formData.studentInterests.map((interest) => normalizeVideoCategory(interest)),
               school: formData.studentSchool,
               grade: formData.studentClass,
             };
@@ -861,31 +864,71 @@ export default function RegisterModal({
               {/* Interests */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Top 5 Interests <span className="text-red-500">*</span>
+                  Top 5 Video Categories <span className="text-red-500">*</span>
                 </label>
                 <p className="text-xs text-gray-500 mb-3">
-                  Choose up to 5 topics so StreamLand can personalize your home feed right after account creation.
+                  Add up to 5 categories. These sync with video categories across StreamLand, and you can type a new one too.
                 </p>
 
-                <div className="flex flex-wrap gap-2">
-                  {STUDENT_INTEREST_OPTIONS.map((topic) => {
-                    const selected = formData.studentInterests.includes(topic);
-                    const disabled = !selected && formData.studentInterests.length >= 5;
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={interestInput}
+                      onChange={(e) => setInterestInput(e.target.value)}
+                      onKeyDown={handleInterestInputKeyDown}
+                      placeholder="Type a category and press Enter"
+                      className="block w-full rounded-lg border-0 py-2.5 px-4 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-[#161853]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addStudentInterest(interestInput)}
+                      disabled={!interestInput.trim() || formData.studentInterests.length >= 5}
+                      className="rounded-lg bg-[#161853] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Add
+                    </button>
+                  </div>
 
-                    return (
-                      <button
-                        key={topic}
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => toggleStudentInterest(topic)}
-                        className={`px-3 py-1.5 rounded-full text-sm border transition-all duration-150 ${selected
-                          ? `bg-[#${PrimaryColor}] text-white border-[#${PrimaryColor}]`
-                          : `bg-white text-[#${PrimaryColor}] border-[#${PrimaryColor}]/30 hover:bg-[#${PrimaryColor}]/10`} ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-                      >
-                        {topic}
-                      </button>
-                    );
-                  })}
+                  <div className="flex flex-wrap gap-2">
+                    {availableCategories.map((topic) => {
+                      const selected = formData.studentInterests.some(
+                        (item) => item.toLowerCase() === topic.toLowerCase(),
+                      );
+                      const disabled = !selected && formData.studentInterests.length >= 5;
+
+                      return (
+                        <button
+                          key={topic}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => addStudentInterest(topic)}
+                          className={`rounded-full border px-3 py-1.5 text-sm transition-all duration-150 ${selected
+                            ? `border-[#${PrimaryColor}] bg-[#${PrimaryColor}] text-white`
+                            : `border-[#${PrimaryColor}]/30 bg-white text-[#${PrimaryColor}] hover:bg-[#${PrimaryColor}]/10`} ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+                        >
+                          {topic}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {isLoadingCategories && (
+                  <p className="mt-2 text-xs text-gray-500">Loading shared category suggestions...</p>
+                )}
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {formData.studentInterests.map((topic) => (
+                    <button
+                      key={topic}
+                      type="button"
+                      onClick={() => removeStudentInterest(topic)}
+                      className="rounded-full bg-[#161853] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#161853]/90"
+                    >
+                      {topic} ×
+                    </button>
+                  ))}
                 </div>
 
                 <p className="mt-2 text-xs text-gray-500">

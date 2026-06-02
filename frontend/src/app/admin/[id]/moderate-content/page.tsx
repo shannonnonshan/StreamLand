@@ -1,7 +1,7 @@
 "use client"
 import React, { useState, useMemo, useEffect } from 'react'
 import { Check, X, Search, ChevronUp, ChevronDown, Filter, XCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, LayoutList, Loader2, RefreshCw } from 'lucide-react'
-import ProcessingTracker from '@/components/shared/ProcessingTracker'
+import ProcessingTracker from '@/component/shared/ProcessingTracker'
 
 interface ReportedContent {
   id: string

@@ -128,6 +128,7 @@ interface LocalVideoProgressSnapshot {
 
 const VIDEO_PROGRESS_STORAGE_PREFIX = 'streamland:video-progress:';
 const STREAK_UPDATED_EVENT = 'streamland:streak-updated';
+const SUBTITLE_OFFSET_SECONDS = 5;
 
 const parseStoredUserProfile = (): CurrentStudentProfile | null => {
   if (typeof window === 'undefined') return null;
@@ -504,6 +505,10 @@ export default function VideoPlayerPage() {
           recordingUrl: data.recordingUrl,
           thumbnailUrl: data.thumbnail,
         });
+
+        if (data.duration && data.duration > 0) {
+          setDuration((prev) => (prev > 0 ? prev : data.duration));
+        }
         
         console.log('[Fetch] VideoInfo set with recording URL:', data.recordingUrl);
 
@@ -763,7 +768,8 @@ export default function VideoPlayerPage() {
       return;
     }
 
-    const cue = subtitleCues.find((item) => currentTime >= item.start && currentTime < item.end) || null;
+    const adjustedTime = Math.max(0, currentTime - SUBTITLE_OFFSET_SECONDS);
+    const cue = subtitleCues.find((item) => adjustedTime >= item.start && adjustedTime < item.end) || null;
     setActiveCueId(cue?.id || null);
   }, [currentTime, subtitleCues]);
 
@@ -1700,118 +1706,128 @@ export default function VideoPlayerPage() {
           <div className="xl:col-span-1">
             <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-100/50 sticky top-8 overflow-hidden">
               <div className="p-4 border-b border-gray-100">
-                <div className="mb-3 flex flex-wrap gap-2">
-                  {[
-                    { key: 'transcript' as const, label: 'Transcript', icon: Captions },
-                    { key: 'summary' as const, label: 'Summarize', icon: FileText },
-                    { key: 'chat' as const, label: 'AI Chat', icon: Bot },
-                  ].map((tab) => {
-                    const TabIcon = tab.icon;
-                    const isActive = displayedPanel === tab.key;
+                {activePanel === null ? (
+                  <div className="rounded-lg border border-slate-200 bg-white/80 p-3 text-sm text-slate-600">
+                    Click any subtitle on the video to open transcript, summary, and assistant.
+                  </div>
+                ) : (
+                  <>
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {[
+                        { key: 'transcript' as const, label: 'Transcript', icon: Captions },
+                        { key: 'summary' as const, label: 'Summarize', icon: FileText },
+                        { key: 'chat' as const, label: 'AI Chat', icon: Bot },
+                      ].map((tab) => {
+                        const TabIcon = tab.icon;
+                        const isActive = displayedPanel === tab.key;
 
-                    return (
-                      <button
-                        key={tab.key}
-                        type="button"
-                        onClick={() => setActivePanel(tab.key)}
-                        className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold transition ${
-                          isActive
-                            ? 'bg-[#161853] text-white shadow-md'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
-                      >
-                        <TabIcon size={15} />
-                        {tab.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {displayedPanel === 'transcript' && (
-                  <div className="space-y-3">
-                    <div className="rounded-lg border border-slate-200 bg-white/80 p-3 text-sm text-slate-800">
-                      {selectedCueId
-                        ? subtitleCues.find((item) => item.id === selectedCueId)?.text || 'Select a subtitle to preview it here.'
-                        : 'Click a subtitle on the left to preview it here.'}
+                        return (
+                          <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setActivePanel(tab.key)}
+                            className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold transition ${
+                              isActive
+                                ? 'bg-[#161853] text-white shadow-md'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            <TabIcon size={15} />
+                            {tab.label}
+                          </button>
+                        );
+                      })}
                     </div>
 
-                    <input
-                      type="range"
-                      min="0"
-                      max={duration > 0 ? duration : (videoInfo?.duration || 100)}
-                      value={currentTime}
-                      onChange={handleSeek}
-                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-slate-200 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-indigo-600 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-indigo-600 [&::-moz-range-thumb]:border-0"
-                    />
+                    {displayedPanel === 'transcript' && (
+                      <div className="space-y-3">
+                        <div className="rounded-lg border border-slate-200 bg-white/80 p-3 text-sm text-slate-800">
+                          {selectedCueId
+                            ? subtitleCues.find((item) => item.id === selectedCueId)?.text || 'Select a subtitle to preview it here.'
+                            : 'Click a subtitle on the left to preview it here.'}
+                        </div>
 
-                    <div
-                      ref={transcriptPanelRef}
-                      className="max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white/80 p-3 text-sm text-slate-700"
-                    >
-                      {subtitleCues.length === 0 && (
-                        <p className="text-slate-400">Transcript is not available yet.</p>
-                      )}
-                      {subtitleCues.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          data-cue-id={item.id}
-                          onClick={() => {
-                            const video = videoRef.current;
-                            if (!video) return;
-                            video.currentTime = item.start;
-                            setCurrentTime(item.start);
-                            setSelectedCueId(item.id);
-                          }}
-                          className={`mb-2 w-full text-left leading-relaxed transition ${
-                            item.id === activeCueId
-                              ? 'text-indigo-700 font-semibold'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
+                        <input
+                          type="range"
+                          min="0"
+                          max={duration > 0 ? duration : (videoInfo?.duration || 100)}
+                          value={currentTime}
+                          onChange={handleSeek}
+                          className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-slate-200 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-indigo-600 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-indigo-600 [&::-moz-range-thumb]:border-0"
+                        />
+
+                        <div
+                          ref={transcriptPanelRef}
+                          className="max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white/80 p-3 text-sm text-slate-700"
                         >
-                          {item.text}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {displayedPanel === 'summary' && (
-                  <div className="space-y-3">
-                    <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-gray-700">
-                      {summaryLoading && 'Loading summary...'}
-                      {!summaryLoading && summaryText && summaryText}
-                      {!summaryLoading && !summaryText && 'Summary is not available yet.'}
-                    </div>
-                    {!summaryLoading && transcriptError && (
-                      <p className="text-xs font-medium text-amber-600">{transcriptError}</p>
+                          {subtitleCues.length === 0 && (
+                            <p className="text-slate-400">Transcript is not available yet.</p>
+                          )}
+                          {subtitleCues.map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              data-cue-id={item.id}
+                              onClick={() => {
+                                const video = videoRef.current;
+                                if (!video) return;
+                                const seekTime = Math.max(0, item.start - SUBTITLE_OFFSET_SECONDS);
+                                video.currentTime = seekTime;
+                                setCurrentTime(seekTime);
+                                setSelectedCueId(item.id);
+                                playerContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                              }}
+                              className={`mb-2 w-full text-left leading-relaxed transition ${
+                                item.id === activeCueId
+                                  ? 'text-indigo-700 font-semibold'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              {item.text}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     )}
-                  </div>
-                )}
 
-                {displayedPanel === 'chat' && (
-                  <VideoAiChatPanel videoId={videoInfo.id} title={videoInfo.title} />
-                )}
+                    {displayedPanel === 'summary' && (
+                      <div className="space-y-3">
+                        <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-gray-700">
+                          {summaryLoading && 'Loading summary...'}
+                          {!summaryLoading && summaryText && summaryText}
+                          {!summaryLoading && !summaryText && 'Summary is not available yet.'}
+                        </div>
+                        {!summaryLoading && transcriptError && (
+                          <p className="text-xs font-medium text-amber-600">{transcriptError}</p>
+                        )}
+                      </div>
+                    )}
 
-                <div className="mt-3 flex items-center justify-between gap-2">
-                  <p className="text-xs text-slate-500">
-                    {displayedPanel === 'chat'
-                      ? 'Chat uses the same AI help flow from the student help page.'
-                      : displayedPanel === 'summary'
-                        ? 'Use the summary tab to get a short explanation.'
-                        : 'Click a subtitle to jump in the transcript.'}
-                  </p>
-                  <button
-                    onClick={() => {
-                      setActivePanel(null);
-                      setSelectedCueId(null);
-                    }}
-                    className="px-3 py-2 bg-gray-100 rounded-lg text-sm"
-                    type="button"
-                  >
-                    Close
-                  </button>
-                </div>
+                    {displayedPanel === 'chat' && (
+                      <VideoAiChatPanel videoId={videoInfo.id} title={videoInfo.title} />
+                    )}
+
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">
+                        {displayedPanel === 'chat'
+                          ? 'Chat uses the same AI help flow from the student help page.'
+                          : displayedPanel === 'summary'
+                            ? 'Use the summary tab to get a short explanation.'
+                            : 'Click a subtitle to jump in the transcript.'}
+                      </p>
+                      <button
+                        onClick={() => {
+                          setActivePanel(null);
+                          setSelectedCueId(null);
+                        }}
+                        className="px-3 py-2 bg-gray-100 rounded-lg text-sm"
+                        type="button"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
               <div className="bg-linear-to-r from-[#161853] to-[#292C6D] p-5">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">

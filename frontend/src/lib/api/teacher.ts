@@ -241,7 +241,31 @@ export async function updateLivestreamVisibility(livestreamId: string, isPublic:
 }
 
 export async function getRecordingAiAnalysis(livestreamId: string): Promise<RecordingAiAnalysis> {
-  return authenticatedFetch(`${API_URL}/livestream/${livestreamId}/ai-analysis`);
+  const token = getAuthToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_URL}/livestream/${livestreamId}/ai-analysis`, {
+    headers,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    let message = `API Error: ${response.status} ${response.statusText}`;
+
+    if (errorText) {
+      try {
+        const parsed = JSON.parse(errorText) as { message?: string; error?: string; detail?: string };
+        message = parsed.message || parsed.error || parsed.detail || errorText;
+      } catch {
+        message = errorText;
+      }
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
 }
 
 export async function generateRecordingTranscript(livestreamId: string, force = false): Promise<RecordingAiAnalysis> {

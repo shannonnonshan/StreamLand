@@ -27,7 +27,6 @@ import {
 } from './dto';
 @Injectable()
 export class AuthService {
-  // Rate limiting map: email -> last OTP sent timestamp
   private otpRateLimitMap = new Map<string, number>();
   private readonly OTP_RATE_LIMIT_MS = 60 * 1000; // 1 minute
 
@@ -64,7 +63,6 @@ export class AuthService {
       });
     }
 
-    // Ban has expired: clear stale timestamp so account state stays clean.
     await this.prisma.postgres.user.update({
       where: { id: userId },
       data: { banUntil: null },
@@ -74,7 +72,6 @@ export class AuthService {
   async register(registerDto: RegisterDto) {
     const { email, password, fullName, role } = registerDto;
 
-    // Check if user already exists
     const existingUser = await this.prisma.postgres.user.findUnique({
       where: { email },
     });
@@ -83,19 +80,15 @@ export class AuthService {
       throw new ConflictException('This email address is already registered. Please use a different email or login.');
     }
 
-    // Check if pending registration exists
     const existingPending = await this.prisma.postgres.pendingRegistration.findUnique({
       where: { email },
     });
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Generate OTP
     const otp = this.generateOTP();
     const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    // Create or update pending registration
     if (existingPending) {
       await this.prisma.postgres.pendingRegistration.update({
         where: { email },
@@ -120,11 +113,9 @@ export class AuthService {
       });
     }
 
-    // Send OTP email
     const sendResult = await this.mailService.sendOTP(email, otp, fullName);
     
     if (!sendResult.success) {
-      // If email send failed, delete the pending registration to let user retry
       await this.prisma.postgres.pendingRegistration.delete({
         where: { email },
       });
@@ -142,7 +133,6 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
 
-    // Find user
     const user = await this.prisma.postgres.user.findUnique({
       where: { email },
       include: {
@@ -154,20 +144,17 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password. Please check your credentials and try again.');
     }
 
-    // Check if user is verified
     if (!user.isVerified) {
       throw new UnauthorizedException('Email verification required. Please verify your email address before logging in.');
     }
 
-    // Check if teacher is approved (for TEACHER role only)
-    if (user.role === 'TEACHER' && user.teacherProfile) {
-      if (!user.teacherProfile.isApproved) {
+    if (user.role === 'TEACHER') {
+      if (!user.teacherProfile || !user.teacherProfile.isApproved) {
         throw new UnauthorizedException(
           'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).'
         );
       }
-      
-      // Check if teacher was rejected
+
       if (user.teacherProfile.rejectedAt) {
         const reason = user.teacherProfile.rejectionReason || 'No reason provided';
         throw new UnauthorizedException(
@@ -176,7 +163,6 @@ export class AuthService {
       }
     }
 
-    // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password. Please check your credentials and try again.');
@@ -184,13 +170,10 @@ export class AuthService {
 
     await this.assertUserNotBanned(user.id, user.banUntil);
 
-    // Check if 2FA is enabled
     if (user.twoFactorEnabled) {
-      // Generate OTP for 2FA
       const otp = this.generateOTP();
       const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-      // Update user with OTP
       await this.prisma.postgres.user.update({
         where: { id: user.id },
         data: {
@@ -199,11 +182,9 @@ export class AuthService {
         },
       });
 
-      // Send OTP email
       const sendResult = await this.mailService.sendOTP(email, otp, user.fullName);
       
       if (!sendResult.success) {
-        // Clear OTP if email failed to send
         await this.prisma.postgres.user.update({
           where: { id: user.id },
           data: {
@@ -223,10 +204,8 @@ export class AuthService {
       };
     }
 
-    // Generate tokens (no 2FA)
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
-    // Create session
     await this.prisma.postgres.session.create({
       data: {
         userId: user.id,
@@ -252,7 +231,6 @@ export class AuthService {
   async verifyOtp(verifyOtpDto: VerifyOtpDto) {
     const { email, otp } = verifyOtpDto;
 
-    // Find pending registration
     const pendingReg = await this.prisma.postgres.pendingRegistration.findUnique({
       where: { email },
     });
@@ -263,17 +241,14 @@ export class AuthService {
       );
     }
 
-    // Check OTP
     if (pendingReg.otp !== otp) {
       throw new BadRequestException('Invalid verification code. Please check the code and try again.');
     }
 
-    // Check OTP expiration
     if (pendingReg.otpExpiry < new Date()) {
       throw new BadRequestException('Verification code has expired. Please request a new code.');
     }
 
-    // Create user in database
     const user = await this.prisma.postgres.user.create({
       data: {
         email: pendingReg.email,
@@ -284,7 +259,6 @@ export class AuthService {
       },
     });
 
-    // Create role-specific profile
     if (pendingReg.role === 'TEACHER') {
       await this.prisma.postgres.teacherProfile.create({
         data: {
@@ -299,15 +273,26 @@ export class AuthService {
       });
     }
 
-    // Delete pending registration
     await this.prisma.postgres.pendingRegistration.delete({
       where: { email },
     });
 
-    // Generate tokens
+    if (user.role === 'TEACHER') {
+      return {
+        message:
+          'Email verified successfully. Your teacher account is pending admin approval (usually within 4 hours). You will be able to login once approved.',
+        requiresApproval: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          fullName: user.fullName,
+          role: user.role,
+        },
+      };
+    }
+
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
-    // Create session
     await this.prisma.postgres.session.create({
       data: {
         userId: user.id,
@@ -333,7 +318,6 @@ export class AuthService {
   async verify2FAOtp(verifyOtpDto: VerifyOtpDto) {
     const { email, otp } = verifyOtpDto;
 
-    // Find user
     const user = await this.prisma.postgres.user.findUnique({
       where: { email },
     });
@@ -342,22 +326,18 @@ export class AuthService {
       throw new UnauthorizedException('User account not found. Please check your email and try again.');
     }
 
-    // Check if 2FA is enabled
     if (!user.twoFactorEnabled) {
       throw new BadRequestException('Two-factor authentication is not enabled for this account.');
     }
 
-    // Check OTP
     if (user.otp !== otp) {
       throw new UnauthorizedException('Invalid verification code. Please check the code and try again.');
     }
 
-    // Check OTP expiration
     if (!user.otpExpiry || user.otpExpiry < new Date()) {
       throw new UnauthorizedException('Verification code has expired. Please login again to receive a new code.');
     }
 
-    // Clear OTP after successful verification
     await this.prisma.postgres.user.update({
       where: { id: user.id },
       data: {
@@ -366,10 +346,8 @@ export class AuthService {
       },
     });
 
-    // Generate tokens
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
-    // Create session
     await this.prisma.postgres.session.create({
       data: {
         userId: user.id,
@@ -395,7 +373,6 @@ export class AuthService {
   async requestOtp(requestOtpDto: RequestOtpDto) {
     const { email } = requestOtpDto;
 
-    // Rate limiting: Check if OTP was sent recently
     const lastSent = this.otpRateLimitMap.get(email);
     if (lastSent && Date.now() - lastSent < this.OTP_RATE_LIMIT_MS) {
       const remainingSeconds = Math.ceil(
@@ -406,23 +383,19 @@ export class AuthService {
       );
     }
 
-    // Check if this is a pending registration
     const pendingReg = await this.prisma.postgres.pendingRegistration.findUnique({
       where: { email },
     });
 
-    // Generate new OTP
     const otp = this.generateOTP();
     const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
     if (pendingReg) {
-      // Update pending registration with new OTP
       await this.prisma.postgres.pendingRegistration.update({
         where: { email },
         data: { otp, otpExpiry },
       });
 
-      // Send OTP email
       const sendResult = await this.mailService.sendOTP(email, otp, pendingReg.fullName);
       
       if (!sendResult.success) {
@@ -431,7 +404,6 @@ export class AuthService {
         );
       }
 
-      // Update rate limit map
       this.otpRateLimitMap.set(email, Date.now());
 
       return {
@@ -439,7 +411,6 @@ export class AuthService {
       };
     }
 
-    // Otherwise check for existing user (for password reset)
     const user = await this.prisma.postgres.user.findUnique({
       where: { email },
     });
@@ -448,17 +419,14 @@ export class AuthService {
       throw new BadRequestException('No account found with this email address. Please register first.');
     }
 
-    // Update user with new OTP
     await this.prisma.postgres.user.update({
       where: { id: user.id },
       data: { otp, otpExpiry },
     });
 
-    // Send OTP email for password reset
     const sendResult = await this.mailService.sendPasswordResetOTP(email, otp, user.fullName);
     
     if (!sendResult.success) {
-      // Clear OTP if email failed to send
       await this.prisma.postgres.user.update({
         where: { id: user.id },
         data: { otp: null, otpExpiry: null },
@@ -468,7 +436,6 @@ export class AuthService {
       );
     }
 
-    // Update rate limit map
     this.otpRateLimitMap.set(email, Date.now());
 
     return {
@@ -479,7 +446,6 @@ export class AuthService {
   async resetPassword(resetPasswordDto: ResetPasswordDto) {
     const { email, newPassword } = resetPasswordDto;
 
-    // Find user
     const user = await this.prisma.postgres.user.findUnique({
       where: { email },
     });
@@ -488,10 +454,8 @@ export class AuthService {
       throw new BadRequestException('User account not found. Please check your email and try again.');
     }
 
-    // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // Update password
     await this.prisma.postgres.user.update({
       where: { id: user.id },
       data: { password: hashedPassword },
@@ -503,7 +467,6 @@ export class AuthService {
   }
 
   async refreshToken(userId: string, refreshToken: string) {
-    // Find active session
     const session = await this.prisma.postgres.session.findFirst({
       where: {
         userId,
@@ -528,7 +491,6 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
-    // Update session with new refresh token
     await this.prisma.postgres.session.update({
       where: { id: session.id },
       data: {
@@ -541,7 +503,6 @@ export class AuthService {
   }
 
   async refreshTokenByToken(refreshToken: string) {
-    // Find active session by refresh token only
     const session = await this.prisma.postgres.session.findFirst({
       where: {
         token: refreshToken,
@@ -571,7 +532,6 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
-    // Update session with new refresh token
     await this.prisma.postgres.session.update({
       where: { id: session.id },
       data: {
@@ -586,7 +546,6 @@ export class AuthService {
   }
 
   async logout(userId: string) {
-    // Delete all sessions for user
     await this.prisma.postgres.session.deleteMany({
       where: { userId },
     });
@@ -647,7 +606,6 @@ export class AuthService {
     return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
-  // Social login methods
   async googleLogin(googleData: {
     googleId: string;
     email: string;
@@ -655,19 +613,16 @@ export class AuthService {
     avatar?: string;
     role?: Role;
   }) {
-    // Check if user exists with this googleId
     let user = await this.prisma.postgres.user.findUnique({
       where: { googleId: googleData.googleId },
     });
 
     if (!user) {
-      // Check if user exists with this email
       user = await this.prisma.postgres.user.findUnique({
         where: { email: googleData.email },
       });
 
       if (user) {
-        // Link Google account to existing user
         user = await this.prisma.postgres.user.update({
           where: { id: user.id },
           data: {
@@ -677,7 +632,6 @@ export class AuthService {
           },
         });
       } else {
-        // New user - return profile data without creating account yet
         return {
           isNewUser: true,
           provider: 'google',
@@ -693,10 +647,8 @@ export class AuthService {
 
     await this.assertUserNotBanned(user.id, user.banUntil);
 
-    // Existing user - generate tokens and login
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
-    // Create session
     await this.prisma.postgres.session.create({
       data: {
         userId: user.id,
@@ -727,19 +679,16 @@ export class AuthService {
     avatar?: string;
     role?: Role;
   }) {
-    // Check if user exists with this githubId
     let user = await this.prisma.postgres.user.findUnique({
       where: { githubId: githubData.githubId },
     });
 
     if (!user) {
-      // Check if user exists with this email
       user = await this.prisma.postgres.user.findUnique({
         where: { email: githubData.email },
       });
 
       if (user) {
-        // Link GitHub account to existing user
         user = await this.prisma.postgres.user.update({
           where: { id: user.id },
           data: {
@@ -749,7 +698,6 @@ export class AuthService {
           },
         });
       } else {
-        // New user - return profile data without creating account yet
         return {
           isNewUser: true,
           provider: 'github',
@@ -765,10 +713,8 @@ export class AuthService {
 
     await this.assertUserNotBanned(user.id, user.banUntil);
 
-    // Existing user - generate tokens and login
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
-    // Create session
     await this.prisma.postgres.session.create({
       data: {
         userId: user.id,
@@ -800,14 +746,11 @@ export class AuthService {
       fullName,
       avatar,
       role,
-      // Teacher fields
       teacherIntroduction,
-      // Student fields
       studentSchool,
       studentClass,
     } = completeOAuthDto;
 
-    // Check if user already exists with this email or social ID
     const existingUser = await this.prisma.postgres.user.findFirst({
       where: {
         OR: [
@@ -825,7 +768,6 @@ export class AuthService {
       );
     }
 
-    // Prepare user data
     const userData: {
       email: string;
       fullName: string;
@@ -844,26 +786,18 @@ export class AuthService {
         : { githubId: socialId }),
       avatar,
       role,
-      password: '', // No password for social login
-      isVerified: true, // OAuth users are already verified
+      password: '',
+      isVerified: true,
     };
 
-    // Add role-specific fields
     if (role === 'TEACHER') {
-      // Note: File uploads (teacherCV, teacherCertificates) would need to be handled
-      // by a file upload service and stored separately.
-      // For now, we'll store introduction in the bio field
       if (teacherIntroduction) userData.bio = teacherIntroduction;
-      // TODO: Add teacherSubjects, teacherExperience, teacherSpecialty to Prisma schema
-      // TODO: Implement file upload handling for CV and certificates
     }
 
-    // Create new user with OAuth data
     const user = await this.prisma.postgres.user.create({
       data: userData,
     });
 
-    // Create role-specific profile
     if (role === 'TEACHER') {
       await this.prisma.postgres.teacherProfile.create({
         data: {
@@ -875,15 +809,27 @@ export class AuthService {
         data: {
           userId: user.id,
           school: studentSchool,
-          grade: studentClass, // studentClass maps to grade in schema
+          grade: studentClass,
         },
       });
     }
 
-    // Generate tokens
+    if (role === 'TEACHER') {
+      return {
+        message:
+          'Registration completed. Your teacher account is pending admin approval (usually within 4 hours). You will be able to login once approved.',
+        requiresApproval: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          fullName: user.fullName,
+          role: user.role,
+        },
+      };
+    }
+
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
-    // Create session
     await this.prisma.postgres.session.create({
       data: {
         userId: user.id,
@@ -906,7 +852,6 @@ export class AuthService {
     };
   }
 
-  // Update user profile methods
   async updateUserProfile(userId: string, updateDto: UpdateUserProfileDto) {
     const user = await this.prisma.postgres.user.findUnique({
       where: { id: userId },
@@ -955,7 +900,6 @@ export class AuthService {
       throw new BadRequestException('Access denied. This action is only available for student accounts.');
     }
 
-    // Create profile if it doesn't exist
     if (!user.studentProfile) {
       await this.prisma.postgres.studentProfile.create({
         data: {
@@ -974,7 +918,6 @@ export class AuthService {
       });
     }
 
-    // Return updated user with profile
     return await this.prisma.postgres.user.findUnique({
       where: { id: userId },
       include: { studentProfile: true },
@@ -999,7 +942,6 @@ export class AuthService {
       throw new BadRequestException('Access denied. This action is only available for teacher accounts.');
     }
 
-    // Upload CV to R2 if file is provided
     let cvUrl: string | undefined;
     if (cvFile) {
       cvUrl = await this.r2StorageService.uploadCV(
@@ -1010,13 +952,11 @@ export class AuthService {
       );
     }
 
-    // Prepare update data
     const updateData = { ...updateDto };
     if (cvUrl) {
       updateData.cvUrl = cvUrl;
     }
 
-    // Create profile if it doesn't exist
     if (!user.teacherProfile) {
       await this.prisma.postgres.teacherProfile.create({
         data: {
@@ -1031,7 +971,6 @@ export class AuthService {
       });
     }
 
-    // Return updated user with profile
     return await this.prisma.postgres.user.findUnique({
       where: { id: userId },
       include: { teacherProfile: true },
@@ -1043,7 +982,6 @@ export class AuthService {
     cvFile: any,
     updateDto: UploadTeacherCVDto,
   ) {
-    // Verify user exists and is a teacher
     const user = await this.prisma.postgres.user.findUnique({
       where: { id: userId },
       include: { teacherProfile: true },
@@ -1057,7 +995,6 @@ export class AuthService {
       throw new BadRequestException('Access denied. This action is only available for teacher accounts.');
     }
 
-    // Upload CV to R2
     let cvUrl: string | null = null;
     if (cvFile) {
       cvUrl = await this.r2StorageService.uploadCV(
@@ -1068,13 +1005,11 @@ export class AuthService {
       );
     }
 
-    // Prepare update data
     const updateData: any = { ...updateDto };
     if (cvUrl) {
       updateData.cvUrl = cvUrl;
     }
 
-    // Create or update teacher profile
     if (!user.teacherProfile) {
       await this.prisma.postgres.teacherProfile.create({
         data: {
@@ -1089,7 +1024,6 @@ export class AuthService {
       });
     }
 
-    // Return updated profile
     return await this.prisma.postgres.user.findUnique({
       where: { id: userId },
       include: { teacherProfile: true },

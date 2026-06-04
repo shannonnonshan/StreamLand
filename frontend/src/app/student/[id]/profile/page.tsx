@@ -228,6 +228,8 @@ export default function StudentProfilePage() {
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [newActivityNote, setNewActivityNote] = useState('');
   const [isPostingActivity, setIsPostingActivity] = useState(false);
+  const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
+  const [reactionPickerOpen, setReactionPickerOpen] = useState<string | null>(null);
   
   // Edit form data
   const [editForm, setEditForm] = useState({
@@ -243,7 +245,8 @@ export default function StudentProfilePage() {
   const [newInterest, setNewInterest] = useState('');
   const [showInterestSuggestions, setShowInterestSuggestions] = useState(false);
   
-  const isOwnProfile = currentUser?.id === id;
+  const profileId = Array.isArray(id) ? id[0] : (id as string);
+  const isOwnProfile = !!currentUser?.id && currentUser.id === profileId;
 
   const formatActivityTime = useCallback((value: string) => {
     const date = new Date(value);
@@ -279,8 +282,10 @@ export default function StudentProfilePage() {
     if (activityFilter === 'notes') return entry.type === 'note';
     return entry.type === 'checkin';
   });
-  const pinnedActivity = filteredRecentActivity[0] || null;
-  const visibleActivity = filteredRecentActivity.slice(1);
+  // pinnedActivity = entry được user pin thật, không phải entry đầu tiên
+  const pinnedActivity = filteredRecentActivity.find((e) => e.pinned) || null;
+  // Hiện tất cả entries trong list
+  const visibleActivity = filteredRecentActivity;
   const reactionOptions = [
     { type: 'like' as const, label: 'Like', emoji: '👍' },
     { type: 'clap' as const, label: 'Clap', emoji: '👏' },
@@ -297,7 +302,7 @@ export default function StudentProfilePage() {
       const headers: Record<string, string> = {};
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      const response = await fetch(`${API_URL}/student/profile-activity/${id}?limit=20`, {
+      const response = await fetch(`${API_URL}/student/profile-activity/${profileId}?limit=20`, {
         headers,
       });
 
@@ -328,7 +333,7 @@ export default function StudentProfilePage() {
       console.error('Error loading profile activity:', error);
       setRecentActivity([]);
     }
-  }, [formatActivityTime, id]);
+  }, [formatActivityTime, profileId]);
 
   const handlePostActivity = async () => {
     if (!isOwnProfile) return;
@@ -377,38 +382,27 @@ export default function StudentProfilePage() {
         throw new Error(errText || 'Failed to post note');
       }
 
-      // Parse created activity returned by backend (minimal shape)
-      const created = (await response.json()) as { id: string; userId: string; content: string; visibility?: 'public' | 'followers' | 'private'; createdAt: string };
+      // Backend trả về full journal entry (loadJournalEntry shape)
+      const created = (await response.json()) as ProfileActivityNote;
 
-      // Optimistically prepend the created entry so the UI updates immediately
-      try {
-        const stats = await getUserStats(created.userId);
-        const type = classifyJournalEntry(created.content) as ProfileJournalEntry['type'];
-        const newEntry: ProfileJournalEntry = {
-          id: created.id,
-          type,
-          title: created.content,
-          time: formatActivityTime(created.createdAt),
-          streak: stats?.streak || 0,
-          visibility: created.visibility || 'followers',
-          pinned: false,
-          reactions: [],
-          comments: [],
-        };
-
-        setRecentActivity((prev) => [newEntry, ...prev]);
-      } catch (e) {
-        // ignore optimistic update failure
-      }
-
-      // Refresh authoritative data in background and wait to keep UI consistent
-      try {
-        await loadRecentActivity();
-      } catch (e) {
-        // ignore - we already showed optimistic entry
-      }
+      // Prepend entry ngay lập tức — không cần gọi thêm API getUserStats
+      const type = classifyJournalEntry(created.content) as ProfileJournalEntry['type'];
+      const newEntry: ProfileJournalEntry = {
+        id: created.id,
+        type,
+        title: created.content,
+        time: formatActivityTime(String(created.createdAt)),
+        streak: stats.streak || 0,   // dùng streak hiện có trong state, không fetch lại
+        visibility: created.visibility || activityVisibility,
+        pinned: false,
+        reactions: [],
+        comments: [],
+      };
+      setRecentActivity((prev) => [newEntry, ...prev]);
 
       setNewActivityNote('');
+      // Refresh ở background — không block toast/UI
+      loadRecentActivity().catch(() => {});
       window.dispatchEvent(new CustomEvent(STREAK_UPDATED_EVENT, { detail: { updated: true } }));
       toast.success('Reflection added to your journal.', { id: loadingToastId });
     } catch (error) {
@@ -579,7 +573,7 @@ export default function StudentProfilePage() {
       const token = localStorage.getItem('accessToken');
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       
-      const friendshipResponse = await fetch(`${API_URL}/student/friendship-status/${id}`, {
+      const friendshipResponse = await fetch(`${API_URL}/student/friendship-status/${profileId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       
@@ -591,7 +585,7 @@ export default function StudentProfilePage() {
     } catch (error) {
       console.error('Error checking friendship status:', error);
     }
-  }, [isOwnProfile, id]);
+  }, [isOwnProfile, profileId]);
 
   const loadProfile = async () => {
     try {
@@ -601,10 +595,10 @@ export default function StudentProfilePage() {
       
       // Fetch profile, stats, and followed teachers in parallel
       const [profileResponse, statsResponse, followedTeachersResponse, savedDocumentsResponse] = await Promise.all([
-        fetch(`${API_URL}/auth/${id}/profile`, {
+        fetch(`${API_URL}/auth/${profileId}/profile`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch(`${API_URL}/student/stats/${id}`, {
+        fetch(`${API_URL}/student/stats/${profileId}`, {
           headers: { Authorization: `Bearer ${token}` },
         }).catch(() => null),
         isOwnProfile
@@ -621,7 +615,7 @@ export default function StudentProfilePage() {
       
       // Check friendship status
       if (!isOwnProfile) {
-        const friendshipResponse = await fetch(`${API_URL}/student/friendship-status/${id}`, {
+        const friendshipResponse = await fetch(`${API_URL}/student/friendship-status/${profileId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         
@@ -684,7 +678,7 @@ export default function StudentProfilePage() {
       
       // Fallback to mock data for development
       const mockData = {
-        id: id as string,
+        id: profileId,
         fullName: 'Student User',
         email: 'student@example.com',
         role: 'STUDENT',
@@ -731,7 +725,7 @@ export default function StudentProfilePage() {
     try {
       // If viewing someone else's profile, fetch public stats and map minimal streak data
       if (!isOwnProfile) {
-        const statsResp = await fetch(`${API_URL}/student/stats/${id}`, {
+        const statsResp = await fetch(`${API_URL}/student/stats/${profileId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -739,7 +733,7 @@ export default function StudentProfilePage() {
           const statsData = (await statsResp.json()) as StudentStatsResponse;
           setStats(normalizeStats(statsData));
           setStreakInfo({
-            userId: id as string,
+            userId: profileId,
             timezone,
             currentStreak: Number(statsData?.streak || 0),
             longestStreak: 0,
@@ -786,7 +780,7 @@ export default function StudentProfilePage() {
         setStats((prev) => ({ ...prev, streak: streak.currentStreak || prev.streak }));
       } else {
         setStreakInfo((prev) => prev || {
-          userId: id as string,
+          userId: profileId,
           timezone,
           currentStreak: 0,
           longestStreak: 0,
@@ -812,24 +806,19 @@ export default function StudentProfilePage() {
         setStreakLeaderboard(leaderboard?.leaderboard || []);
       }
 
-      // Final fallback to whatever stats endpoint already knows, so the panel never stays at zero when the detailed streak call misses.
+      // Fallback chỉ dùng khi streak API hoàn toàn fail — không inflate bằng Math.max
       setStreakInfo((prev) => {
+        if (prev) return prev; // đã có data từ API, không ghi đè
         const fallbackStreak = Number(stats.streak || 0);
-        if (!prev) {
-          return {
-            userId: id as string,
-            timezone,
-            currentStreak: fallbackStreak,
-            longestStreak: fallbackStreak,
-            totalLearningDays: fallbackStreak,
-            streakFreezes: 0,
-            lastLearningDate: null,
-            todayQualified: fallbackStreak > 0,
-          };
-        }
         return {
-          ...prev,
-          currentStreak: Math.max(prev.currentStreak || 0, fallbackStreak),
+          userId: profileId,
+          timezone,
+          currentStreak: fallbackStreak,
+          longestStreak: fallbackStreak,
+          totalLearningDays: fallbackStreak,
+          streakFreezes: 0,
+          lastLearningDate: null,
+          todayQualified: false,
         };
       });
     } catch (error) {
@@ -1123,7 +1112,7 @@ export default function StudentProfilePage() {
     try {
       setIsSubmittingReport(true);
       await submitProfileReport({
-        reportedId: id as string,
+        reportedId: profileId,
         targetType: 'student',
         category: formData.category.trim(),
         reason: formData.reason.trim(),
@@ -1537,7 +1526,7 @@ export default function StudentProfilePage() {
                         <div>
                           <p className="text-sm font-semibold text-orange-700">Learning Streak</p>
                           <p className="mt-1 text-2xl font-extrabold text-orange-900">
-                            {isLoadingStreak ? '...' : `${Math.max(streakInfo?.currentStreak || 0, stats.streak || 0)} consecutive days`}
+                            {isLoadingStreak ? '...' : `${(streakInfo?.currentStreak ?? stats.streak ?? 0)} consecutive days`}
                             <span className="ml-2">🔥</span>
                           </p>
                           <p className="mt-1 text-sm text-orange-800">
@@ -1546,7 +1535,7 @@ export default function StudentProfilePage() {
                               : 'Study more today to keep your streak alive.'}
                           </p>
                           <p className="mt-1 text-xs text-orange-700/80">
-                            Longest: {Math.max(streakInfo?.longestStreak || 0, stats.streak || 0)} days • Total learning days: {Math.max(streakInfo?.totalLearningDays || 0, stats.streak || 0)}
+                            Longest: {streakInfo?.longestStreak ?? 0} days • Total learning days: {streakInfo?.totalLearningDays ?? 0}
                           </p>
                         </div>
 
@@ -1751,277 +1740,256 @@ export default function StudentProfilePage() {
 
               {/* Recent Activity Tab */}
               {activeTab === 'activity' && (
-                <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
-                  <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+
+                  {/* Header */}
+                  <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                        <ClockIcon className="h-5 w-5 text-blue-500" />
-                        Personal Activity Journal
-                      </h3>
-                      <p className="mt-1 text-sm text-gray-500">Quick check-ins, study notes, and your latest learning moments.</p>
+                      <h3 className="text-base font-bold text-gray-900">Learning Journal</h3>
+                      <p className="mt-0.5 text-xs text-gray-400">{recentActivity.length} {recentActivity.length === 1 ? 'entry' : 'entries'}</p>
                     </div>
-                    {isOwnProfile && (
-                      <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                        Private to your profile
-                      </span>
-                    )}
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-50 border border-orange-100 px-3 py-1 text-xs font-semibold text-orange-600">
+                      <FireIcon className="h-3.5 w-3.5" />
+                      {streakInfo?.currentStreak ?? stats.streak ?? 0} day streak
+                    </span>
                   </div>
 
-                  <div className="mb-4 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Entries</p>
-                      <p className="mt-1 text-2xl font-bold text-gray-900">{recentActivity.length}</p>
-                    </div>
-                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Latest update</p>
-                      <p className="mt-1 truncate text-sm font-semibold text-gray-900">{recentActivity[0]?.time || 'No activity yet'}</p>
-                    </div>
-                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Learning streak</p>
-                      <p className="mt-1 text-2xl font-bold text-orange-600">{Math.max(streakInfo?.currentStreak || 0, stats.streak || 0)}</p>
-                    </div>
-                  </div>
-
-                  <div className="mb-4 flex flex-wrap gap-2">
-                    {([
-                      { value: 'all', label: 'All' },
-                      { value: 'notes', label: 'Notes' },
-                      { value: 'checkins', label: 'Check-ins' },
-                    ] as const).map((item) => (
-                      <button
-                        key={item.value}
-                        onClick={() => setActivityFilter(item.value)}
-                        className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-200 motion-safe:hover:-translate-y-0.5 ${
-                          activityFilter === item.value
-                            ? 'bg-[#161853] text-white shadow-md shadow-slate-200'
-                            : 'border border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:shadow-sm'
-                        }`}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {pinnedActivity && (
-                    <div className="mb-4 overflow-hidden rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-4 shadow-sm transition-transform duration-300 motion-safe:hover:-translate-y-0.5">
-                      <div className="mb-2 flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          <span className="rounded-full bg-blue-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                            Pinned
-                          </span>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Latest reflection</p>
-                        </div>
-                        <p className="text-xs text-gray-500">{pinnedActivity.time}</p>
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <div className="rounded-xl bg-blue-100 p-2.5">
-                          <DocumentTextIcon className="h-5 w-5 text-blue-700" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-gray-900">{pinnedActivity.title}</p>
-                          <p className="mt-1 text-sm text-gray-600">
-                            {activityFilter === 'checkins'
-                              ? 'Your most recent check-in is highlighted here.'
-                              : 'This entry is pinned to the top of your profile journal.'}
-                          </p>
-                        </div>
-                        {(pinnedActivity.streak || 0) > 0 && (
-                          <div className="shrink-0 rounded-full bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700">
-                            🔥 {pinnedActivity.streak || 0}
+                  {/* Compose — own profile only */}
+                  {isOwnProfile && (
+                    <div className="px-5 py-4 bg-gray-50/60 border-b border-gray-100">
+                      <div className="flex gap-3">
+                        {profileData?.avatar ? (
+                          <img src={profileData.avatar} alt="" className="h-9 w-9 rounded-full object-cover shrink-0 mt-0.5" />
+                        ) : (
+                          <div className="h-9 w-9 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 mt-0.5 text-sm font-bold text-indigo-600">
+                            {profileData?.fullName?.charAt(0) || 'U'}
                           </div>
                         )}
+                        <div className="flex-1 min-w-0">
+                          <textarea
+                            value={newActivityNote}
+                            onChange={(e) => setNewActivityNote(e.target.value)}
+                            placeholder="What did you learn today?"
+                            maxLength={280}
+                            rows={newActivityNote.length > 60 ? 3 : 1}
+                            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 resize-none"
+                          />
+                          {newActivityNote.length > 0 && (
+                            <div className="mt-2 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[11px] ${newActivityNote.length > 250 ? 'text-red-500' : 'text-gray-400'}`}>
+                                  {280 - newActivityNote.length}
+                                </span>
+                                <select
+                                  value={activityVisibility}
+                                  onChange={(e) => setActivityVisibility(e.target.value as 'public' | 'followers' | 'private')}
+                                  className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 outline-none focus:border-indigo-300"
+                                >
+                                  <option value="public">🌐 Public</option>
+                                  <option value="followers">👥 Followers</option>
+                                  <option value="private">🔒 Only me</option>
+                                </select>
+                              </div>
+                              <button
+                                onClick={handlePostActivity}
+                                disabled={isPostingActivity || !newActivityNote.trim()}
+                                className="rounded-full bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                {isPostingActivity ? 'Posting…' : 'Post'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
 
-                  {isOwnProfile && (
-                    <div className="mb-4 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-4 shadow-sm transition-transform duration-300 motion-safe:hover:-translate-y-0.5">
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-blue-900">Journal check-in</p>
-                          <p className="text-xs text-blue-700">Capture what you learned today before it slips away.</p>
-                        </div>
-                        <p className="text-xs font-medium text-gray-500">{newActivityNote.length}/280</p>
-                      </div>
-                      <textarea
-                        value={newActivityNote}
-                        onChange={(event) => setNewActivityNote(event.target.value)}
-                        placeholder="Write today's note..."
-                        maxLength={280}
-                        className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition duration-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                        rows={3}
-                      />
-                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-blue-100">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all"
-                          style={{ width: `${Math.min(100, (newActivityNote.length / 280) * 100)}%` }}
-                        />
-                      </div>
-                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-xs text-blue-700/80">
-                          <span>Visible on your profile timeline.</span>
-                          <select
-                            value={activityVisibility}
-                            onChange={(event) => setActivityVisibility(event.target.value as 'public' | 'followers' | 'private')}
-                            className="rounded-full border border-blue-200 bg-white px-2 py-1 text-[11px] font-semibold text-blue-800 outline-none"
-                          >
-                            <option value="public">Public</option>
-                            <option value="followers">Followers</option>
-                            <option value="private">Private</option>
-                          </select>
-                        </div>
+                  {/* Pinned banner — only when user actually pinned something */}
+                  {pinnedActivity && (
+                    <div className="px-5 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center gap-2 text-xs text-amber-700">
+                      <span className="text-amber-500">📌</span>
+                      <span className="font-medium truncate flex-1">{pinnedActivity.title}</span>
+                      {isOwnProfile && (
                         <button
-                          onClick={handlePostActivity}
-                          disabled={isPostingActivity || !newActivityNote.trim()}
-                          className="rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition duration-200 hover:from-blue-700 hover:to-indigo-700 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+                          onClick={() => handlePinActivity(pinnedActivity.id, false)}
+                          className="text-amber-500 hover:text-amber-700 transition shrink-0 underline underline-offset-2"
                         >
-                          {isPostingActivity ? 'Posting...' : 'Post note'}
+                          Unpin
                         </button>
-                      </div>
+                      )}
                     </div>
                   )}
 
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <h4 className="text-sm font-semibold text-gray-900">
-                      {activityFilter === 'checkins' ? 'Check-in timeline' : activityFilter === 'notes' ? 'Notes timeline' : 'Recent check-ins'}
-                    </h4>
-                    <p className="text-xs text-gray-500">
-                      {filteredRecentActivity.length ? `${filteredRecentActivity.length} entries` : 'Nothing yet'}
-                    </p>
-                  </div>
-
-                  <div className="space-y-3">
-                    {filteredRecentActivity.length > 0 ? (
-                      visibleActivity.map((activity, index) => {
-                        const isCompact = activityFilter === 'checkins';
+                  {/* Thread list */}
+                  <div className="divide-y divide-gray-100">
+                    {recentActivity.length === 0 ? (
+                      <div className="py-14 text-center">
+                        <DocumentTextIcon className="mx-auto h-9 w-9 text-gray-200 mb-3" />
+                        <p className="text-sm text-gray-400">No entries yet.</p>
+                        {isOwnProfile && <p className="mt-1 text-xs text-gray-400">Write your first note above.</p>}
+                      </div>
+                    ) : (
+                      recentActivity.map((activity) => {
+                        const totalReactions = activity.reactions.length;
+                        const myReaction = activity.reactions.find((r) => r.userId === currentUser?.id);
+                        const commentsExpanded = expandedComments.has(activity.id);
+                        const commentCount = activity.comments.length;
+                        const reactionPicker = reactionPickerOpen === activity.id;
 
                         return (
-                          <Fragment key={activity.id}>
-                          <div
-                            className={`group flex items-start gap-3 rounded-2xl border p-3 transition-all duration-200 motion-safe:hover:-translate-y-0.5 ${index === 0 ? 'border-blue-300 bg-blue-50/70 shadow-sm' : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50 hover:shadow-sm'} ${isCompact ? 'items-center' : ''}`}
-                          >
-                            <div className={`rounded-xl p-2.5 ${activity.type === 'note' ? 'bg-purple-100' : 'bg-emerald-100'}`}>
-                              {activity.type === 'note' && <DocumentTextIcon className="h-4 w-4 text-purple-700" />}
-                              {activity.type === 'checkin' && <CalendarIcon className="h-4 w-4 text-emerald-700" />}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <h4 className={`truncate font-semibold text-gray-900 ${isCompact ? 'text-sm' : 'text-sm'}`}>{activity.title}</h4>
-                                {index === 0 && (
-                                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
-                                    Latest
-                                  </span>
-                                )}
-                                {activity.pinned && (
-                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                                    Pinned
-                                  </span>
-                                )}
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${activity.type === 'note' ? 'bg-purple-100 text-purple-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                  {activity.type === 'note' ? 'Note' : 'Check-in'}
-                                </span>
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${activity.visibility === 'public' ? 'bg-sky-100 text-sky-700' : activity.visibility === 'followers' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>
-                                  {activity.visibility}
-                                </span>
-                              </div>
-                              {!isCompact && <p className="mt-0.5 text-xs text-gray-500">{activity.time}</p>}
-                            </div>
-                            <div className="flex shrink-0 flex-col items-end gap-2">
-                              <div className="flex items-center gap-2">
-                                {isOwnProfile && (
-                                  <button
-                                    onClick={() => handlePinActivity(activity.id, !activity.pinned)}
-                                    disabled={actionLoadingId === activity.id}
-                                    className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-700 transition hover:border-amber-300 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    {activity.pinned ? 'Unpin' : 'Pin'}
-                                  </button>
-                                )}
-                                {activity.type === 'note' && (activity.streak || 0) > 0 && (
-                                  <div className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700">
-                                    🔥 {activity.streak || 0}
-                                  </div>
-                                )}
-                              </div>
-                              <p className="text-xs text-gray-500">{activity.time}</p>
-                            </div>
-                          </div>
-                          <div className="mt-3 border-t border-gray-100 pt-3">
-                            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                              <span>{activity.reactions.length} reactions</span>
-                              <span>•</span>
-                              <span>{activity.comments.length} comments</span>
-                              <span>•</span>
-                              <span>{activity.visibility === 'private' ? 'Private journal note' : activity.visibility === 'followers' ? 'Visible to followers' : 'Public journal note'}</span>
-                            </div>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                              {reactionOptions.map((reaction) => {
-                                const count = activity.reactions.filter((item) => item.type === reaction.type).length;
-                                const reacted = activity.reactions.some((item) => item.type === reaction.type && item.userId === currentUser?.id);
-                                return (
-                                  <button
-                                    key={reaction.type}
-                                    onClick={() => handleToggleReaction(activity.id, reaction.type)}
-                                    disabled={actionLoadingId === activity.id}
-                                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition ${reacted ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:bg-blue-50'} disabled:cursor-not-allowed disabled:opacity-60`}
-                                  >
-                                    <span>{reaction.emoji}</span>
-                                    <span>{reaction.label}</span>
-                                    <span className="text-[11px] opacity-75">{count}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-
-                            <div className="mt-3 space-y-2">
-                              {activity.comments.length === 0 && (
-                                <p className="rounded-xl border border-dashed border-gray-200 bg-white px-3 py-2 text-xs text-gray-500">
-                                  Be the first to leave a note on this entry.
-                                </p>
-                              )}
-                              {activity.comments.slice(-2).map((comment) => (
-                                <div key={comment.id} className="flex items-start gap-2 rounded-xl bg-gray-50 px-3 py-2">
-                                  <div className="mt-0.5 h-7 w-7 shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 text-[10px] font-bold text-white flex items-center justify-center">
-                                    {comment.user?.fullName?.charAt(0) || 'U'}
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-xs font-semibold text-gray-800">{comment.user?.fullName || 'Student'}</p>
-                                    <p className="text-sm text-gray-700">{comment.content}</p>
-                                  </div>
+                          <div key={activity.id} className="px-5 py-4 group">
+                            {/* Thread row */}
+                            <div className="flex gap-3">
+                              {/* Avatar */}
+                              {profileData?.avatar ? (
+                                <img src={profileData.avatar} alt="" className="h-8 w-8 rounded-full object-cover shrink-0 mt-0.5" />
+                              ) : (
+                                <div className="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold text-indigo-600">
+                                  {profileData?.fullName?.charAt(0) || 'U'}
                                 </div>
-                              ))}
+                              )}
 
-                              <div className="flex gap-2">
-                                <input
-                                  value={commentDrafts[activity.id] || ''}
-                                  onChange={(event) => setCommentDrafts((prev) => ({ ...prev, [activity.id]: event.target.value }))}
-                                  placeholder="Write a comment..."
-                                  className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                                />
-                                <button
-                                  onClick={() => handleAddComment(activity.id)}
-                                  disabled={actionLoadingId === activity.id || !(commentDrafts[activity.id] || '').trim()}
-                                  className="rounded-xl bg-[#161853] px-3 py-2 text-xs font-semibold text-white transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  Send
-                                </button>
+                              {/* Content */}
+                              <div className="min-w-0 flex-1">
+                                {/* Name + meta */}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-sm font-semibold text-gray-900">{profileData?.fullName || 'Student'}</span>
+                                  {activity.pinned && <span className="text-amber-500 text-xs">📌</span>}
+                                  <span className="text-xs text-gray-400">{activity.time}</span>
+                                  <span className={`text-[11px] ${activity.visibility === 'public' ? 'text-sky-500' : activity.visibility === 'followers' ? 'text-gray-400' : 'text-gray-300'}`}>
+                                    {activity.visibility === 'public' ? '· 🌐' : activity.visibility === 'followers' ? '· 👥' : '· 🔒'}
+                                  </span>
+                                </div>
+
+                                {/* Body */}
+                                <p className="mt-1 text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{activity.title}</p>
+
+                                {/* Action bar */}
+                                <div className="mt-2.5 flex items-center gap-1 text-gray-400 -ml-1">
+                                  {/* Reaction button with hover picker */}
+                                  <div className="relative">
+                                    <button
+                                      onMouseEnter={() => setReactionPickerOpen(activity.id)}
+                                      onMouseLeave={() => setReactionPickerOpen(null)}
+                                      onClick={() => myReaction
+                                        ? handleToggleReaction(activity.id, myReaction.type)
+                                        : handleToggleReaction(activity.id, 'like')
+                                      }
+                                      disabled={actionLoadingId === activity.id}
+                                      className={`flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs transition hover:bg-gray-100 disabled:opacity-50 ${myReaction ? 'text-indigo-600 font-semibold' : 'text-gray-500'}`}
+                                    >
+                                      <span className="text-base leading-none">{myReaction ? reactionOptions.find(r => r.type === myReaction.type)?.emoji || '👍' : '👍'}</span>
+                                      {totalReactions > 0 && <span>{totalReactions}</span>}
+                                    </button>
+
+                                    {/* Hover picker */}
+                                    {reactionPicker && (
+                                      <div
+                                        onMouseEnter={() => setReactionPickerOpen(activity.id)}
+                                        onMouseLeave={() => setReactionPickerOpen(null)}
+                                        className="absolute bottom-full left-0 mb-1.5 flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1.5 shadow-lg z-10"
+                                      >
+                                        {reactionOptions.map((r) => {
+                                          const active = myReaction?.type === r.type;
+                                          return (
+                                            <button
+                                              key={r.type}
+                                              onClick={(e) => { e.stopPropagation(); handleToggleReaction(activity.id, r.type); setReactionPickerOpen(null); }}
+                                              title={r.label}
+                                              className={`flex h-8 w-8 items-center justify-center rounded-full text-lg transition hover:scale-125 hover:bg-gray-100 ${active ? 'scale-110 bg-indigo-50' : ''}`}
+                                            >
+                                              {r.emoji}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Comment toggle */}
+                                  <button
+                                    onClick={() => setExpandedComments((prev) => {
+                                      const next = new Set(prev);
+                                      next.has(activity.id) ? next.delete(activity.id) : next.add(activity.id);
+                                      return next;
+                                    })}
+                                    className="flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs text-gray-500 transition hover:bg-gray-100"
+                                  >
+                                    <ChatBubbleLeftRightIcon className="h-4 w-4" />
+                                    {commentCount > 0 && <span>{commentCount}</span>}
+                                    <span>{commentsExpanded ? 'Hide' : 'Reply'}</span>
+                                  </button>
+
+                                  {/* Pin — own profile */}
+                                  {isOwnProfile && (
+                                    <button
+                                      onClick={() => handlePinActivity(activity.id, !activity.pinned)}
+                                      disabled={actionLoadingId === activity.id}
+                                      className={`ml-auto rounded-full px-2.5 py-1.5 text-xs transition hover:bg-gray-100 disabled:opacity-50 opacity-0 group-hover:opacity-100 ${activity.pinned ? 'text-amber-500' : 'text-gray-400'}`}
+                                    >
+                                      {activity.pinned ? 'Unpin' : 'Pin'}
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Comment thread — collapsed by default */}
+                                {commentsExpanded && (
+                                  <div className="mt-3 space-y-2.5 border-l-2 border-gray-100 pl-4">
+                                    {activity.comments.map((comment) => (
+                                      <div key={comment.id} className="flex gap-2.5">
+                                        <div className="h-6 w-6 shrink-0 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-500 mt-0.5">
+                                          {comment.user?.fullName?.charAt(0) || 'U'}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-baseline gap-2">
+                                            <span className="text-xs font-semibold text-gray-800">{comment.user?.fullName || 'Student'}</span>
+                                          </div>
+                                          <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">{comment.content}</p>
+                                        </div>
+                                      </div>
+                                    ))}
+
+                                    {/* Reply input */}
+                                    <div className="flex gap-2 pt-1">
+                                      <div className="h-6 w-6 shrink-0 rounded-full bg-indigo-100 flex items-center justify-center text-[10px] font-bold text-indigo-500 mt-0.5">
+                                        {currentUser?.fullName?.charAt(0) || 'U'}
+                                      </div>
+                                      <div className="flex-1 flex gap-2">
+                                        <input
+                                          value={commentDrafts[activity.id] || ''}
+                                          onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [activity.id]: e.target.value }))}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && !e.shiftKey && (commentDrafts[activity.id] || '').trim()) {
+                                              e.preventDefault();
+                                              handleAddComment(activity.id);
+                                            }
+                                          }}
+                                          placeholder="Write a reply…"
+                                          className="min-w-0 flex-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs text-gray-800 outline-none transition focus:border-indigo-300 focus:bg-white"
+                                        />
+                                        <button
+                                          onClick={() => handleAddComment(activity.id)}
+                                          disabled={actionLoadingId === activity.id || !(commentDrafts[activity.id] || '').trim()}
+                                          className="rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                                        >
+                                          Send
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>
-                          </Fragment>
                         );
                       })
-                    ) : (
-                      <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 py-6 text-center">
-                        <p className="text-sm font-medium text-gray-600">No personal activity yet.</p>
-                        <p className="mt-1 text-xs text-gray-500">Your next journal entry will appear here.</p>
-                      </div>
                     )}
                   </div>
                 </div>
               )}
             </div>
+
+
 
             {/* Sidebar */}
             <div className="space-y-4">

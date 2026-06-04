@@ -1472,6 +1472,99 @@ export class StudentService {
     };
   }
 
+  async getWatchHistory(userId: string, limit = 20, offset = 0) {
+    const safeLimit = Math.min(Math.max(limit, 1), 50);
+    const safeOffset = Math.max(offset, 0);
+
+    // Lấy toàn bộ history từ MongoDB trước, sort mới nhất
+    const historyItems = await this.prisma.mongo.watchHistory.findMany({
+      where: { userId },
+      orderBy: { watchedAt: 'desc' },
+      select: {
+        livestreamId: true,
+        watchedAt: true,
+        duration: true,
+        completed: true,
+        progress: true,
+        lastPosition: true,
+      },
+    });
+
+    if (historyItems.length === 0) {
+      return { items: [], total: 0 };
+    }
+
+    const allIds = historyItems.map((h: { livestreamId: string }) => h.livestreamId);
+
+    // Join PostgreSQL — chỉ lấy video có recording (ENDED + recordingUrl)
+    const livestreams = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        id: { in: allIds },
+        status: 'ENDED',
+        recordingUrl: { not: null },
+      },
+      select: {
+        id: true,
+        title: true,
+        thumbnail: true,
+        duration: true,
+        totalViews: true,
+        endedAt: true,
+        category: true,
+        teacher: {
+          select: { id: true, fullName: true, avatar: true },
+        },
+      },
+    });
+
+    const streamMap = new Map(livestreams.map((s) => [s.id, s]));
+
+    // Merge — giữ thứ tự watchedAt, bỏ qua các id không có recording
+    type HistoryRow = typeof historyItems[number];
+    type MergedItem = {
+      id: string;
+      title: string;
+      thumbnailUrl: string | undefined;
+      duration: number | undefined;
+      totalViews: number;
+      category: string | undefined;
+      endedAt: Date | null;
+      teacher: { id: string; fullName: string; avatar: string | null };
+      watchedAt: Date;
+      lastPosition: number;
+      progress: number;
+      completed: boolean;
+    };
+    const merged = (historyItems
+      .map((item: HistoryRow) => {
+        const stream = streamMap.get(item.livestreamId);
+        if (!stream) return null;
+        return {
+          id: item.livestreamId,
+          title: stream.title,
+          thumbnailUrl: stream.thumbnail ?? undefined,
+          duration: stream.duration ?? undefined,
+          totalViews: stream.totalViews,
+          category: stream.category ?? undefined,
+          endedAt: stream.endedAt,
+          teacher: stream.teacher,
+          watchedAt: item.watchedAt,
+          lastPosition: item.lastPosition,
+          progress: item.progress,
+          completed: item.completed,
+        } satisfies MergedItem;
+      })
+      .filter((item: MergedItem | null): item is MergedItem => item !== null));
+
+    // total = số video có thể hiển thị (đã join thành công), KHÔNG phải tổng MongoDB
+    const total = merged.length;
+
+    // Phân trang sau khi đã filter
+    const paginated = merged.slice(safeOffset, safeOffset + safeLimit);
+
+    return { items: paginated, total };
+  }
+
   async getLearningStreak(userId: string, timezone?: string) {
     const tz = this.normalizeTimezone(timezone);
     const streak = await this.ensureLearningStreak(userId, tz);
@@ -1486,10 +1579,27 @@ export class StudentService {
       },
     });
 
+    // Tính liveCurrentStreak: nếu lastLearningDate cách hôm nay > 1 ngày
+    // (và hôm nay chưa học) thì streak thực tế đã bị break → trả về 0
+    const liveCurrentStreak = this.computeLiveStreak(
+      streak.currentStreak,
+      streak.lastLearningDate,
+      dateKey,
+      !!hasAwardedToday,
+    );
+
+    // Nếu streak bị break và DB chưa cập nhật, reset luôn để nhất quán
+    if (liveCurrentStreak !== streak.currentStreak) {
+      await this.prisma.mongo.learningStreak.update({
+        where: { id: streak.id },
+        data: { currentStreak: liveCurrentStreak, updatedAt: new Date() },
+      }).catch(() => {});
+    }
+
     return {
       userId,
       timezone: streak.timezone,
-      currentStreak: streak.currentStreak,
+      currentStreak: liveCurrentStreak,
       longestStreak: streak.longestStreak,
       totalLearningDays: streak.totalLearningDays,
       streakFreezes: streak.streakFreezes,
@@ -1814,6 +1924,33 @@ export class StudentService {
     };
   }
 
+  /**
+   * Tính streak thực tế tại thời điểm đọc.
+   * Nếu lastLearningDate cách hôm nay hơn 1 ngày và hôm nay chưa học → streak = 0.
+   * Nếu lastLearningDate là hôm qua hoặc hôm nay → giữ nguyên.
+   */
+  private computeLiveStreak(
+    storedStreak: number,
+    lastLearningDate: string | null | undefined,
+    todayKey: string,
+    todayQualified: boolean,
+  ): number {
+    if (storedStreak <= 0) return 0;
+    if (!lastLearningDate) return 0;
+    if (todayQualified) return storedStreak; // đã học hôm nay → streak vẫn đang chạy
+
+    // Tính gap giữa lastLearningDate và hôm nay
+    const last = new Date(lastLearningDate + 'T00:00:00Z').getTime();
+    const today = new Date(todayKey + 'T00:00:00Z').getTime();
+    const gapDays = Math.round((today - last) / 86400000);
+
+    // gap = 0: lastLearningDate = hôm nay (đã học, covered trên)
+    // gap = 1: hôm qua học, hôm nay chưa — streak vẫn còn (grace period)
+    // gap >= 2: bỏ ≥ 1 ngày → streak bị break
+    if (gapDays >= 2) return 0;
+    return storedStreak;
+  }
+
   private async ensureLearningStreak(userId: string, timezone: string) {
     const now = new Date();
     const existing = await this.prisma.mongo.learningStreak.findUnique({ where: { userId } });
@@ -1956,15 +2093,33 @@ export class StudentService {
       student.studentProfile.receivedFriendRequests.length;
 
     // Count documents and learning streak from MongoDB
+    const now = new Date();
     const [documents, learningStreak] = await Promise.all([
       this.prisma.mongo.notebook.count({
         where: { userId },
       }),
       this.prisma.mongo.learningStreak.findUnique({
         where: { userId },
-        select: { currentStreak: true },
+        select: { currentStreak: true, lastLearningDate: true, timezone: true },
       }),
     ]);
+
+    // Check if today is already awarded (để biết streak còn active không)
+    let liveStreak = learningStreak?.currentStreak ?? student.studentProfile.studyStreak ?? 0;
+    if (learningStreak) {
+      const tz = this.normalizeTimezone(learningStreak.timezone || 'UTC');
+      const todayKey = this.getDateKeyInTimezone(now, tz);
+      const hasAwardedToday = await this.prisma.mongo.learningStreakDay.findUnique({
+        where: { userId_dateKey: { userId, dateKey: todayKey } },
+        select: { id: true },
+      });
+      liveStreak = this.computeLiveStreak(
+        learningStreak.currentStreak,
+        learningStreak.lastLearningDate,
+        todayKey,
+        !!hasAwardedToday,
+      );
+    }
 
     return {
       following: student.studentProfile.followedTeachers.length,
@@ -1972,7 +2127,7 @@ export class StudentService {
       courses: student.studentProfile.followedTeachers.length,
       documents: documents,
       studyHours: student.studentProfile.studyHours,
-      streak: learningStreak?.currentStreak ?? student.studentProfile.studyStreak,
+      streak: liveStreak,
     };
   }
 
@@ -2734,4 +2889,3 @@ export class StudentService {
     return result;
   }
 }
-

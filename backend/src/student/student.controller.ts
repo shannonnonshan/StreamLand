@@ -13,6 +13,7 @@ import {
 import { StudentService } from './student.service';
 import { SendFriendRequestDto, UpdateFriendRequestDto, FollowTeacherDto, UnfollowTeacherDto } from './dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { Public } from '../auth/decorators/public.decorator';
 import { FriendStatus } from '@prisma/client';
 
@@ -156,6 +157,18 @@ export class StudentController {
   @Get('followed-videos')
   async getFollowedVideos(@Request() req: { user: { sub: string } }) {
     return this.studentService.getFollowedVideos(req.user.sub);
+  }
+
+  // Get watch history for current student
+  @Get('watch-history')
+  async getWatchHistory(
+    @Request() req: { user: { sub: string } },
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    const limitNum = limit ? parseInt(limit, 10) : 24;
+    const offsetNum = offset ? parseInt(offset, 10) : 0;
+    return this.studentService.getWatchHistory(req.user.sub, limitNum, offsetNum);
   }
 
   // Get personalized recommendations for student home page
@@ -302,7 +315,7 @@ export class StudentController {
     return this.studentService.createProfileActivity(req.user.sub, body?.content || '', body?.visibility || 'followers');
   }
 
-  @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get('profile-activity/:userId')
   async getProfileActivities(
     @Request() req: any,

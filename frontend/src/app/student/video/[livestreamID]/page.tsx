@@ -327,7 +327,8 @@ export default function VideoPlayerPage() {
   };
 
   const getViewerIdForStorage = () => {
-    if (!isAuthenticated) return null;
+    // Đọc thẳng từ storage thay vì dùng state isAuthenticated
+    // vì effect video có thể chạy trước khi auth state được set vào React state
     return currentStudent?.id || parseStoredUserProfile()?.id || null;
   };
 
@@ -344,18 +345,7 @@ export default function VideoPlayerPage() {
     const safeDuration = Math.max(1, Math.floor(totalDuration));
     const key = getProgressStorageKey(videoInfo.id, viewerId);
 
-    let nextPosition = safePosition;
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const existing = JSON.parse(raw) as LocalVideoProgressSnapshot;
-        if (existing && typeof existing.currentTime === 'number') {
-          nextPosition = Math.max(existing.currentTime, safePosition);
-        }
-      }
-    } catch {
-      // Ignore malformed cache and overwrite with a fresh snapshot.
-    }
+    const nextPosition = safePosition; // luôn lưu vị trí mới nhất, không Math.max
 
     const snapshot: LocalVideoProgressSnapshot = {
       videoId: videoInfo.id,
@@ -998,6 +988,8 @@ export default function VideoPlayerPage() {
     return () => {
       cleanupFns.forEach(fn => fn());
     };
+    // Reset autoplay flag khi chuyển video
+    autoPlayAttemptedRef.current = false;
   }, [videoInfo]);
 
   useEffect(() => {
@@ -1049,10 +1041,15 @@ export default function VideoPlayerPage() {
           writeLocalProgressSnapshot(target, progress.duration);
         }
 
-        if (video.readyState >= 1 && video.currentTime < target - 1) {
-          video.currentTime = target;
-          setCurrentTime(target);
+        // Video đã ready → seek ngay, không chờ event
+        if (video.readyState >= 1) {
+          if (video.currentTime < target - 1) {
+            video.currentTime = target;
+            setCurrentTime(target);
+          }
+          pendingSeekRef.current = null;
         }
+        // Video chưa ready → pendingSeekRef sẽ được apply trong canplay/loadedmetadata
       } catch (err) {
         console.error('Failed to sync watch progress:', err);
       } finally {
@@ -1068,20 +1065,20 @@ export default function VideoPlayerPage() {
     if (!videoInfo?.id) return;
 
     const snapshot = readLocalProgressSnapshot();
-    if (!snapshot || snapshot.currentTime <= 0) return;
-
-    const video = videoRef.current;
-    if (!video) {
-      pendingSeekRef.current = snapshot.currentTime;
+    if (!snapshot || snapshot.currentTime <= 0) {
+      // Không có snapshot local → đánh dấu restore xong để syncProgressToServer có thể chạy
+      restoreCompletedRef.current = true;
       return;
     }
 
-    const target = Math.max(0, Math.min(snapshot.currentTime, (snapshot.duration || video.duration || 0) - 1));
+    const video = videoRef.current;
+    const target = Math.max(0, Math.min(snapshot.currentTime, (snapshot.duration || video?.duration || 0) - 1));
+
     pendingSeekRef.current = target;
     activeWatchSecondsRef.current = Math.max(0, snapshot.currentTime || 0);
     lastPlaybackPositionRef.current = target;
 
-    if (video.readyState >= 1 && video.currentTime < target - 1) {
+    if (video && video.readyState >= 1 && video.currentTime < target - 1) {
       video.currentTime = target;
       setCurrentTime(target);
     }

@@ -821,14 +821,9 @@ export default function VideoPlayerPage() {
         return;
       }
 
-      // Seed resume target — dùng livestreamID từ params trực tiếp, không qua closure
-      const initialSnapshot = readProgressSnapshot(livestreamID || '');
-      if (initialSnapshot && initialSnapshot.currentTime > 0) {
-        console.log('[Resume] Found snapshot:', initialSnapshot.currentTime, 'for', livestreamID);
-        pendingSeekRef.current = initialSnapshot.currentTime;
-      } else {
-        console.log('[Resume] No snapshot for', livestreamID);
-      }
+      // pendingSeekRef đã được set bởi restore effect hoặc syncWatchProgress
+      // Không cần đọc lại snapshot ở đây
+      console.log('[Video] Setup, pendingSeekRef:', pendingSeekRef.current);
 
       const applyPendingSeek = () => {
         const seekTo = pendingSeekRef.current;
@@ -928,9 +923,7 @@ export default function VideoPlayerPage() {
       const updateDuration = () => {
         if (video.duration && isFinite(video.duration) && !isNaN(video.duration) && video.duration > 0) {
           setDuration(video.duration);
-          console.log('[Video] Duration from video element:', video.duration);
         }
-        applyPendingSeek();
       };
       const handlePlay = () => {
         setIsPlaying(true);
@@ -962,22 +955,38 @@ export default function VideoPlayerPage() {
           void syncProgressRef.current(effectiveDuration, effectiveDuration, true);
         }
       };
+      const startPlayback = () => {
+        if (!autoPlayAttemptedRef.current) {
+          autoPlayAttemptedRef.current = true;
+          video.play()
+            .then(() => setIsPlaying(true))
+            .catch(() => setIsPlaying(false));
+        }
+      };
+
       const handleCanPlay = () => {
         if (video.duration && isFinite(video.duration) && !isNaN(video.duration) && video.duration > 0) {
           setDuration(video.duration);
         }
 
-        // Seek trước, rồi mới play — tránh browser reset currentTime khi play() từ 0
-        applyPendingSeek();
+        const seekTo = pendingSeekRef.current;
+        if (seekTo && seekTo > 0.5) {
+          // Có vị trí cần resume — seek trước, đợi 'seeked' event rồi mới play
+          const maxDur = video.duration && isFinite(video.duration) && video.duration > 0
+            ? video.duration : (videoInfoRef.current?.duration || 0);
+          const target = maxDur > 0 ? Math.min(seekTo, maxDur - 1) : seekTo;
+          pendingSeekRef.current = null;
 
-        if (!autoPlayAttemptedRef.current) {
-          autoPlayAttemptedRef.current = true;
-          // Dùng setTimeout 0 để đảm bảo seek đã apply vào DOM trước khi play()
-          setTimeout(() => {
-            video.play()
-              .then(() => setIsPlaying(true))
-              .catch(() => setIsPlaying(false));
-          }, 0);
+          const onSeeked = () => {
+            video.removeEventListener('seeked', onSeeked);
+            startPlayback();
+          };
+          video.addEventListener('seeked', onSeeked);
+          video.currentTime = target;
+          setCurrentTime(target);
+        } else {
+          // Không có gì cần seek — play ngay
+          startPlayback();
         }
       };
 
@@ -993,7 +1002,6 @@ export default function VideoPlayerPage() {
 
       // Store cleanup functions
       cleanupFns.push(() => {
-        console.log('[Video] Cleaning up event listeners');
         video.removeEventListener("timeupdate", updateTime);
         video.removeEventListener("loadedmetadata", updateDuration);
         video.removeEventListener("durationchange", updateDuration);
@@ -1001,6 +1009,8 @@ export default function VideoPlayerPage() {
         video.removeEventListener("play", handlePlay);
         video.removeEventListener("pause", handlePause);
         video.removeEventListener("ended", handleEnded);
+        // seeked listener tự remove sau khi fire, nhưng cleanup phòng khi unmount sớm
+        video.removeEventListener("seeked", () => {});
       });
 
       // Do not force `load()` here; it can reset currentTime and fight resume logic.
@@ -1025,21 +1035,9 @@ export default function VideoPlayerPage() {
     const syncWatchProgress = async () => {
       if (!videoInfo?.id) return;
 
-      if (!isAuthenticated) {
-        restoreCompletedRef.current = true;
-        pendingSeekRef.current = null;
-        activeWatchSecondsRef.current = 0;
-        lastPlaybackPositionRef.current = null;
-        const video = videoRef.current;
-        if (video) {
-          video.currentTime = 0;
-        }
-        setCurrentTime(0);
-        return;
-      }
-
+      // Nếu chưa auth, vẫn có thể dùng snapshot local
       const token = getStoredToken();
-      if (!token) {
+      if (!isAuthenticated || !token) {
         restoreCompletedRef.current = true;
         return;
       }
@@ -1070,15 +1068,16 @@ export default function VideoPlayerPage() {
           writeSnapshot(videoInfo.id, target, progress.duration);
         }
 
-        // Video đã ready → seek ngay, không chờ event
-        if (video.readyState >= 1) {
-          if (video.currentTime < target - 1) {
+        // Nếu video đang play (đã seek từ snapshot local), chỉ seek nếu server có vị trí xa hơn
+        if (video.readyState >= 3 && isFinite(video.currentTime) && video.currentTime > 0) {
+          // Video đang chạy rồi — chỉ override nếu server position khác đáng kể
+          if (Math.abs(video.currentTime - target) > 5) {
             video.currentTime = target;
             setCurrentTime(target);
           }
           pendingSeekRef.current = null;
         }
-        // Video chưa ready → pendingSeekRef sẽ được apply trong canplay/loadedmetadata
+        // Video chưa play — để handleCanPlay xử lý qua pendingSeekRef
       } catch (err) {
         console.error('Failed to sync watch progress:', err);
       } finally {
@@ -1089,34 +1088,21 @@ export default function VideoPlayerPage() {
     syncWatchProgress();
   }, [videoInfo?.id, isAuthenticated, currentStudent?.id]);
 
-  // Restore local progress immediately so resume works even before auth/profile round-trip finishes
+  // Restore local progress — chỉ set pendingSeekRef
+  // handleCanPlay sẽ đọc và seek đúng cách sau khi video ready
   useEffect(() => {
     if (!videoInfo?.id) return;
 
-    // Dùng videoInfo.id trực tiếp — tại thời điểm này videoInfo đã có
-    const snapshot = readProgressSnapshot(videoInfo.id);
+    const snapshot = readSnapshot(videoInfo.id);
     if (!snapshot || snapshot.currentTime <= 0) {
-      // Không có snapshot local → đánh dấu restore xong để syncProgressToServer có thể chạy
       restoreCompletedRef.current = true;
       return;
     }
 
-    const video = videoRef.current;
-    const maxDur = snapshot.duration || (video?.duration && isFinite(video.duration) ? video.duration : 0);
-    // Nếu không biết duration, dùng currentTime trực tiếp (không clamp)
-    const target = maxDur > 0 ? Math.max(0, Math.min(snapshot.currentTime, maxDur - 1)) : Math.max(0, snapshot.currentTime);
-
-    pendingSeekRef.current = target;
-    activeWatchSecondsRef.current = Math.max(0, snapshot.currentTime || 0);
-    lastPlaybackPositionRef.current = target;
-
-    if (video && video.readyState >= 1 && video.currentTime < target - 1) {
-      video.currentTime = target;
-      setCurrentTime(target);
-    }
-
+    console.log('[Resume] Restore snapshot:', snapshot.currentTime, 'duration:', snapshot.duration);
+    pendingSeekRef.current = snapshot.currentTime;
     restoreCompletedRef.current = true;
-  }, [videoInfo?.id, currentStudent?.id]);
+  }, [videoInfo?.id]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -1440,9 +1426,8 @@ export default function VideoPlayerPage() {
                   ref={videoRef}
                   src={videoInfo.recordingUrl}
                   poster={videoInfo.thumbnailUrl}
-                  autoPlay
                   playsInline
-                  preload="metadata"
+                  preload="auto"
                   className="w-full aspect-video cursor-pointer"
                   onClick={togglePlay}
                 />

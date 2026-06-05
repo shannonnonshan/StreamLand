@@ -137,6 +137,7 @@ model LiveStream {
   rejectReason     String?
   teacher          User                    @relation(fields: [teacherId], references: [id])
   schedule         Schedule?
+  tags             Tag[]
 
   @@index([teacherId, status])
   @@index([scheduledAt])
@@ -165,6 +166,20 @@ model Document {
   @@index([fileType])
   @@index([teacherId])
   @@map("documents")
+}
+
+model Tag {
+  id           String     @id @default(uuid())
+  name         String     @unique
+  slug         String     @unique
+  description  String?
+  color        String?
+  livestreamId String
+  createdAt    DateTime   @default(now())
+  livestream   LiveStream @relation(fields: [livestreamId], references: [id], onDelete: Cascade)
+
+  @@index([slug])
+  @@map("tags")
 }
 
 model Schedule {

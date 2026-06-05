@@ -452,6 +452,3 @@ enum LearningActivityType {
   QUIZ
   EXERCISE
 }
-
-// Personal Activities: learning journal, notes, plans, reactions, comments, XP and badges
-// Activity, study note, reward and related models removed (unused)

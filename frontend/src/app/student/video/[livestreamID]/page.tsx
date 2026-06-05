@@ -774,6 +774,11 @@ export default function VideoPlayerPage() {
   }, [activeCueId, displayedPanel]);
 
   useEffect(() => {
+    // Reset flags khi videoInfo thay đổi (chuyển sang video khác)
+    autoPlayAttemptedRef.current = false;
+    restoreCompletedRef.current = false;
+    pendingSeekRef.current = null;
+
     if (!videoInfo?.recordingUrl) {
       console.log('[Video] Waiting for recording URL...');
       return;
@@ -803,9 +808,10 @@ export default function VideoPlayerPage() {
 
         const maxDuration = video.duration && isFinite(video.duration) && video.duration > 0
           ? video.duration
-          : (videoInfo?.duration || seekTo);
+          : (videoInfo?.duration || 0);
 
-        const target = Math.min(seekTo, Math.max(0, maxDuration - 1));
+        // Nếu không biết duration, dùng seekTo trực tiếp
+        const target = maxDuration > 0 ? Math.min(seekTo, Math.max(0, maxDuration - 1)) : Math.max(0, seekTo);
         if (video.currentTime < target - 0.5) {
           video.currentTime = target;
           setCurrentTime(target);
@@ -931,22 +937,19 @@ export default function VideoPlayerPage() {
       const handleCanPlay = () => {
         if (video.duration && isFinite(video.duration) && !isNaN(video.duration) && video.duration > 0) {
           setDuration(video.duration);
-          console.log('[Video] Duration from canplay event:', video.duration);
         }
 
+        // Seek trước, rồi mới play — tránh browser reset currentTime khi play() từ 0
         applyPendingSeek();
 
         if (!autoPlayAttemptedRef.current) {
           autoPlayAttemptedRef.current = true;
-          video.play()
-            .then(() => {
-              setIsPlaying(true);
-              console.log('[Video] Auto-play started');
-            })
-            .catch((error) => {
-              console.warn('[Video] Auto-play blocked or failed:', error);
-              setIsPlaying(false);
-            });
+          // Dùng setTimeout 0 để đảm bảo seek đã apply vào DOM trước khi play()
+          setTimeout(() => {
+            video.play()
+              .then(() => setIsPlaying(true))
+              .catch(() => setIsPlaying(false));
+          }, 0);
         }
       };
 
@@ -988,8 +991,6 @@ export default function VideoPlayerPage() {
     return () => {
       cleanupFns.forEach(fn => fn());
     };
-    // Reset autoplay flag khi chuyển video
-    autoPlayAttemptedRef.current = false;
   }, [videoInfo]);
 
   useEffect(() => {
@@ -1072,7 +1073,9 @@ export default function VideoPlayerPage() {
     }
 
     const video = videoRef.current;
-    const target = Math.max(0, Math.min(snapshot.currentTime, (snapshot.duration || video?.duration || 0) - 1));
+    const maxDur = snapshot.duration || (video?.duration && isFinite(video.duration) ? video.duration : 0);
+    // Nếu không biết duration, dùng currentTime trực tiếp (không clamp)
+    const target = maxDur > 0 ? Math.max(0, Math.min(snapshot.currentTime, maxDur - 1)) : Math.max(0, snapshot.currentTime);
 
     pendingSeekRef.current = target;
     activeWatchSecondsRef.current = Math.max(0, snapshot.currentTime || 0);

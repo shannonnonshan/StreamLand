@@ -87,7 +87,7 @@ interface Channel {
 }
 @WebSocketGateway({ cors: { origin: '*' } })
 export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  @WebSocketServer() server: Server;
+  @WebSocketServer() server!: Server;
 
   // key = livestreamID (unique identifier for each livestream)
   private channels: Record<string, Channel> = {};
@@ -412,7 +412,8 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
           });
         }
       } catch (error) {
-        this.logger.error(`Error saving document to MongoDB: ${error.message}`);
+        const msg = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Error saving document to MongoDB: ${msg}`);
       }
 
       // Broadcast new document to all watchers via room

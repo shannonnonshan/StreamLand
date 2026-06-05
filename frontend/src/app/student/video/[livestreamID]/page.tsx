@@ -330,45 +330,42 @@ export default function VideoPlayerPage() {
     });
   };
 
-  const getViewerIdForStorage = () => {
-    // Đọc thẳng từ storage thay vì dùng state isAuthenticated
-    // vì effect video có thể chạy trước khi auth state được set vào React state
-    return currentStudent?.id || parseStoredUserProfile()?.id || null;
-  };
+  // ── Snapshot helpers ──────────────────────────────────────────────────────
+  // Tất cả đọc thẳng từ localStorage, KHÔNG dùng React state làm closure
+  // để tránh stale closure khi gọi từ event listeners hoặc khi state chưa set
 
   const getProgressStorageKey = (videoId: string, viewerId: string) =>
     `${VIDEO_PROGRESS_STORAGE_PREFIX}${viewerId}:${videoId}`;
 
-  const writeLocalProgressSnapshot = (position: number, totalDuration: number) => {
-    if (typeof window === 'undefined' || !videoInfo?.id) return;
+  const resolveViewerId = (): string | null =>
+    // currentStudent?.id có thể chưa set → fallback parseStoredUserProfile
+    currentStudent?.id || parseStoredUserProfile()?.id || null;
 
-    const viewerId = getViewerIdForStorage();
+  const writeLocalProgressSnapshot = (videoId: string, position: number, totalDuration: number) => {
+    if (typeof window === 'undefined' || !videoId) return;
+
+    const viewerId = resolveViewerId();
     if (!viewerId) return;
 
-    const safePosition = Math.max(0, Math.floor(position));
-    const safeDuration = Math.max(1, Math.floor(totalDuration));
-    const key = getProgressStorageKey(videoInfo.id, viewerId);
-
-    const nextPosition = safePosition; // luôn lưu vị trí mới nhất, không Math.max
-
+    const key = getProgressStorageKey(videoId, viewerId);
     const snapshot: LocalVideoProgressSnapshot = {
-      videoId: videoInfo.id,
+      videoId,
       userId: viewerId,
-      currentTime: nextPosition,
-      duration: safeDuration,
+      currentTime: Math.max(0, Math.floor(position)),
+      duration: Math.max(1, Math.floor(totalDuration)),
       updatedAt: Date.now(),
     };
-
     localStorage.setItem(key, JSON.stringify(snapshot));
   };
 
-  const readLocalProgressSnapshot = (): LocalVideoProgressSnapshot | null => {
-    if (typeof window === 'undefined' || !videoInfo?.id) return null;
+  // Đọc snapshot cho một videoId cụ thể — không cần state videoInfo
+  const readProgressSnapshot = (videoId: string): LocalVideoProgressSnapshot | null => {
+    if (typeof window === 'undefined' || !videoId) return null;
 
-    const viewerId = getViewerIdForStorage();
+    const viewerId = resolveViewerId();
     if (!viewerId) return null;
 
-    const key = getProgressStorageKey(videoInfo.id, viewerId);
+    const key = getProgressStorageKey(videoId, viewerId);
     try {
       const raw = localStorage.getItem(key);
       if (!raw) return null;
@@ -376,24 +373,27 @@ export default function VideoPlayerPage() {
       const parsed = JSON.parse(raw) as LocalVideoProgressSnapshot;
       if (
         !parsed ||
-        parsed.videoId !== videoInfo.id ||
+        parsed.videoId !== videoId ||
         parsed.userId !== viewerId ||
         typeof parsed.currentTime !== 'number' ||
         typeof parsed.duration !== 'number'
       ) {
         return null;
       }
-
       return parsed;
     } catch {
       return null;
     }
   };
 
+  // Backward compat wrapper dùng videoInfo?.id
+  const readLocalProgressSnapshot = (): LocalVideoProgressSnapshot | null =>
+    readProgressSnapshot(videoInfo?.id || '');
+
   const syncProgressToServer = async (position: number, totalDuration: number, force = false) => {
     if (!videoInfo?.id || totalDuration <= 0) return;
 
-    writeLocalProgressSnapshot(position, totalDuration);
+    writeLocalProgressSnapshot(videoInfo?.id || '', position, totalDuration);
 
     // Wait until at least one restore pass completes to avoid posting near-zero progress too early.
     if (!restoreCompletedRef.current && !force) {
@@ -810,10 +810,13 @@ export default function VideoPlayerPage() {
         return;
       }
 
-      // Seed resume target before media events start firing.
-      const initialSnapshot = readSnapshotRef.current();
+      // Seed resume target — dùng livestreamID từ params trực tiếp, không qua closure
+      const initialSnapshot = readProgressSnapshot(livestreamID || '');
       if (initialSnapshot && initialSnapshot.currentTime > 0) {
+        console.log('[Resume] Found snapshot:', initialSnapshot.currentTime, 'for', livestreamID);
         pendingSeekRef.current = initialSnapshot.currentTime;
+      } else {
+        console.log('[Resume] No snapshot for', livestreamID);
       }
 
       const applyPendingSeek = () => {
@@ -1053,7 +1056,7 @@ export default function VideoPlayerPage() {
         activeWatchSecondsRef.current = Math.max(0, progress.lastPosition || 0);
         lastPlaybackPositionRef.current = target;
         if ((progress.duration || 0) > 0) {
-          writeLocalProgressSnapshot(target, progress.duration);
+          writeLocalProgressSnapshot(videoInfo.id, target, progress.duration);
         }
 
         // Video đã ready → seek ngay, không chờ event
@@ -1079,7 +1082,8 @@ export default function VideoPlayerPage() {
   useEffect(() => {
     if (!videoInfo?.id) return;
 
-    const snapshot = readLocalProgressSnapshot();
+    // Dùng videoInfo.id trực tiếp — tại thời điểm này videoInfo đã có
+    const snapshot = readProgressSnapshot(videoInfo.id);
     if (!snapshot || snapshot.currentTime <= 0) {
       // Không có snapshot local → đánh dấu restore xong để syncProgressToServer có thể chạy
       restoreCompletedRef.current = true;

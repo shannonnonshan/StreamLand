@@ -123,6 +123,35 @@ model LiveStreamDocuments {
   @@map("livestream_documents")
 }
 
+model LiveStreamAnalytics {
+  id           String @id @default(auto()) @map("_id") @mongodb.ObjectId
+  livestreamId String @unique
+
+  // Viewer stats
+  totalViews    Int   @default(0)
+  uniqueViewers Int   @default(0)
+  peakViewers   Int   @default(0)
+  avgWatchTime  Float @default(0) // in minutes
+
+  // Engagement stats
+  totalComments  Int @default(0)
+  totalLikes     Int @default(0)
+  totalShares    Int @default(0)
+  totalQuestions Int @default(0)
+
+  // Demographics
+  viewersByDevice  Json? // {mobile: 50, desktop: 30, tablet: 20}
+  viewersByCountry Json? // {VN: 80, US: 10, ...}
+
+  // Time series data
+  viewerTimeline Json? // [{timestamp, count}, ...]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("livestream_analytics")
+}
+
 // Schedule Analytics and Reminders
 model ScheduleNotification {
   id         String @id @default(auto()) @map("_id") @mongodb.ObjectId

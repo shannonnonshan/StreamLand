@@ -123,15 +123,15 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private async updateAnalyticsBatch(livestreamId: string, viewerCount: number) {
     try {
-      await this.prismaService.mongo.liveStreamAnalytics.updateMany({
-        where: { livestreamId },
+      await this.prismaService.postgres.liveStream.updateMany({
+        where: { id: livestreamId },
         data: {
-          peakViewers: { set: viewerCount },
-          totalViews: { increment: 1 },
+          peakViewers: viewerCount,
+          currentViewers: viewerCount,
         },
       });
     } catch (error) {
-      console.error('Batch analytics update error:', error);
+      // non-critical, ignore
     }
   }
 
@@ -202,8 +202,9 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     }
 
-    // Notify all waiting watchers that broadcaster is online
-    socket.broadcast.emit('broadcaster');
+    // Notify watchers đang chờ trong room của livestream này
+    // Không dùng broadcast.emit (gửi tất cả) — chỉ emit trong room cụ thể
+    socket.to(key).emit('broadcaster', { livestreamID: data.livestreamID });
   }
 
   @SubscribeMessage('watcher')
@@ -214,10 +215,10 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
 
+    // Luôn join room trước — để nhận 'broadcaster' event khi teacher bắt đầu stream
+    socket.join(key);
+
     if (channel) {
-      // Add student socket to the room so they receive all broadcasts
-      socket.join(key);
-      
       channel.watchers.add(socket.id);
       // Send watcher info to broadcaster with object format
       this.server.to(channel.broadcaster).emit('watcher', { id: socket.id });
@@ -257,9 +258,11 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         timestamp: Date.now(),
       });
     } else {
-      // Notify the watcher that the stream is not available
+      // Stream chưa bắt đầu — watcher đã join room rồi, sẽ nhận 'broadcaster' khi teacher start
+      // Vẫn emit stream-not-found để frontend hiện trạng thái "waiting"
       this.server.to(socket.id).emit('stream-not-found', {
         livestreamID: data.livestreamID,
+        waiting: true,
       });
     }
   }

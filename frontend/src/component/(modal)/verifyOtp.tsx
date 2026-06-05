@@ -107,6 +107,9 @@ export default function OTPModal({
         sessionStorage.removeItem(key);
       };
 
+      // Upload teacher profile info + CV được xử lý khi teacher login lần đầu sau khi admin duyệt
+      // (xem useAuth.ts login function - đọc pending-teacher-profile từ sessionStorage)
+
       let result;
       
       // Use different API based on purpose
@@ -126,6 +129,8 @@ export default function OTPModal({
         if (otpPurpose === 'registration' && result.user?.role === 'STUDENT') {
           await applyPendingStudentProfile();
         }
+        // Teacher: verifyOtp trả về requiresApproval (không có token) nên không upload ở đây
+        // Thay vào đó ta đã lưu pending profile, sẽ upload khi teacher login lần đầu sau khi được duyệt
 
         setSuccessMessage('OTP verified successfully!');
         

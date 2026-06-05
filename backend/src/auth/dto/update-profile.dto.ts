@@ -124,8 +124,4 @@ export class UploadTeacherCVDto {
   @IsString()
   @IsOptional()
   linkedin?: string;
-
-  @IsString()
-  @IsOptional()
-  youtube?: string;
 }

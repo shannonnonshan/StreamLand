@@ -336,6 +336,39 @@ export default function RegisterModal({
             );
           }
 
+          if (role === 'TEACHER') {
+            const subjects = formData.teacherSubjects
+              ? formData.teacherSubjects.split(',').map((s) => s.trim()).filter(Boolean)
+              : [];
+            const pendingTeacherProfile = {
+              subjects,
+              experience: formData.teacherExperience ? parseInt(formData.teacherExperience, 10) || 0 : 0,
+              education: formData.teacherSpecialty || '',
+              bio: formData.teacherIntroduction || '',
+            };
+            sessionStorage.setItem(
+              `pending-teacher-profile:${formData.email.toLowerCase()}`,
+              JSON.stringify(pendingTeacherProfile),
+            );
+
+            if (formData.teacherCV) {
+              const cvFile = formData.teacherCV;
+              const reader = new FileReader();
+              reader.onload = () => {
+                const base64 = (reader.result as string).split(',')[1];
+                sessionStorage.setItem(
+                  `pending-teacher-cv:${formData.email.toLowerCase()}`,
+                  JSON.stringify({
+                    name: cvFile.name,
+                    type: cvFile.type,
+                    data: base64,
+                  }),
+                );
+              };
+              reader.readAsDataURL(cvFile);
+            }
+          }
+
           // Registration successful, move to OTP verification
           closeModal();
           openOTPModal(formData.email, 'registration');
@@ -1005,7 +1038,6 @@ export default function RegisterModal({
                 {/* Progress Bar */}
                 <ProgressIndicator currentStep={currentStep} />
                 
-                {/* Nội dung theo bước */}
                 <div className="mt-6 min-h-[200px] transition-opacity duration-300">
                   {renderStepContent()}
                 </div>
@@ -1073,5 +1105,3 @@ export default function RegisterModal({
     </Transition>
   );
 }
-
-// CheckCircleIcon đã được thêm vào import ở đầu file

@@ -342,6 +342,61 @@ export function useAuth() {
         setUser(result.user);
       }
 
+      if (finalUser?.role === 'TEACHER') {
+        try {
+          const profileKey = `pending-teacher-profile:${data.email.toLowerCase()}`;
+          const cvKey = `pending-teacher-cv:${data.email.toLowerCase()}`;
+          const rawProfile = sessionStorage.getItem(profileKey);
+          if (rawProfile) {
+            const payload = JSON.parse(rawProfile) as {
+              subjects?: string[];
+              experience?: number;
+              education?: string;
+              bio?: string;
+            };
+            const fd = new FormData();
+            if (payload.subjects && payload.subjects.length > 0) {
+              payload.subjects.forEach((s) => fd.append('subjects[]', s));
+            }
+            if (payload.experience !== undefined) {
+              fd.append('experience', String(payload.experience));
+            }
+            if (payload.education) {
+              fd.append('education', payload.education);
+            }
+            const rawCv = sessionStorage.getItem(cvKey);
+            if (rawCv) {
+              const cvInfo = JSON.parse(rawCv) as { name: string; type: string; data: string };
+              const byteString = atob(cvInfo.data);
+              const ab = new ArrayBuffer(byteString.length);
+              const ia = new Uint8Array(ab);
+              for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+              const cvBlob = new Blob([ab], { type: cvInfo.type });
+              fd.append('cv', cvBlob, cvInfo.name);
+            }
+            if (payload.bio) {
+              await fetch(`${API_URL}/auth/profile`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${result.accessToken}`,
+                },
+                body: JSON.stringify({ bio: payload.bio }),
+              });
+            }
+            await fetch(`${API_URL}/auth/profile/teacher/upload-cv`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${result.accessToken}` },
+              body: fd,
+            });
+            sessionStorage.removeItem(profileKey);
+            sessionStorage.removeItem(cvKey);
+          }
+        } catch {
+          // Không block login nếu upload fail
+        }
+      }
+
       setIsAuthenticated(true);
       dispatchAuthStateChanged();
       setLoading(false);

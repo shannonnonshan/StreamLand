@@ -280,6 +280,26 @@ model VideoReaction {
   @@map("video_reactions")
 }
 
+model Notebook {
+  id           String  @id @default(auto()) @map("_id") @mongodb.ObjectId
+  userId       String
+  livestreamId String
+  title        String?
+  content      String
+  timestamp    Int? // at what point in video (seconds)
+
+  // Organization
+  tags      String[]
+  isPrivate Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, livestreamId])
+  @@index([userId, createdAt])
+  @@map("notebooks")
+}
+
 // AI analysis cache per recording/livestream
 model AiTranscriptSummary {
   id                    String         @id @default(auto()) @map("_id") @mongodb.ObjectId

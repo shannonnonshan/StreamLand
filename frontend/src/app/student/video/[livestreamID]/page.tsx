@@ -202,6 +202,10 @@ export default function VideoPlayerPage() {
   const prevViewerRef = useRef<string | null>(null);
   const activeWatchSecondsRef = useRef(0);
   const lastPlaybackPositionRef = useRef<number | null>(null);
+  // Refs để tránh stale closure trong video event listeners
+  const syncProgressRef = useRef<(position: number, totalDuration: number, force?: boolean) => void>(() => {});
+  const readSnapshotRef = useRef<() => LocalVideoProgressSnapshot | null>(() => null);
+  const videoInfoRef = useRef<typeof videoInfo>(null);
 
   const coerceNumber = (value: unknown): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -444,6 +448,16 @@ export default function VideoPlayerPage() {
       console.error('Failed to sync progress to server:', err);
     }
   };
+
+  // Keep refs in sync với latest closures và videoInfo để tránh stale closure trong event listeners
+  useEffect(() => {
+    videoInfoRef.current = videoInfo;
+  }, [videoInfo]);
+
+  useEffect(() => {
+    syncProgressRef.current = syncProgressToServer;
+    readSnapshotRef.current = readLocalProgressSnapshot;
+  });
 
   // Fetch video data
   useEffect(() => {
@@ -797,7 +811,7 @@ export default function VideoPlayerPage() {
       }
 
       // Seed resume target before media events start firing.
-      const initialSnapshot = readLocalProgressSnapshot();
+      const initialSnapshot = readSnapshotRef.current();
       if (initialSnapshot && initialSnapshot.currentTime > 0) {
         pendingSeekRef.current = initialSnapshot.currentTime;
       }
@@ -892,9 +906,9 @@ export default function VideoPlayerPage() {
 
         const effectiveDuration = video.duration && isFinite(video.duration) && video.duration > 0
           ? video.duration
-          : (videoInfo?.duration || 0);
+          : (videoInfoRef.current?.duration || 0);
         if (effectiveDuration > 0) {
-          void syncProgressToServer(video.currentTime, effectiveDuration);
+          void syncProgressRef.current(video.currentTime, effectiveDuration);
         }
       };
       const updateDuration = () => {
@@ -912,9 +926,9 @@ export default function VideoPlayerPage() {
         lastPlaybackPositionRef.current = video.currentTime;
         const effectiveDuration = video.duration && isFinite(video.duration) && video.duration > 0
           ? video.duration
-          : (videoInfo?.duration || 0);
+          : (videoInfoRef.current?.duration || 0);
         if (effectiveDuration > 0) {
-          void syncProgressToServer(video.currentTime, effectiveDuration, true);
+          void syncProgressRef.current(video.currentTime, effectiveDuration, true);
         }
       };
       const handleEnded = () => {
@@ -929,9 +943,9 @@ export default function VideoPlayerPage() {
         lastPlaybackPositionRef.current = video.duration;
         const effectiveDuration = video.duration && isFinite(video.duration) && video.duration > 0
           ? video.duration
-          : (videoInfo?.duration || 0);
+          : (videoInfoRef.current?.duration || 0);
         if (effectiveDuration > 0) {
-          void syncProgressToServer(effectiveDuration, effectiveDuration, true);
+          void syncProgressRef.current(effectiveDuration, effectiveDuration, true);
         }
       };
       const handleCanPlay = () => {

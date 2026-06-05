@@ -720,22 +720,13 @@ export default function StudentDashboard() {
   // Fetch top livestreams (LIVE and SCHEDULED)
   const fetchTopLivestreams = async () => {
     try {
-      // Fetch both LIVE and SCHEDULED streams in parallel
       const [liveResponse, scheduledResponse] = await Promise.all([
-        fetch(`${API_URL}/livestream/active/all`, {
-          next: { revalidate: 30 }, // Cache for 30 seconds
-        }), // Get LIVE streams
-        fetch(`${API_URL}/livestream/scheduled/upcoming?limit=10`, {
-          next: { revalidate: 60 }, // Cache for 60 seconds
-        }), // Get SCHEDULED streams
+        fetch(`${API_URL}/livestream/active/all`),
+        fetch(`${API_URL}/livestream/scheduled/upcoming?limit=10`),
       ]);
 
       const liveData = liveResponse.ok ? await liveResponse.json() : [];
       const scheduledData = scheduledResponse.ok ? await scheduledResponse.json() : [];
-      
-      console.log('🔴 Live Data:', liveData);
-      console.log('🔴 First live thumbnail:', liveData[0]?.thumbnailUrl);
-      console.log('📅 Scheduled Data:', scheduledData);
       
       // Combine and sort with dynamic logic:
       // - LIVE streams first
@@ -779,15 +770,10 @@ export default function StudentDashboard() {
       
       if (response.ok) {
         const data = await response.json();
-        console.log('🎥 Trending Videos Data:', data);
-        console.log('🎥 First video thumbnail:', data[0]?.thumbnailUrl);
-        // Filter to only include streams with recordingUrl
         const recordedStreams = (data as VideoData[]).filter((stream) =>
           stream.status === 'ENDED' && stream.recordingUrl
         );
-        // Sort by weekly views (preferred) falling back to totalViews
         recordedStreams.sort((a, b) => (b.viewsLast7Days ?? b.totalViews) - (a.viewsLast7Days ?? a.totalViews));
-        console.log('🎥 Filtered & Sorted Videos (weekly-first):', recordedStreams);
         setTopTrending(recordedStreams.slice(0, 12));
       }
     } catch (error) {
@@ -906,13 +892,8 @@ export default function StudentDashboard() {
       void fetchWatchProgressForVideos(visibleIds);
     }, 120);
 
-    const retryTimer = window.setTimeout(() => {
-      void fetchWatchProgressForVideos(visibleIds);
-    }, 1200);
-
     return () => {
       window.clearTimeout(timer);
-      window.clearTimeout(retryTimer);
     };
   }, [
     hasAuthToken,
@@ -927,13 +908,32 @@ export default function StudentDashboard() {
     fetchVideosByInterest(selectedInterest);
   }, [selectedInterest]);
 
-  // Poll top livestreams periodically so `currentViewers` remains up-to-date
+  // Poll live viewer counts — chỉ khi có LIVE stream đang active, interval 30s
   useEffect(() => {
-    const id = setInterval(() => {
-      fetchTopLivestreams();
-    }, 8000);
+    const pollLiveViewers = async () => {
+      // Chỉ fetch nếu đang có ít nhất 1 stream LIVE
+      const hasLive = topLivestreams.some((s) => s.status === 'LIVE');
+      if (!hasLive) return;
+
+      try {
+        const resp = await fetch(`${API_URL}/livestream/active/all`);
+        if (!resp.ok) return;
+        const liveData = await resp.json();
+        // Chỉ update currentViewers, không refetch scheduled
+        setTopLivestreams((prev) =>
+          prev.map((stream) => {
+            const updated = liveData.find((l: { id: string; currentViewers?: number }) => l.id === stream.id);
+            return updated ? { ...stream, currentViewers: updated.currentViewers } : stream;
+          }),
+        );
+      } catch {
+        // ignore poll errors
+      }
+    };
+
+    const id = setInterval(pollLiveViewers, 30000);
     return () => clearInterval(id);
-  }, []);
+  }, [topLivestreams]);
 
   
 

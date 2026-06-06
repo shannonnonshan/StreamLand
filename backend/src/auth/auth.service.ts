@@ -778,7 +778,7 @@ export class AuthService {
     const {
       provider, socialId, email, fullName, avatar, role,
       teacherIntroduction, studentSchool, studentClass,
-      subjects, experience, education, website, linkedin, // ✅ thêm
+      subjects, experience, education, website, linkedin,
     } = completeOAuthDto;
 
     const existingUser = await this.prisma.postgres.user.findFirst({

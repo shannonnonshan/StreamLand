@@ -163,10 +163,10 @@ export default function NotificationBell() {
     const notifDate = new Date(date);
     const seconds = Math.floor((now.getTime() - notifDate.getTime()) / 1000);
 
-    if (seconds < 60) return 'Vừa xong';
-    if (seconds < 3600) return `${Math.floor(seconds / 60)} phút trước`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)} giờ trước`;
-    if (seconds < 2592000) return `${Math.floor(seconds / 86400)} ngày trước`;
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+    if (seconds < 2592000) return `${Math.floor(seconds / 86400)} days ago`;
     return notifDate.toLocaleDateString('vi-VN');
   }, []);
 
@@ -219,13 +219,13 @@ export default function NotificationBell() {
         <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-2xl border border-gray-200 overflow-hidden z-50">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-blue-50">
-            <h3 className="font-semibold text-gray-900">Thông báo</h3>
+            <h3 className="font-semibold text-gray-900">Notifications</h3>
             {unreadCount > 0 && (
               <button
                 onClick={markAllAsRead}
                 className="text-sm text-purple-600 hover:text-purple-700 font-medium"
               >
-                Đánh dấu đã đọc
+                mark read
               </button>
             )}
           </div>
@@ -235,7 +235,7 @@ export default function NotificationBell() {
             {notifications.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
                 <BellIcon className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                <p>Chưa có thông báo</p>
+                <p>No notifications</p>
               </div>
             ) : (
               notifications.map((notification) => {
@@ -277,13 +277,13 @@ export default function NotificationBell() {
                             onClick={(e) => handleAcceptFriendRequest(e, notification)}
                             className="flex-1 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-sm rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all"
                           >
-                            Chấp nhận
+                            Accept
                           </button>
                           <button
                             onClick={(e) => handleRejectFriendRequest(e, notification)}
                             className="flex-1 px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition-all"
                           >
-                            Từ chối
+                            Decline
                           </button>
                         </div>
                       )}
@@ -292,7 +292,7 @@ export default function NotificationBell() {
                       {notification.data?.type === 'friend_request' && !hasFriendRequestActions && (
                         <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg">
                           <p className="text-xs text-green-700 font-medium">
-                            ✓ Đã chấp nhận lời mời kết bạn
+                            ✓ Accepted friend request
                           </p>
                         </div>
                       )}
@@ -301,7 +301,7 @@ export default function NotificationBell() {
                       {notification.data?.type === 'friend_request_accepted' && (
                         <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg">
                           <p className="text-xs text-green-700 font-medium">
-                            🎉 Bạn và {notification.data.accepterName} đã trở thành bạn bè!
+                            🎉 You and {notification.data.accepterName} are now friends!
                           </p>
                         </div>
                       )}
@@ -316,7 +316,7 @@ export default function NotificationBell() {
                             markAsRead(notification.id);
                           }}
                           className="p-1 rounded hover:bg-purple-100 text-purple-600"
-                          title="Đánh dấu đã đọc"
+                          title="Mark as read"
                         >
                           <CheckIcon className="w-4 h-4" />
                         </button>
@@ -329,10 +329,10 @@ export default function NotificationBell() {
                         className={hasFriendRequestActions
                           ? 'p-1 rounded hover:bg-red-100 text-red-600'
                           : 'inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100'}
-                        title="Xóa"
+                        title="Delete"
                       >
                         <TrashIcon className={hasFriendRequestActions ? 'w-4 h-4' : 'w-4 h-4'} />
-                        {!hasFriendRequestActions && <span>Xóa</span>}
+                        {!hasFriendRequestActions && <span>Delete</span>}
                       </button>
                     </div>
                   </div>
@@ -352,7 +352,7 @@ export default function NotificationBell() {
                 }}
                 className="text-sm text-purple-600 hover:text-purple-700 font-medium"
               >
-                Xem tất cả
+                View All
               </button>
             </div>
           )}

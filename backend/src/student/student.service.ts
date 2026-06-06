@@ -1477,7 +1477,6 @@ export class StudentService {
     const safeLimit = Math.min(Math.max(limit, 1), 50);
     const safeOffset = Math.max(offset, 0);
 
-    // Lấy toàn bộ history từ MongoDB trước, sort mới nhất
     const historyItems = await this.prisma.mongo.watchHistory.findMany({
       where: { userId },
       orderBy: { watchedAt: 'desc' },
@@ -1497,7 +1496,7 @@ export class StudentService {
 
     const allIds = historyItems.map((h: { livestreamId: string }) => h.livestreamId);
 
-    // Join PostgreSQL — chỉ lấy video có recording (ENDED + recordingUrl)
+    // Join PostgreSQL — recording (ENDED + recordingUrl)
     const livestreams = await this.prisma.postgres.liveStream.findMany({
       where: {
         id: { in: allIds },
@@ -1520,7 +1519,6 @@ export class StudentService {
 
     const streamMap = new Map(livestreams.map((s) => [s.id, s]));
 
-    // Merge — giữ thứ tự watchedAt, bỏ qua các id không có recording
     type HistoryRow = typeof historyItems[number];
     type MergedItem = {
       id: string;
@@ -1557,10 +1555,8 @@ export class StudentService {
       })
       .filter((item: MergedItem | null): item is MergedItem => item !== null));
 
-    // total = số video có thể hiển thị (đã join thành công), KHÔNG phải tổng MongoDB
     const total = merged.length;
 
-    // Phân trang sau khi đã filter
     const paginated = merged.slice(safeOffset, safeOffset + safeLimit);
 
     return { items: paginated, total };
@@ -1580,8 +1576,6 @@ export class StudentService {
       },
     });
 
-    // Tính liveCurrentStreak: nếu lastLearningDate cách hôm nay > 1 ngày
-    // (và hôm nay chưa học) thì streak thực tế đã bị break → trả về 0
     const liveCurrentStreak = this.computeLiveStreak(
       streak.currentStreak,
       streak.lastLearningDate,
@@ -1589,7 +1583,6 @@ export class StudentService {
       !!hasAwardedToday,
     );
 
-    // Nếu streak bị break và DB chưa cập nhật, reset luôn để nhất quán
     if (liveCurrentStreak !== streak.currentStreak) {
       await this.prisma.mongo.learningStreak.update({
         where: { id: streak.id },
@@ -1925,11 +1918,6 @@ export class StudentService {
     };
   }
 
-  /**
-   * Tính streak thực tế tại thời điểm đọc.
-   * Nếu lastLearningDate cách hôm nay hơn 1 ngày và hôm nay chưa học → streak = 0.
-   * Nếu lastLearningDate là hôm qua hoặc hôm nay → giữ nguyên.
-   */
   private computeLiveStreak(
     storedStreak: number,
     lastLearningDate: string | null | undefined,
@@ -1938,16 +1926,12 @@ export class StudentService {
   ): number {
     if (storedStreak <= 0) return 0;
     if (!lastLearningDate) return 0;
-    if (todayQualified) return storedStreak; // đã học hôm nay → streak vẫn đang chạy
+    if (todayQualified) return storedStreak
 
-    // Tính gap giữa lastLearningDate và hôm nay
     const last = new Date(lastLearningDate + 'T00:00:00Z').getTime();
     const today = new Date(todayKey + 'T00:00:00Z').getTime();
     const gapDays = Math.round((today - last) / 86400000);
 
-    // gap = 0: lastLearningDate = hôm nay (đã học, covered trên)
-    // gap = 1: hôm qua học, hôm nay chưa — streak vẫn còn (grace period)
-    // gap >= 2: bỏ ≥ 1 ngày → streak bị break
     if (gapDays >= 2) return 0;
     return storedStreak;
   }
@@ -2105,7 +2089,6 @@ export class StudentService {
       }),
     ]);
 
-    // Check if today is already awarded (để biết streak còn active không)
     let liveStreak = learningStreak?.currentStreak ?? student.studentProfile.studyStreak ?? 0;
     if (learningStreak) {
       const tz = this.normalizeTimezone(learningStreak.timezone || 'UTC');

@@ -770,9 +770,9 @@ export default function ManageReport() {
             <Dialog.Title className="sr-only">Confirm Reject</Dialog.Title>
             <div className="p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-600">Confirmation</p>
-              <h3 className="mt-2 text-xl font-bold text-slate-950">Bạn có chắc reject không?</h3>
+              <h3 className="mt-2 text-xl font-bold text-slate-950">Are you sure you want to reject this report?</h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Hành động này sẽ chuyển report sang trạng thái rejected và lưu thay đổi ngay lập tức.
+                This action will change the report to the rejected state and save the changes immediately.
               </p>
 
               <div className="mt-6 flex items-center justify-end gap-3">
@@ -781,7 +781,7 @@ export default function ManageReport() {
                   onClick={() => setIsRejectConfirmOpen(false)}
                   className="rounded-full border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
-                  Hủy
+                  Cancel
                 </button>
                 <button
                   type="button"
@@ -790,7 +790,7 @@ export default function ManageReport() {
                   className={`rounded-full px-4 py-2.5 text-sm font-semibold text-white transition
                     ${!selectedSnapshot || loading ? 'cursor-not-allowed bg-slate-300' : 'bg-amber-500 hover:bg-amber-600'}`}
                 >
-                  Xác nhận reject
+                  Confirm Reject
                 </button>
               </div>
             </div>

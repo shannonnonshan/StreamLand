@@ -22,162 +22,158 @@ import {
 import { getRecordedLivestreams, LiveStream, groupRecordingsByMonth } from "@/lib/api/teacher";
 import Pagination from "@/component/Pagination";
 
+const getApprovalState = (value: string | null | undefined): "true" | "false" | "rejected" => {
+  if (value === "TRUE" || value === "true") return "true";
+  if (value === "rejected" || value === "REJECTED" || value === "reject") return "rejected";
+  return "false";
+};
+
+const formatMonthLabel = (key: string) => {
+  const [year, month] = key.split("-");
+  return year && month ? `${month}/${year}` : key;
+};
+
+const formatDateLabel = (date: Date) =>
+  date.toLocaleDateString(undefined, { month: "2-digit", day: "2-digit", year: "numeric" });
 export default function RecordingsPage() {
   const params = useParams();
   const router = useRouter();
   const teacherId = (params?.id as string) || "1";
 
-  const [filter, setFilter] = useState<"7days" | "1month" | "custom">("7days");
-  const [customFrom, setCustomFrom] = useState("2025-01");
-  const [customTo, setCustomTo] = useState("2025-10");
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
-  const [recordings, setRecordings] = useState<LiveStream[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // ── state ──────────────────────────────────────────────────────
+  const [filter, setFilter]                   = useState<"7days" | "1month" | "custom">("7days");
+  const [customFrom, setCustomFrom]           = useState("2025-01");
+  const [customTo, setCustomTo]               = useState("2025-10");
+  const [viewMode, setViewMode]               = useState<"grid" | "list">("grid");
+  const [searchQuery, setSearchQuery]         = useState("");
+  const [sortOrder, setSortOrder]             = useState<"newest" | "oldest">("newest");
+  const [recordings, setRecordings]           = useState<LiveStream[]>([]);
+  const [isLoading, setIsLoading]             = useState(true);
+  const [error, setError]                     = useState<string | null>(null);
   const [recordingFilter, setRecordingFilter] = useState<"all" | "recorded" | "no-recording">("all");
-  const [approvalFilter, setApprovalFilter] = useState<"all" | "true" | "false" | "rejected">("all");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState<6 | 12 | 24 | 36>(12);
+  const [approvalFilter, setApprovalFilter]   = useState<"all" | "true" | "false" | "rejected">("all");
+  const [currentPage, setCurrentPage]         = useState(1);
+  const [itemsPerPage, setItemsPerPage]       = useState<6 | 12 | 24 | 36>(12);
+  const [selectedMonth, setSelectedMonth]     = useState("");
+  const [currentWindowStart, setCurrentWindowStart] = useState<Date>(() => {
+    const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0); return d;
+  });
 
-  const getApprovalState = (value: string | null | undefined): "true" | "false" | "rejected" => {
-    if (value === "TRUE" || value === "true") return "true";
-    if (value === "rejected" || value === "REJECTED" || value === "reject") return "rejected";
-    return "false";
-  };
-
-  const recordingsByMonth = groupRecordingsByMonth(recordings);
-  const months = Object.keys(recordingsByMonth).sort((a, b) => b.localeCompare(a));
-  const [selectedMonth, setSelectedMonth] = useState(months[0] || "");
-  const visibleMonths = filter === "custom"
-    ? months.filter((month) => month >= customFrom && month <= customTo)
+  // ── derived ────────────────────────────────────────────────────
+  const recordingsByMonth  = groupRecordingsByMonth(recordings);
+  const months             = Object.keys(recordingsByMonth).sort((a, b) => b.localeCompare(a));
+  const visibleMonths      = filter === "custom"
+    ? months.filter((m) => m >= customFrom && m <= customTo)
     : months.slice(0, 6);
-
-  const totalRecordings = recordings.length;
-  const recordedCount = recordings.filter((recording) => Boolean(recording.recordingUrl)).length;
-  const noRecordingCount = totalRecordings - recordedCount;
-  const approvedCount = recordings.filter((recording) => getApprovalState(recording.isApprove) === "true").length;
   const selectedMonthIndex = visibleMonths.indexOf(selectedMonth);
-  const formatMonthLabel = (monthKey: string) => {
-    const [year, month] = monthKey.split("-");
-    if (!year || !month) {
-      return monthKey;
-    }
 
-    return `${month}/${year}`;
-  };
+  const windowStart = new Date(currentWindowStart);
+  const windowEnd   = new Date(currentWindowStart);
+  windowEnd.setDate(windowEnd.getDate() + 6);
+  windowEnd.setHours(23, 59, 59, 999);
 
-  const formatDateLabel = (date: Date) =>
-    date.toLocaleDateString(undefined, {
-      month: "2-digit",
-      day: "2-digit",
-      year: "numeric",
-    });
+  const totalRecordings  = recordings.length;
+  const recordedCount    = recordings.filter((r) => Boolean(r.recordingUrl)).length;
+  const noRecordingCount = totalRecordings - recordedCount;
+  const approvedCount    = recordings.filter((r) => getApprovalState(r.isApprove) === "true").length;
 
+  // ── label ──────────────────────────────────────────────────────
   const getFilterLabel = () => {
-    const now = new Date();
-
-    if (filter === "custom") {
-      return `${formatMonthLabel(customFrom)}-${formatMonthLabel(customTo)}`;
-    }
-
-    if (filter === "7days") {
-      const end = now;
-      const start = new Date(now);
-      start.setDate(now.getDate() - 6);
-      return `${formatDateLabel(start)}-${formatDateLabel(end)}`;
-    }
-
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    return `${formatDateLabel(start)}-${formatDateLabel(end)}`;
+    if (filter === "custom") return `${formatMonthLabel(customFrom)} – ${formatMonthLabel(customTo)}`;
+    if (filter === "7days")  return `${formatDateLabel(windowStart)} – ${formatDateLabel(windowEnd)}`;
+    return formatMonthLabel(selectedMonth);
   };
 
-  useEffect(() => {
-    const fetchRecordings = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
+  // ── navigation ─────────────────────────────────────────────────
+  const goToPreviousMonth = () => {
+    if (selectedMonthIndex > 0) setSelectedMonth(visibleMonths[selectedMonthIndex - 1]);
+  };
+  const goToNextMonth = () => {
+    if (selectedMonthIndex >= 0 && selectedMonthIndex < visibleMonths.length - 1)
+      setSelectedMonth(visibleMonths[selectedMonthIndex + 1]);
+  };
+  const goToPrevious = () => {
+    if (filter === "7days")
+      setCurrentWindowStart((p) => { const d = new Date(p); d.setDate(d.getDate() - 7); return d; });
+    else goToPreviousMonth();
+  };
+  const goToNext = () => {
+    if (filter === "7days") {
+      const next = new Date(currentWindowStart);
+      next.setDate(next.getDate() + 7);
+      if (next <= new Date()) setCurrentWindowStart(next);
+    } else goToNextMonth();
+  };
+  const canGoPrev = filter === "7days" ? true : selectedMonthIndex > 0;
+  const canGoNext = filter === "7days"
+    ? (() => { const n = new Date(currentWindowStart); n.setDate(n.getDate() + 7); return n <= new Date(); })()
+    : selectedMonthIndex >= 0 && selectedMonthIndex < visibleMonths.length - 1;
 
+  // ── effects ────────────────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        setIsLoading(true); setError(null);
         const data = await getRecordedLivestreams(teacherId);
         setRecordings(data);
-
         if (data.length > 0) {
-          const grouped = groupRecordingsByMonth(data);
-          const monthKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
-          setSelectedMonth(monthKeys[0]);
+          const keys = Object.keys(groupRecordingsByMonth(data)).sort((a, b) => b.localeCompare(a));
+          setSelectedMonth(keys[0]);
         }
-      } catch (err) {
-        console.error("Failed to fetch recordings:", err);
+      } catch {
         setError("Failed to load recordings");
       } finally {
         setIsLoading(false);
       }
-    };
-
-    fetchRecordings();
+    })();
   }, [teacherId]);
 
   useEffect(() => {
-    if (selectedMonth && !months.includes(selectedMonth) && months.length > 0) {
-      setSelectedMonth(months[0]);
-    }
+    if (months.length > 0 && !months.includes(selectedMonth)) setSelectedMonth(months[0]);
   }, [months, selectedMonth]);
 
   useEffect(() => {
-    if (visibleMonths.length === 0) {
-      return;
-    }
-
-    if (!visibleMonths.includes(selectedMonth)) {
+    if (visibleMonths.length > 0 && !visibleMonths.includes(selectedMonth))
       setSelectedMonth(visibleMonths[0]);
-    }
-  }, [selectedMonth, visibleMonths]);
-
-  const displayedRecordings = filter === "custom"
-    ? visibleMonths.flatMap((month) => recordingsByMonth[month] || [])
-    : recordingsByMonth[selectedMonth] || [];
-
-  const filteredRecordings = displayedRecordings
-    .filter((recording) => {
-      const matchesSearch = recording.title.toLowerCase().includes(searchQuery.toLowerCase());
-      const approvalState = getApprovalState(recording.isApprove);
-
-      if (approvalFilter === "true" && approvalState !== "true") return false;
-      if (approvalFilter === "false" && approvalState !== "false") return false;
-      if (approvalFilter === "rejected" && approvalState !== "rejected") return false;
-
-      if (recordingFilter === "recorded") return matchesSearch && Boolean(recording.recordingUrl);
-      if (recordingFilter === "no-recording") return matchesSearch && !recording.recordingUrl;
-      return matchesSearch;
-    })
-    .sort((a, b) => {
-      const dateA = new Date(a.endedAt || a.createdAt).getTime();
-      const dateB = new Date(b.endedAt || b.createdAt).getTime();
-      return sortOrder === "newest" ? dateB - dateA : dateA - dateB;
-    });
-
-  const totalPages = Math.ceil(filteredRecordings.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const currentMonthRecordings = filteredRecordings.slice(startIndex, endIndex);
+  }, [visibleMonths, selectedMonth]);
 
   useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, recordingFilter, approvalFilter, sortOrder, selectedMonth, viewMode, itemsPerPage]);
-
-  const goToPreviousMonth = () => {
-    if (selectedMonthIndex > 0) {
-      setSelectedMonth(visibleMonths[selectedMonthIndex - 1]);
+    if (filter === "7days") {
+      const d = new Date(); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0);
+      setCurrentWindowStart(d);
     }
-  };
+  }, [filter]);
 
-  const goToNextMonth = () => {
-    if (selectedMonthIndex >= 0 && selectedMonthIndex < visibleMonths.length - 1) {
-      setSelectedMonth(visibleMonths[selectedMonthIndex + 1]);
-    }
-  };
+  useEffect(() => { setCurrentPage(1); },
+    [searchQuery, recordingFilter, approvalFilter, sortOrder, selectedMonth, viewMode, itemsPerPage, currentWindowStart]);
+
+  // ── filtered + paginated ───────────────────────────────────────
+  const displayedRecordings = (() => {
+    if (filter === "custom") return visibleMonths.flatMap((m) => recordingsByMonth[m] || []);
+    if (filter === "7days")  return recordings.filter((r) => {
+      const d = new Date(r.endedAt || r.createdAt);
+      return d >= windowStart && d <= windowEnd;
+    });
+    return recordingsByMonth[selectedMonth] || [];
+  })();
+
+  const filteredRecordings = displayedRecordings
+    .filter((r) => {
+      const ok = r.title.toLowerCase().includes(searchQuery.toLowerCase());
+      const approval = getApprovalState(r.isApprove);
+      if (approvalFilter !== "all" && approval !== approvalFilter) return false;
+      if (recordingFilter === "recorded")     return ok && Boolean(r.recordingUrl);
+      if (recordingFilter === "no-recording") return ok && !r.recordingUrl;
+      return ok;
+    })
+    .sort((a, b) => {
+      const da = new Date(a.endedAt || a.createdAt).getTime();
+      const db = new Date(b.endedAt || b.createdAt).getTime();
+      return sortOrder === "newest" ? db - da : da - db;
+    });
+
+  const totalPages             = Math.ceil(filteredRecordings.length / itemsPerPage);
+  const currentMonthRecordings = filteredRecordings.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   if (isLoading) {
     return (
@@ -343,26 +339,28 @@ export default function RecordingsPage() {
                 </button>
               </div>
 
-              <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2 py-2 shadow-sm self-start xl:self-auto">
-                <button
-                  type="button"
-                  onClick={goToPreviousMonth}
-                  disabled={selectedMonthIndex <= 0}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label="Previous month"
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                <button
-                  type="button"
-                  onClick={goToNextMonth}
-                  disabled={selectedMonthIndex < 0 || selectedMonthIndex >= months.length - 1}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label="Next month"
-                >
-                  <ChevronRight size={18} />
-                </button>
-              </div>
+              {filter !== "custom" && (
+                <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2 py-2 shadow-sm self-start xl:self-auto">
+                  <button
+                    type="button"
+                    onClick={goToPrevious}
+                    disabled={!canGoPrev}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Previous"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goToNext}
+                    disabled={!canGoNext}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Next"
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

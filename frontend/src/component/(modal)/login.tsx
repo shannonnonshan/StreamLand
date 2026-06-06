@@ -6,7 +6,7 @@ import { FaGithub } from 'react-icons/fa';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 
-const PrimaryColor = '161853'; // Xanh Đậm (màu chủ đạo mới)
+const PrimaryColor = '161853';
 
 type LoginModalProps = {
   isOpen: boolean;
@@ -30,7 +30,6 @@ export default function LoginModal({
   const router = useRouter();
   const { login, loginWithGoogle, loginWithGithub, loading } = useAuth();
   
-  // State quản lý việc show/hide modal
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -176,7 +175,6 @@ export default function LoginModal({
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          {/* Lớp phủ mờ (backdrop) */}
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
         </Transition.Child>
 
@@ -191,10 +189,8 @@ export default function LoginModal({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              {/* Nội dung modal */}
               <Dialog.Panel className={`w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-8 text-left align-middle shadow-2xl transition-all border-t-4 border-[#${PrimaryColor}]`}>
                 
-                {/* Header */}
                 <Dialog.Title
                   as="h3"
                   className={`text-2xl font-extrabold leading-6 text-[#${PrimaryColor}] flex items-center gap-2 mb-2`}
@@ -206,7 +202,6 @@ export default function LoginModal({
                   Sign in to continue your learning and teaching journey.
                 </p>
                 
-                {/* Nút đăng nhập bên ngoài */}
                 <div className="space-y-3 mb-6">
                   {/* Google Login */}
                   <button
@@ -346,7 +341,6 @@ export default function LoginModal({
                     </div>
                   </div>
 
-                  {/* Nút Đăng nhập */}
                   <button
                     type="submit"
                     disabled={loading}

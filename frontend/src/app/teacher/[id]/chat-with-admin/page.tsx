@@ -172,7 +172,6 @@ export default function ChatWithAdminPage() {
     <div className={`${raleway.className} flex h-full flex-col px-4 pb-6 pt-5`}>
       <div className="mx-auto w-full max-w-7xl flex flex-col gap-4 h-full">
 
-        {/* Header card — giống DocumentsLayout */}
         <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm shrink-0">
           <div className="flex items-center gap-4">
             <button

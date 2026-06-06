@@ -40,10 +40,10 @@ function ProgressIndicator({ currentStep }: { currentStep: number }) {
             <div className="group flex flex-col items-center">
               <span className={`flex h-2.5 w-full items-center justify-center rounded-full ${
                 index + 1 === currentStep 
-                  ? `bg-[#EC255A]` // Bước hiện tại - màu đỏ
+                  ? `bg-[#EC255A]` 
                   : index + 1 < currentStep 
-                    ? `bg-[#EC255A]` // Đã hoàn thành - màu đỏ
-                    : 'bg-gray-300' // Chưa hoàn thành - màu xám
+                    ? `bg-[#EC255A]` 
+                    : 'bg-gray-300' 
               } transition duration-300`} />
               <p className={`mt-2 text-sm font-medium ${
                 index + 1 === currentStep 
@@ -308,10 +308,8 @@ export default function RegisterModal({
     if (currentStep < steps.length) {
       setCurrentStep(currentStep + 1);
     } else {
-      // Bước cuối (4) - Hoàn tất - Gọi API register
       setIsSubmitting(true);
       try {
-        // Map role từ 'teacher'/'student' sang 'TEACHER'/'STUDENT'
         const role = formData.role === 'teacher' ? 'TEACHER' : 'STUDENT';
         
         // Call register API
@@ -400,7 +398,6 @@ export default function RegisterModal({
     }
   };
 
-  // Render các bước
   const renderStepContent = () => {
     switch (currentStep) {
       case 1:
@@ -696,7 +693,6 @@ export default function RegisterModal({
                 </div>
               </div>
               
-              {/* Môn học giảng dạy */}
               <div>
                 <label htmlFor="teacherSubjects" className="block text-sm font-medium text-gray-700 mb-1">
                   Teaching Subjects <span className="text-red-500">*</span>
@@ -723,7 +719,6 @@ export default function RegisterModal({
                 )}
               </div>
               
-              {/* Kinh nghiệm */}
               <div>
                 <label htmlFor="teacherExperience" className="block text-sm font-medium text-gray-700 mb-1">
                   Years of Experience <span className="text-red-500">*</span>
@@ -750,7 +745,6 @@ export default function RegisterModal({
                 )}
               </div>
               
-              {/* Chuyên môn */}
               <div>
                 <label htmlFor="teacherSpecialty" className="block text-sm font-medium text-gray-700 mb-1">
                   Specialty <span className="text-red-500">*</span>
@@ -777,7 +771,6 @@ export default function RegisterModal({
                 )}
               </div>
               
-              {/* Giới thiệu */}
               <div>
                 <label htmlFor="teacherIntroduction" className="block text-sm font-medium text-gray-700 mb-1">
                   Self Introduction <span className="text-red-500">*</span>

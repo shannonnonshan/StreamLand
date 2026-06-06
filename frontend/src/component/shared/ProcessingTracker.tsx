@@ -120,7 +120,6 @@ const formatLastUpdated = (updatedAt: string | undefined, nowMs: number) => {
   return `${diffDays}d ago`;
 };
 
-// FIX 3: Đổi từ 15 phút xuống 10 phút theo yêu cầu
 const TEN_MINUTES_MS = 10 * 60 * 1000;
 
 export default function ProcessingTracker({
@@ -141,11 +140,9 @@ export default function ProcessingTracker({
   const [retryingStep, setRetryingStep] = useState<ProcessingStep | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
-  // FIX 3: Track thời điểm step hiện tại bắt đầu, không dùng updatedAt chung
   const [activeStepSinceMs, setActiveStepSinceMs] = useState<number | null>(null);
   const lastActiveStepRef = useRef<ProcessingStep | null>(null);
 
-  // FIX 3: Cooldown sau khi retry – chờ 10 phút mới cho bấm lại
   const [retryCooldownUntil, setRetryCooldownUntil] = useState<number | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -185,7 +182,6 @@ export default function ProcessingTracker({
   const failedStepLabel = failedStepState ? STEP_META[failedStepState.step]?.label ?? failedStepState.step : null;
   const retryFallbackStep = status?.lastFailedStep || activeStep || 'EXTRACT_AUDIO';
 
-  // FIX 3: Stale = step hiện tại không đổi quá 10 phút VÀ không đang trong cooldown
   const isStaleProcessing = Boolean(
     status?.processingStatus === 'PROCESSING' &&
     activeStepSinceMs !== null &&
@@ -196,7 +192,6 @@ export default function ProcessingTracker({
     ? Math.floor((nowMs - activeStepSinceMs) / 60000)
     : 0;
 
-  // FIX 3: Cooldown còn lại (giây) để hiển thị cho user
   const retryCooldownRemainingSeconds = retryCooldownUntil !== null && nowMs < retryCooldownUntil
     ? Math.ceil((retryCooldownUntil - nowMs) / 1000)
     : 0;
@@ -262,7 +257,6 @@ export default function ProcessingTracker({
     return triggerConfig.label;
   }, [isPolling, isRetrying, loading, status?.processingStatus, triggerConfig.label]);
 
-  // FIX 1: Bọc loadStatus trong useCallback để tránh stale closure trong setInterval
   const loadStatus = useCallback(async () => {
     const controller = new AbortController();
     if (statusAbortRef.current) {
@@ -290,7 +284,6 @@ export default function ProcessingTracker({
     }
   }, [entityId, entityType]);
 
-  // FIX 1: startPolling dùng ref để luôn gọi phiên bản mới nhất của loadStatus
   const loadStatusRef = useRef(loadStatus);
   useEffect(() => {
     loadStatusRef.current = loadStatus;
@@ -300,7 +293,6 @@ export default function ProcessingTracker({
     if (pollRef.current) return;
     setIsPolling(true);
     pollRef.current = setInterval(() => {
-      // Gọi qua ref → luôn dùng loadStatus mới nhất, không bị stale closure
       void loadStatusRef.current();
     }, 3000);
   }, []);
@@ -330,9 +322,6 @@ export default function ProcessingTracker({
     failedNotifiedRef.current = null;
 
     void loadStatus();
-
-    // FIX 2: Join room để server biết client đang track entity nào
-    // Server cần lắng nghe event 'join-processing-room' và đưa socket vào room tương ứng
     socket.emit('join-processing-room', { entityId, entityType });
 
     const handleStepUpdate = (payload: {
@@ -379,11 +368,9 @@ export default function ProcessingTracker({
     };
   }, [entityId, entityType, loadStatus, startPolling, stopPolling]);
 
-  // FIX 3: Theo dõi khi nào activeStep thay đổi để reset đồng hồ 10 phút
   useEffect(() => {
     if (!activeStep) return;
     if (activeStep !== lastActiveStepRef.current) {
-      // Step mới → reset timer
       lastActiveStepRef.current = activeStep;
       setActiveStepSinceMs(Date.now());
     }
@@ -395,7 +382,6 @@ export default function ProcessingTracker({
     currentRef?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [activeStep, isOpen]);
 
-  // Auto-retry khi FAILED, chỉ fire 1 lần per entityId+entityType
   useEffect(() => {
     if (!showRetry || !autoRetryOnFailed) return;
     if (!isFailed) {
@@ -408,7 +394,6 @@ export default function ProcessingTracker({
 
     const step = (status?.lastFailedStep || status?.activeStep || 'EXTRACT_AUDIO') as ProcessingStep;
 
-    // Bypass cooldown cho auto-retry – cooldown chỉ áp dụng cho manual retry
     stopPolling();
     setRetryingStep(step);
     setError(null);
@@ -430,7 +415,7 @@ export default function ProcessingTracker({
       .catch((err) => {
         console.error('Auto-retry failed:', err);
         setError(err instanceof Error ? err.message : 'Auto-retry failed');
-        autoRetryFiredRef.current = false; // cho phép thử lại nếu lỗi
+        autoRetryFiredRef.current = false;
       })
       .finally(() => {
         setRetryingStep(null);
@@ -463,7 +448,6 @@ export default function ProcessingTracker({
   }, [isCompleted, isFailed, onCompleted, onFailed, status]);
 
   const handleRetry = async (step: ProcessingStep) => {
-    // FIX 3: Chặn retry nếu đang trong cooldown 10 phút
     if (retryingStep) return;
     if (retryCooldownUntil !== null && nowMs < retryCooldownUntil) return;
 
@@ -474,10 +458,8 @@ export default function ProcessingTracker({
       const nextStatus = await retryProcessing(entityType, entityId);
       const retryStartedAt = Date.now();
 
-      // FIX 3: Set cooldown 10 phút kể từ lần retry này
       setRetryCooldownUntil(retryStartedAt + TEN_MINUTES_MS);
 
-      // Reset đồng hồ step vì đang bắt đầu lại
       setActiveStepSinceMs(retryStartedAt);
       lastActiveStepRef.current = step;
 

@@ -88,7 +88,6 @@ function DocumentsLayoutShell({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        {/* Nội dung tab */}
         <div className="mt-5">{children}</div>
       </div>
     </div>

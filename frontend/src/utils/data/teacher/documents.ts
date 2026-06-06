@@ -27,7 +27,6 @@ export type DocumentItem = {
 
 // fake data
 export const documents: DocumentItem[] = [
-  // FILE (hiện tại 3 items)
   {
     id: "1",
     title: "Lecture 01 - Introduction.pdf",
@@ -55,7 +54,6 @@ export const documents: DocumentItem[] = [
     tag: [{ id: "t4", name: "project" }, { id: "t5", name: "slides" }],
     thumbnail: "/logo.png",
   },
-  // FILE thêm 5 items
   {
     id: "6",
     title: "Syllabus.pdf",
@@ -102,7 +100,6 @@ export const documents: DocumentItem[] = [
     thumbnail: "/logo.png",
   },
 
-  // IMAGE (hiện tại 1 item)
   {
     id: "4",
     title: "AI Diagram.png",
@@ -112,7 +109,6 @@ export const documents: DocumentItem[] = [
     tag: [{ id: "t6", name: "diagram" }],
     thumbnail: "/logo.png",
   },
-  // IMAGE thêm 5 items
   {
     id: "11",
     title: "Flowchart.png",
@@ -159,7 +155,6 @@ export const documents: DocumentItem[] = [
     thumbnail: "/logo.png",
   },
 
-  // VIDEO (hiện tại 1 item)
   {
     id: "5",
     title: "Lecture Video.mp4",
@@ -169,7 +164,6 @@ export const documents: DocumentItem[] = [
     tag: [{ id: "t7", name: "lecture" }],
     thumbnail: "/logo.png",
   },
-  // VIDEO thêm 5 items
   {
     id: "16",
     title: "Demo Video.mp4",

@@ -33,7 +33,7 @@ export default function DocumentsTypePage() {
   const [editingDescription, setEditingDescription] = useState(false);
   const [editDescriptionValue, setEditDescriptionValue] = useState("");
   const [editDescriptionLoading, setEditDescriptionLoading] = useState(false);
-  const descriptionInputRef = useRef<HTMLInputElement>(null);
+  const descriptionInputRef = useRef<HTMLTextAreaElement>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editTitleValue, setEditTitleValue] = useState("");
   const [editTitleLoading, setEditTitleLoading] = useState(false);
@@ -178,11 +178,9 @@ export default function DocumentsTypePage() {
     setPendingDescription("");
     setPendingTitle((currentTitle) => currentTitle.trim() || selectedFiles[0]?.name.replace(/\.[^.]+$/, "") || "");
     setShowUploadModal(true);
-    // Reset input để có thể chọn lại cùng file
     event.target.value = '';
   };
 
-  // Thực hiện upload khi đã nhập description
   const handleConfirmUpload = async () => {
     setIsUploading(true);
     try {

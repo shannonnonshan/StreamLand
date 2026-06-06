@@ -55,7 +55,7 @@ interface Video {
   uploadedAt: string;
 }
 
-// Shape trả về từ GET /student/watch-history
+// GET /student/watch-history
 interface WatchHistoryItem {
   id: string;
   title: string;
@@ -72,7 +72,6 @@ interface WatchHistoryItem {
 }
 
 // ─── HistoryCard ────────────────────────────────────────────────────────────────
-// Card riêng cho history: hiển thị progress bar + thời gian xem
 
 function HistoryCard({ item, index = 0 }: { item: WatchHistoryItem; index?: number }) {
   const [isHovered, setIsHovered] = useState(false);
@@ -94,14 +93,13 @@ function HistoryCard({ item, index = 0 }: { item: WatchHistoryItem; index?: numb
     const now = new Date();
     const diffMs = now.getTime() - d.getTime();
     const diffDays = Math.floor(diffMs / 86400000);
-    if (diffDays === 0) return 'Hôm nay';
-    if (diffDays === 1) return 'Hôm qua';
-    if (diffDays < 7) return `${diffDays} ngày trước`;
+    if (diffDays === 0) return 'today';
+    if (diffDays === 1) return 'yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
     return d.toLocaleDateString('vi-VN');
   };
 
   const handleClick = () => {
-    // Truyền lastPosition qua query param để video player resume đúng chỗ
     const url = getStudentRoute(`video/${item.id}`);
     router.push(`${url}?t=${Math.floor(item.lastPosition)}`);
   };
@@ -154,7 +152,7 @@ function HistoryCard({ item, index = 0 }: { item: WatchHistoryItem; index?: numb
         {item.completed && (
           <div className="absolute top-2 left-2 bg-green-600/90 text-white px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1">
             <CheckCircleIcon className="h-3 w-3" />
-            Đã xem xong
+            Done Watching
           </div>
         )}
 
@@ -201,7 +199,7 @@ function HistoryCard({ item, index = 0 }: { item: WatchHistoryItem; index?: numb
           </span>
           {!item.completed && progressRatio > 0 && (
             <span className={`text-[#${SecondaryColor}] font-medium`}>
-              {Math.round(item.progress)}% đã xem
+              {Math.round(item.progress)}% viewed
             </span>
           )}
         </div>
@@ -210,7 +208,7 @@ function HistoryCard({ item, index = 0 }: { item: WatchHistoryItem; index?: numb
   );
 }
 
-// ─── VideoCard (giữ nguyên, dùng cho All / Live / Videos tab) ──────────────────
+// ─── VideoCard ──────────────────
 
 function VideoCard({ video, index = 0 }: { video: Livestream | Video; index?: number }) {
   const [isHovered, setIsHovered] = useState(false);
@@ -396,7 +394,7 @@ export default function LiveFollowingPage() {
   const [historyTotal, setHistoryTotal] = useState(0);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const [historyFetched, setHistoryFetched] = useState(false); // lazy fetch — chỉ gọi khi click tab
+  const [historyFetched, setHistoryFetched] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const { getFollowedTeachers } = useFollow();
@@ -436,7 +434,7 @@ export default function LiveFollowingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Fetch watch history từ API (lazy — chỉ khi tab History được chọn) ──────
+  // ── Fetch watch history ──────
   const fetchWatchHistory = useCallback(async () => {
     const accessToken = localStorage.getItem('accessToken');
     if (!accessToken) {
@@ -466,7 +464,6 @@ export default function LiveFollowingPage() {
     }
   }, []);
 
-  // Trigger fetch khi user chuyển sang tab history lần đầu
   useEffect(() => {
     if (activeTab === 'history' && !historyFetched) {
       fetchWatchHistory();
@@ -576,7 +573,6 @@ export default function LiveFollowingPage() {
           </div>
         </motion.div>
 
-        {/* Following Channels grid — ẩn khi đang ở tab History */}
         {activeTab !== 'history' && (
           <motion.section variants={fadeInUp} className="mb-12">
             <div className="flex justify-between items-center mb-4">
@@ -715,7 +711,7 @@ export default function LiveFollowingPage() {
                   onClick={fetchWatchHistory}
                   className={`px-4 py-2 rounded-lg text-sm font-medium bg-[#${PrimaryColor}] text-white hover:opacity-90 transition-opacity`}
                 >
-                  Thử lại
+                  Retry
                 </button>
               </div>
             )}
@@ -754,7 +750,7 @@ export default function LiveFollowingPage() {
           </motion.section>
         )}
 
-        {/* EMPTY STATE — chỉ hiện khi không phải tab history */}
+        {/* EMPTY STATE */}
         {activeTab !== 'history' &&
           filteredLivestreams.length === 0 &&
           filteredVideos.length === 0 && (

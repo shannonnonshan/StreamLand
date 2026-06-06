@@ -13,7 +13,6 @@ function eventBg(hex: string): string {
   const c = hex.replace("#","");
   if (c.length !== 6) return "#e0e7ff";
   const r = parseInt(c.slice(0,2),16), g = parseInt(c.slice(2,4),16), b = parseInt(c.slice(4,6),16);
-  // 25% color + 75% white — rõ hơn nhiều so với opacity
   return `rgb(${Math.round(r*0.25+255*0.75)},${Math.round(g*0.25+255*0.75)},${Math.round(b*0.25+255*0.75)})`;
 }
 
@@ -23,7 +22,6 @@ interface CalendarEvent {
   audience: "public" | "subscribers"; type?: "livestream"; status?: string;
 }
 
-// Props nhận từ route page.tsx (server component unwrap params rồi truyền xuống)
 interface Props {
   initialYear: number;
   teacherId: string;
@@ -34,7 +32,6 @@ export default function YearCalendarClient({ initialYear, teacherId }: Props) {
   const today   = new Date();
   const todayStr = today.toISOString().split("T")[0];
 
-  // Guard: nếu initialYear bị NaN (params chưa resolve) thì fallback về năm hiện tại
   const safeYear = Number.isFinite(initialYear) ? initialYear : today.getFullYear();
 
   const [year, setYear]             = useState(safeYear);
@@ -164,7 +161,7 @@ export default function YearCalendarClient({ initialYear, teacherId }: Props) {
                 </div>
               </div>
 
-              {/* Expanded event list — click "Events" để mở */}
+              {/* Expanded event list — click "Events"*/}
               {isExpanded && mEvs.length > 0 && (
                 <div className="border-t border-slate-100 bg-slate-50">
                   <div className="max-h-52 divide-y divide-slate-100 overflow-y-auto">

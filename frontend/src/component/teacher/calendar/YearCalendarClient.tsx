@@ -172,7 +172,6 @@ export default function YearCalendarClient({
                       >
                         <span className="text-xs leading-none">{day}</span>
 
-                        {/* Event dot — màu thật của event */}
                         {evs.length > 0 && (
                           <span
                             className="mt-0.5 h-1.5 w-1.5 rounded-full"
@@ -180,7 +179,6 @@ export default function YearCalendarClient({
                           />
                         )}
 
-                        {/* Nhiều event → hiển thị số nhỏ */}
                         {evs.length > 1 && !isToday && (
                           <span
                             className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-bold text-white"
@@ -194,7 +192,6 @@ export default function YearCalendarClient({
                   })}
                 </div>
 
-                {/* Event preview strip — tối đa 3 events trong tháng */}
                 {mEvs.length > 0 && (
                   <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2">
                     {mEvs.slice(0, 3).map((ev, i) => {

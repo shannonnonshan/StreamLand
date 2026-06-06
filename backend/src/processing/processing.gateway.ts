@@ -29,8 +29,8 @@ export class ProcessingGateway implements OnGatewayConnection, OnGatewayDisconne
     this.logger.log(`Client disconnected: ${client.id}`);
   }
 
-  // FIX 4: Client join vào room riêng cho từng entity
-  // Client gửi: socket.emit('join-processing-room', { entityId, entityType })
+  // FIX 4: Client join room for each entity
+  // Client send: socket.emit('join-processing-room', { entityId, entityType })
   @SubscribeMessage('join-processing-room')
   handleJoinRoom(client: Socket, payload: RoomPayload) {
     const room = this.getRoomName(payload.entityType, payload.entityId);
@@ -45,7 +45,6 @@ export class ProcessingGateway implements OnGatewayConnection, OnGatewayDisconne
     this.logger.log(`Client ${client.id} left room ${room}`);
   }
 
-  // FIX 4: Emit chỉ đến room của entity đó, không broadcast toàn bộ
   emitProcessingStepUpdate(payload: ProcessingStepUpdatePayload) {
     if (!this.server) {
       this.logger.warn(`Socket server is not ready for ${payload.entityType}:${payload.entityId}`);

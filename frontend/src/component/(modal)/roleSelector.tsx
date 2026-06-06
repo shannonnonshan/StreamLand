@@ -105,7 +105,7 @@ export default function RoleSelectorModal({ isOpen, closeModal, onSelectRole, pr
                   onClick={closeModal}
                   className="mt-6 w-full py-2.5 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
                 >
-                  Hủy bỏ
+                  Cancel
                 </button>
               </Dialog.Panel>
             </Transition.Child>

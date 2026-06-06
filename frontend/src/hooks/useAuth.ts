@@ -393,7 +393,7 @@ export function useAuth() {
             sessionStorage.removeItem(cvKey);
           }
         } catch {
-          // Không block login nếu upload fail
+          console.warn('Failed to upload pending teacher profile or CV, but login will proceed anyway');
         }
       }
 
@@ -540,10 +540,12 @@ export function useAuth() {
     // Teacher fields
     teacherCV?: File;
     teacherCertificates?: File[];
-    teacherSubjects?: string;
-    teacherExperience?: string;
-    teacherSpecialty?: string;
     teacherIntroduction?: string;
+    subjects?: string[];
+    experience?: number;
+    education?: string;
+    website?: string;
+    linkedin?: string;
     // Student fields
     studentID?: string;
     studentSchool?: string;
@@ -563,10 +565,12 @@ export function useAuth() {
         avatar: data.avatar,
         role: data.role,
         // Teacher fields (files excluded for now)
-        teacherSubjects: data.teacherSubjects,
-        teacherExperience: data.teacherExperience,
-        teacherSpecialty: data.teacherSpecialty,
         teacherIntroduction: data.teacherIntroduction,
+        subjects: data.subjects,
+        experience: data.experience,
+        education: data.education,
+        website: data.website,
+        linkedin: data.linkedin,
         // Student fields
         studentID: data.studentID,
         studentSchool: data.studentSchool,

@@ -33,7 +33,7 @@ export class ProcessingService {
         attempts: 3,
         backoff: {
           type: 'exponential',
-          delay: 1000,
+          delay: 60000,
         },
         removeOnComplete: true,
         removeOnFail: false,

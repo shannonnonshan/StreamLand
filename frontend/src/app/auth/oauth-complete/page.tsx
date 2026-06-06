@@ -63,15 +63,13 @@ export default function OAuthCompletePage() {
 
   const handleComplete = async (data: {
     role: 'STUDENT' | 'TEACHER';
-    // Teacher fields
     teacherCV?: File;
-    teacherCertificates?: File[];
-    teacherSubjects?: string;
-    teacherExperience?: string;
-    teacherSpecialty?: string;
     teacherIntroduction?: string;
-    // Student fields
-    studentID?: string;
+    subjects?: string[];
+    experience?: number;
+    education?: string;
+    website?: string;
+    linkedin?: string;
     studentSchool?: string;
     studentClass?: string;
   }) => {
@@ -84,28 +82,50 @@ export default function OAuthCompletePage() {
       fullName: profile.fullName,
       avatar: profile.avatar,
       role: data.role,
-      // Teacher fields
-      teacherCV: data.teacherCV,
-      teacherCertificates: data.teacherCertificates,
-      teacherSubjects: data.teacherSubjects,
-      teacherExperience: data.teacherExperience,
-      teacherSpecialty: data.teacherSpecialty,
       teacherIntroduction: data.teacherIntroduction,
-      // Student fields
-      studentID: data.studentID,
+      subjects: data.subjects,
+      experience: data.experience,
+      education: data.education,
+      website: data.website,
+      linkedin: data.linkedin,
       studentSchool: data.studentSchool,
       studentClass: data.studentClass,
     });
 
-    if (result.success && result.user) {
-      // Redirect based on role
-      if (result.user.role === 'TEACHER') {
-        router.push(`/teacher/${result.user.id}`);
-      } else {
-        router.push('/student/dashboard');
-      }
-    } else {
+    if (!result.success) {
       throw new Error(result.error || 'Registration failed. Please try again.');
+    }
+
+    if (data.role === 'TEACHER') {
+      sessionStorage.setItem(
+        `pending-teacher-profile:${profile.email.toLowerCase()}`,
+        JSON.stringify({
+          subjects: data.subjects,
+          experience: data.experience,
+          education: data.education,
+          bio: data.teacherIntroduction,
+        }),
+      );
+
+      if (data.teacherCV) {
+        const cvFile = data.teacherCV;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          sessionStorage.setItem(
+            `pending-teacher-cv:${profile.email.toLowerCase()}`,
+            JSON.stringify({ name: cvFile.name, type: cvFile.type, data: base64 }),
+          );
+        };
+        reader.readAsDataURL(cvFile);
+      }
+    }
+
+    // ✅ Redirect
+    if (result.user?.role === 'TEACHER') {
+      router.push(`/teacher/${result.user.id}`);
+    } else {
+      router.push('/student/dashboard');
     }
   };
 

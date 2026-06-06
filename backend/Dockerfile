@@ -5,27 +5,27 @@ FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Copy package.json + prisma folder trước
+# Copy package.json + prisma folder
 COPY package*.json ./
 COPY prisma ./prisma
 
-# Cài TẤT CẢ dependencies (bao gồm dev deps để build)
+# Install dependencies
 RUN npm install
 
-# Copy toàn bộ source code
+# Copy source code
 COPY . .
 
-# --- ARG từ Render (env sẽ được inject) ---
+# --- ARG from Render---
 ARG DATABASE_URL
 ARG DIRECT_URL
 ARG MONGODB_URL
 
-# --- Chuyển ARG thành ENV để Prisma đọc ---
+# --- ARG to ENV ---
 ENV DATABASE_URL=${DATABASE_URL}
 ENV DIRECT_URL=${DIRECT_URL}
 ENV MONGODB_URL=${MONGODB_URL}
 
-# --- Generate Prisma clients tuần tự ---
+# --- Generate Prisma clients in order---
 RUN npx prisma generate --schema=./prisma/postgres/schema.prisma
 RUN npx prisma generate --schema=./prisma/mongodb/schema.prisma
 
@@ -44,7 +44,7 @@ RUN apt-get update \
 	&& apt-get install -y --no-install-recommends ffmpeg \
 	&& rm -rf /var/lib/apt/lists/*
 
-# Copy package.json + install chỉ production deps
+# Copy package.json + install for production deps
 COPY package*.json ./
 RUN npm install --omit=dev
 
@@ -55,7 +55,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
-# (Optional) Copy Prisma folder nếu runtime app dùng schema
+# (Optional) Copy Prisma folder if runtime app use schema
 COPY prisma ./prisma
 
 # ENV

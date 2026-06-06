@@ -722,7 +722,6 @@ export default function MessagePage({
             <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-[radial-gradient(circle_at_5%_10%,#eef2ff,transparent_25%),radial-gradient(circle_at_90%_80%,#e0f2fe,transparent_25%)]">
               {messages.map((message, index) => {
                 const isMe = message.senderId === userId;
-                // Tìm tin nhắn mới nhất của mình
                 const myMessages = messages.filter(m => m.senderId === userId);
                 const lastMyMessageIndex = messages.lastIndexOf(myMessages[myMessages.length - 1]);
                 const isLastMyMessage = isMe && index === lastMyMessageIndex;

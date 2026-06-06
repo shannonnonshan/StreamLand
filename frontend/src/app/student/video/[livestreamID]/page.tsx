@@ -130,7 +130,6 @@ const VIDEO_PROGRESS_STORAGE_PREFIX = 'streamland:video-progress:';
 const STREAK_UPDATED_EVENT = 'streamland:streak-updated';
 const SUBTITLE_OFFSET_SECONDS = 5;
 
-/** Đọc userId từ localStorage — pure, không closure, không React state */
 const resolveStoredViewerId = (): string | null => {
   if (typeof window === 'undefined') return null;
   try {
@@ -146,7 +145,6 @@ const resolveStoredViewerId = (): string | null => {
 const makeProgressKey = (videoId: string, viewerId: string) =>
   `${VIDEO_PROGRESS_STORAGE_PREFIX}${viewerId}:${videoId}`;
 
-/** Đọc snapshot — pure, không closure */
 const readSnapshot = (videoId: string): LocalVideoProgressSnapshot | null => {
   if (typeof window === 'undefined' || !videoId) return null;
   const viewerId = resolveStoredViewerId();
@@ -168,7 +166,6 @@ const readSnapshot = (videoId: string): LocalVideoProgressSnapshot | null => {
   }
 };
 
-/** Ghi snapshot — pure, không closure */
 const writeSnapshot = (videoId: string, position: number, totalDuration: number): void => {
   if (typeof window === 'undefined' || !videoId) return;
   const viewerId = resolveStoredViewerId();
@@ -255,7 +252,6 @@ export default function VideoPlayerPage() {
   const prevViewerRef = useRef<string | null>(null);
   const activeWatchSecondsRef = useRef(0);
   const lastPlaybackPositionRef = useRef<number | null>(null);
-  // Refs để tránh stale closure trong video event listeners
   const syncProgressRef = useRef<(position: number, totalDuration: number, force?: boolean) => void>(() => {});
   const readSnapshotRef = useRef<() => LocalVideoProgressSnapshot | null>(() => null);
   const videoInfoRef = useRef<typeof videoInfo>(null);
@@ -384,12 +380,6 @@ export default function VideoPlayerPage() {
   };
 
   // ── Snapshot helpers ──────────────────────────────────────────────────────
-  // Tất cả đọc thẳng từ localStorage, KHÔNG dùng React state làm closure
-  // để tránh stale closure khi gọi từ event listeners hoặc khi state chưa set
-
-  // getProgressStorageKey: dùng makeProgressKey() ở module level thay thế
-
-  // resolveViewerId đã được thay bằng resolveStoredViewerId() ở module level
 
   const writeLocalProgressSnapshot = (videoId: string, position: number, totalDuration: number) =>
     writeSnapshot(videoId, position, totalDuration);
@@ -397,7 +387,7 @@ export default function VideoPlayerPage() {
   const readProgressSnapshot = (videoId: string): LocalVideoProgressSnapshot | null =>
     readSnapshot(videoId);
 
-  // Backward compat wrapper dùng videoInfo?.id
+  // Backward compat wrapper uses videoInfo?.id
   const readLocalProgressSnapshot = (): LocalVideoProgressSnapshot | null =>
     readProgressSnapshot(videoInfo?.id || '');
 
@@ -460,7 +450,6 @@ export default function VideoPlayerPage() {
     }
   };
 
-  // Keep refs in sync với latest closures và videoInfo để tránh stale closure trong event listeners
   useEffect(() => {
     videoInfoRef.current = videoInfo;
   }, [videoInfo]);
@@ -799,7 +788,7 @@ export default function VideoPlayerPage() {
   }, [activeCueId, displayedPanel]);
 
   useEffect(() => {
-    // Reset flags khi videoInfo thay đổi (chuyển sang video khác)
+    // Reset flags
     autoPlayAttemptedRef.current = false;
     restoreCompletedRef.current = false;
     pendingSeekRef.current = null;
@@ -821,8 +810,6 @@ export default function VideoPlayerPage() {
         return;
       }
 
-      // pendingSeekRef đã được set bởi restore effect hoặc syncWatchProgress
-      // Không cần đọc lại snapshot ở đây
       console.log('[Video] Setup, pendingSeekRef:', pendingSeekRef.current);
 
       const applyPendingSeek = () => {
@@ -833,7 +820,6 @@ export default function VideoPlayerPage() {
           ? video.duration
           : (videoInfo?.duration || 0);
 
-        // Nếu không biết duration, dùng seekTo trực tiếp
         const target = maxDuration > 0 ? Math.min(seekTo, Math.max(0, maxDuration - 1)) : Math.max(0, seekTo);
         if (video.currentTime < target - 0.5) {
           video.currentTime = target;
@@ -971,7 +957,6 @@ export default function VideoPlayerPage() {
 
         const seekTo = pendingSeekRef.current;
         if (seekTo && seekTo > 0.5) {
-          // Có vị trí cần resume — seek trước, đợi 'seeked' event rồi mới play
           const maxDur = video.duration && isFinite(video.duration) && video.duration > 0
             ? video.duration : (videoInfoRef.current?.duration || 0);
           const target = maxDur > 0 ? Math.min(seekTo, maxDur - 1) : seekTo;
@@ -985,7 +970,6 @@ export default function VideoPlayerPage() {
           video.currentTime = target;
           setCurrentTime(target);
         } else {
-          // Không có gì cần seek — play ngay
           startPlayback();
         }
       };
@@ -1009,7 +993,6 @@ export default function VideoPlayerPage() {
         video.removeEventListener("play", handlePlay);
         video.removeEventListener("pause", handlePause);
         video.removeEventListener("ended", handleEnded);
-        // seeked listener tự remove sau khi fire, nhưng cleanup phòng khi unmount sớm
         video.removeEventListener("seeked", () => {});
       });
 
@@ -1035,7 +1018,6 @@ export default function VideoPlayerPage() {
     const syncWatchProgress = async () => {
       if (!videoInfo?.id) return;
 
-      // Nếu chưa auth, vẫn có thể dùng snapshot local
       const token = getStoredToken();
       if (!isAuthenticated || !token) {
         restoreCompletedRef.current = true;
@@ -1068,16 +1050,13 @@ export default function VideoPlayerPage() {
           writeSnapshot(videoInfo.id, target, progress.duration);
         }
 
-        // Nếu video đang play (đã seek từ snapshot local), chỉ seek nếu server có vị trí xa hơn
         if (video.readyState >= 3 && isFinite(video.currentTime) && video.currentTime > 0) {
-          // Video đang chạy rồi — chỉ override nếu server position khác đáng kể
           if (Math.abs(video.currentTime - target) > 5) {
             video.currentTime = target;
             setCurrentTime(target);
           }
           pendingSeekRef.current = null;
         }
-        // Video chưa play — để handleCanPlay xử lý qua pendingSeekRef
       } catch (err) {
         console.error('Failed to sync watch progress:', err);
       } finally {
@@ -1088,8 +1067,7 @@ export default function VideoPlayerPage() {
     syncWatchProgress();
   }, [videoInfo?.id, isAuthenticated, currentStudent?.id]);
 
-  // Restore local progress — chỉ set pendingSeekRef
-  // handleCanPlay sẽ đọc và seek đúng cách sau khi video ready
+  // Restore local progress — only set pendingSeekRef
   useEffect(() => {
     if (!videoInfo?.id) return;
 

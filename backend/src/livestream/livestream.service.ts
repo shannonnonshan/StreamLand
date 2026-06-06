@@ -653,7 +653,6 @@ export class LivestreamService {
       where: {
         status: LiveStreamStatus.LIVE,
         isPublic: true,
-        isApprove: 'TRUE',
       },
       include: {
         teacher: {
@@ -1303,10 +1302,9 @@ export class LivestreamService {
     const livestreams = await this.prisma.postgres.liveStream.findMany({
       where: {
         isPublic: true,
-        isApprove: 'TRUE',
         OR: [
-          { status: LiveStreamStatus.LIVE },
-          { status: LiveStreamStatus.ENDED },
+          { status: LiveStreamStatus.LIVE }, // LIVE không cần isApprove
+          { status: LiveStreamStatus.ENDED, isApprove: 'TRUE' }, // ENDED cần duyệt
         ],
       },
       include: {
@@ -2342,7 +2340,10 @@ export class LivestreamService {
 
       if (moderationStatus === 'SAFE') {
         await this.prisma.postgres.liveStream.update({
-          where: { id: recordingId },
+          where: { 
+             id: recordingId,
+             status: LiveStreamStatus.ENDED,
+          },
           data: { isApprove: 'TRUE' },
         }).catch(() => undefined);
 
@@ -2863,7 +2864,10 @@ export class LivestreamService {
 
   async generateRecordingSummary(recordingId: string, force = false) {
     const livestream = await this.prisma.postgres.liveStream.findUnique({
-      where: { id: recordingId },
+      where: { 
+        id: recordingId,
+        status: LiveStreamStatus.ENDED,
+       },
       select: {
         id: true,
         processingStatus: true,
@@ -2933,10 +2937,13 @@ export class LivestreamService {
         const moderationStatus = typeof moderation.status === 'string' ? moderation.status : null;
 
         if (moderationStatus === 'SAFE') {
-          await this.prisma.postgres.liveStream.update({
-            where: { id: recordingId },
-            data: { isApprove: 'TRUE' },
-          }).catch(() => undefined);
+            await this.prisma.postgres.liveStream.update({
+              where: { 
+                id: recordingId,
+                status: LiveStreamStatus.ENDED,
+              },
+              data: { isApprove: 'TRUE' },
+            }).catch(() => undefined);
 
           await this.updateRecordingProcessingState(recordingId, {
             processingProgress: PROCESSING_STAGE_PROGRESS.done,

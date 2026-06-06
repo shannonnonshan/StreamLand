@@ -6,62 +6,64 @@ import {
   IsNotEmpty,
   Matches,
 } from 'class-validator';
+import { IsArray, IsInt, Min } from 'class-validator';
+import { Type} from 'class-transformer';
 import { Role } from './register.dto';
 
 export class CompleteOAuthDto {
   @IsString()
   @IsNotEmpty()
-  provider: 'google' | 'github';
+  provider!: 'google' | 'github';
 
   @IsString()
   @IsNotEmpty()
-  socialId: string; // googleId or githubId
+  socialId!: string;
 
   @IsEmail()
   @Matches(/^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]@[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\.[a-zA-Z]{2,}$/, {
     message: 'Invalid email format. Please use a valid email address',
   })
-  email: string;
+  email!: string;
 
   @IsString()
   @IsNotEmpty()
-  fullName: string;
+  fullName!: string;
 
   @IsString()
   @IsOptional()
   avatar?: string;
 
   @IsEnum(Role)
-  role: Role;
-
-  // Teacher fields
-  @IsOptional()
-  teacherCV?: any; // File upload
-
-  @IsOptional()
-  teacherCertificates?: any[]; // File uploads
-
-  @IsString()
-  @IsOptional()
-  teacherSubjects?: string;
-
-  @IsString()
-  @IsOptional()
-  teacherExperience?: string;
-
-  @IsString()
-  @IsOptional()
-  teacherSpecialty?: string;
+  role!: Role;
 
   @IsString()
   @IsOptional()
   teacherIntroduction?: string;
 
-  // Student fields
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  subjects?: string[];
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  @Type(() => Number)
+  experience?: number;
+
   @IsString()
   @IsOptional()
-  studentID?: string;
+  education?: string;
 
+  @IsString()
+  @IsOptional()
+  website?: string;
+
+  @IsString()
+  @IsOptional()
+  linkedin?: string;
+
+  // Student fields
   @IsString()
   @IsOptional()
   studentSchool?: string;

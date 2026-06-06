@@ -12,14 +12,14 @@ import { Role } from '@prisma/client';
 export class RegisterDto {
   @IsString()
   @IsNotEmpty()
-  fullName: string;
+  fullName!: string;
 
   @IsEmail()
   @IsNotEmpty()
   @Matches(/^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]@[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\.[a-zA-Z]{2,}$/, {
     message: 'Invalid email format. Please use a valid email address',
   })
-  email: string;
+  email!: string;
 
   @IsString()
   @IsNotEmpty()
@@ -28,11 +28,12 @@ export class RegisterDto {
     message:
       'Password must contain at least one uppercase letter, one lowercase letter, and one number',
   })
-  password: string;
+  password!: string;
 
   @IsEnum(Role)
+  @IsNotEmpty()
   @IsOptional()
-  role?: Role;
+  role!: Role;
 }
 
 export { Role };

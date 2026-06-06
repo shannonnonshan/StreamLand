@@ -3,12 +3,12 @@ import { FriendStatus } from '@prisma/client';
 
 export class SendFriendRequestDto {
   @IsString()
-  receiverId: string;
+  receiverId!: string;
 }
 
 export class UpdateFriendRequestDto {
   @IsEnum(FriendStatus)
-  status: FriendStatus;
+  status?: FriendStatus;
 }
 
 export class GetFriendsDto {
@@ -19,10 +19,10 @@ export class GetFriendsDto {
 
 export class FollowTeacherDto {
   @IsString()
-  teacherId: string;
+  teacherId!: string;
 }
 
 export class UnfollowTeacherDto {
   @IsString()
-  teacherId: string;
+  teacherId!: string;
 }

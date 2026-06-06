@@ -90,10 +90,6 @@ export class UpdateTeacherProfileDto {
   @IsString()
   @IsOptional()
   linkedin?: string;
-
-  @IsString()
-  @IsOptional()
-  youtube?: string;
 }
 
 export class UploadTeacherCVDto {

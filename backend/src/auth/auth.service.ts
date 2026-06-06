@@ -647,6 +647,25 @@ export class AuthService {
 
     await this.assertUserNotBanned(user.id, user.banUntil);
 
+    if (user.role === 'TEACHER') {
+      const teacherProfile = await this.prisma.postgres.teacherProfile.findUnique({
+        where: { userId: user.id },
+      });
+
+      if (!teacherProfile || !teacherProfile.isApproved) {
+        throw new UnauthorizedException(
+          'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).'
+        );
+      }
+
+      if (teacherProfile.rejectedAt) {
+        const reason = teacherProfile.rejectionReason || 'No reason provided';
+        throw new UnauthorizedException(
+          `Your teacher account was rejected. Reason: ${reason}. Please contact support.`
+        );
+      }
+    }
+
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
     await this.prisma.postgres.session.create({
@@ -712,7 +731,24 @@ export class AuthService {
     }
 
     await this.assertUserNotBanned(user.id, user.banUntil);
+    if (user.role === 'TEACHER') {
+      const teacherProfile = await this.prisma.postgres.teacherProfile.findUnique({
+        where: { userId: user.id },
+      });
 
+      if (!teacherProfile || !teacherProfile.isApproved) {
+        throw new UnauthorizedException(
+          'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).'
+        );
+      }
+
+      if (teacherProfile.rejectedAt) {
+        const reason = teacherProfile.rejectionReason || 'No reason provided';
+        throw new UnauthorizedException(
+          `Your teacher account was rejected. Reason: ${reason}. Please contact support.`
+        );
+      }
+    }
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
     await this.prisma.postgres.session.create({
@@ -740,15 +776,9 @@ export class AuthService {
 
   async completeOAuthRegistration(completeOAuthDto: CompleteOAuthDto) {
     const {
-      provider,
-      socialId,
-      email,
-      fullName,
-      avatar,
-      role,
-      teacherIntroduction,
-      studentSchool,
-      studentClass,
+      provider, socialId, email, fullName, avatar, role,
+      teacherIntroduction, studentSchool, studentClass,
+      subjects, experience, education, website, linkedin, // ✅ thêm
     } = completeOAuthDto;
 
     const existingUser = await this.prisma.postgres.user.findFirst({
@@ -802,6 +832,11 @@ export class AuthService {
       await this.prisma.postgres.teacherProfile.create({
         data: {
           userId: user.id,
+          ...(subjects && { subjects }),
+          ...(education && { education }),
+          ...(experience && { experience }),
+          ...(website && { website }),
+          ...(linkedin && { linkedin }),
         },
       });
     } else if (role === 'STUDENT') {

@@ -2096,8 +2096,8 @@ export class StudentService {
     // Count documents and learning streak from MongoDB
     const now = new Date();
     const [documents, learningStreak] = await Promise.all([
-      this.prisma.mongo.notebook.count({
-        where: { userId },
+      this.prisma.mongo.studentNotebook.count({
+        where: { studentId: userId },
       }),
       this.prisma.mongo.learningStreak.findUnique({
         where: { userId },

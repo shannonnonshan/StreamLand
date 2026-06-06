@@ -115,7 +115,7 @@ export function useLivestreamViewer({
     pc.oniceconnectionstatechange = () => {
       console.log(`[Student WebRTC] ICE connection state: ${pc.iceConnectionState}`);
       if (pc.iceConnectionState === 'failed') {
-        try { pc.restartIce(); } catch { /* not supported */ }
+        console.error('[Student WebRTC] ICE connection failed - may need TURN server');
       }
     };
 
@@ -130,12 +130,8 @@ export function useLivestreamViewer({
           loadingTimeoutRef.current = null;
         }
       } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        console.error('[Student WebRTC] Connection failed or disconnected');
         setIsConnected(false);
-        setTimeout(() => {
-          if (pcRef.current?.connectionState !== 'connected') {
-            socket.emit('watcher', { livestreamID });
-          }
-        }, 2000);
       }
     };
 
@@ -223,11 +219,6 @@ export function useLivestreamViewer({
     socket.on('stream-ended', handleStreamEnded);
     socket.on('stream-not-found', handleStreamNotFound);
 
-    const handleSocketReconnect = () => {
-      socket.emit('watcher', { livestreamID });
-    };
-    socket.on('reconnect', handleSocketReconnect);
-
     // Ensure socket is connected before emitting (autoConnect is false in socket.ts)
     const emitWatcher = () => {
       console.log('[Student WebRTC] Emitting watcher event for', livestreamID);
@@ -259,7 +250,6 @@ export function useLivestreamViewer({
       socket.off('stream-not-found', handleStreamNotFound);
       // Remove the once('connect') listener in case cleanup runs before socket connected
       socket.off('connect', emitWatcher);
-      socket.off('reconnect', handleSocketReconnect);
 
       pc.close();
     };

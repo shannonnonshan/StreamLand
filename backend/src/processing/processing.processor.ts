@@ -512,19 +512,42 @@ export class ProcessingProcessor {
   }
 
   private async moderate(text: string): Promise<ModerateResponse> {
-    const response = await logFetch(`${this.requireAiServiceUrl()}/moderation/text`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    }, this.logger as any);
+      const MAX_RETRIES = 10;
 
-    if (!response.ok) {
-      throw new BadRequestException(`Moderate service error (${response.status}): ${await response.text()}`);
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const response = await logFetch(`${this.requireAiServiceUrl()}/moderation/text`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text }),
+          }, this.logger as any);
+
+          if (!response.ok) {
+            throw new BadRequestException(`Moderate service error (${response.status}): ${await response.text()}`);
+          }
+
+          const payload = (await response.json()) as unknown;
+          return this.parseModerationPayload(payload);
+
+        } catch (err) {
+          this.logger.warn(`[MODERATION] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed: ${String(err)}`);
+          if (attempt < MAX_RETRIES) {
+            await new Promise(res => setTimeout(res, 3000 * (attempt + 1)));
+          }
+        }
+      }
+
+      this.logger.error('[MODERATION] All retries exhausted, returning default REVIEW result');
+      return this.parseModerationPayload({
+        status: 'success',
+        moderation: {
+          status: 'REVIEW',
+          toxic_word: [],
+          score: 0.0,
+          categories: [],
+        },
+      });
     }
-
-    const payload = (await response.json()) as unknown;
-    return this.parseModerationPayload(payload);
-  }
 
   private async logTranscriptReadback(payload: ProcessingJobPayload): Promise<void> {
     const itemField =

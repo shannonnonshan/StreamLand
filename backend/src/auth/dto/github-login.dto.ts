@@ -11,18 +11,18 @@ import { Role } from '@prisma/client';
 export class GithubLoginDto {
   @IsString()
   @IsNotEmpty()
-  githubId: string;
+  githubId!: string;
 
   @IsEmail()
   @IsNotEmpty()
   @Matches(/^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]@[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\.[a-zA-Z]{2,}$/, {
     message: 'Invalid email format. Please use a valid email address',
   })
-  email: string;
+  email!: string;
 
   @IsString()
   @IsNotEmpty()
-  fullName: string;
+  fullName!: string;
 
   @IsString()
   @IsOptional()

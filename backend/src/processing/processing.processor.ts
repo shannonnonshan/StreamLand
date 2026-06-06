@@ -151,6 +151,7 @@ export class ProcessingProcessor {
       });
 
       this.logger.log(`[3/5] Transcribing audio...`);
+      await this.waitForAiService();
       const transcript = await this.transcribe(effectiveAudioUrl as string);
       transcriptCompleted = true;
 
@@ -164,6 +165,7 @@ export class ProcessingProcessor {
         processingProgress: latestProgress,
       });
 
+      await this.waitForAiService();
       this.logger.log(`[4/5] Summarizing transcript... (detected language: ${transcript.language})`);
       const summary = await this.summarise(transcript.text, transcript.language);
 
@@ -218,7 +220,27 @@ export class ProcessingProcessor {
       }
     }
   }
+  private async waitForAiService(maxWaitMs = 5 * 60 * 1000): Promise<void> {
+    const interval = 15000; // check mỗi 15s
+    const start = Date.now();
 
+    while (Date.now() - start < maxWaitMs) {
+      try {
+        const res = await fetch(`${this.requireAiServiceUrl()}/health`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) {
+          this.logger.log('[AI] Service is up');
+          return;
+        }
+      } catch {
+        this.logger.warn('[AI] Service not ready, waiting...');
+      }
+      await new Promise(res => setTimeout(res, interval));
+    }
+
+    throw new Error('AI service unavailable after waiting');
+  }
   private async updateProcessingStatus(
     payload: ProcessingJobPayload,
     status: ProcessingJobStatus,

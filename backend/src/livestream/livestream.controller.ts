@@ -37,8 +37,14 @@ export class LivestreamController {
     const isAdmin = requesterRole === 'ADMIN';
     const isApproved = livestream.isApprove === true || livestream.isApprove === 'TRUE' || livestream.isApprove === 'true';
 
-    if ((!livestream.isPublic || !isApproved) && !isOwner && !isAdmin) {
-      throw new UnauthorizedException('This livestream is not available to students until it is public and approved.');
+    const isLiveStream = (livestream as any).status === 'LIVE';
+    if (!isOwner && !isAdmin) {
+      if (!livestream.isPublic) {
+        throw new UnauthorizedException('This livestream is private.');
+      }
+      if (!isLiveStream && !isApproved) {
+        throw new UnauthorizedException('This recording is not approved yet.');
+      }
     }
   }
 
@@ -150,6 +156,7 @@ export class LivestreamController {
     return await this.livestreamService.getRecordedLivestreams(limitNum, category);
   }
 
+  @Public()
   @Get('scheduled/upcoming')
   async getUpcomingScheduledStreams(@Query('limit') limit: string) {
     const limitNum = limit ? parseInt(limit, 10) : 20;

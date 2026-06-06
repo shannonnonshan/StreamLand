@@ -100,12 +100,20 @@ export function useLivestreamBroadcaster({
     socket.on('disconnectPeer', handleDisconnectPeer);
     socket.on('viewerCount', handleViewerCount);
 
+    const handleSocketReconnect = () => {
+      if (localStreamRef.current) {
+        socket.emit('broadcaster', { livestreamID });
+      }
+    };
+    socket.on('reconnect', handleSocketReconnect);
+
     return () => {
       socket.off('watcher', handleWatcher);
       socket.off('answer', handleAnswer);
       socket.off('candidate', handleCandidate);
       socket.off('disconnectPeer', handleDisconnectPeer);
       socket.off('viewerCount', handleViewerCount);
+      socket.off('reconnect', handleSocketReconnect);
     };
   }, [livestreamID, onError]);
 

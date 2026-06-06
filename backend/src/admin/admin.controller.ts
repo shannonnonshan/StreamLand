@@ -7,7 +7,7 @@ import { ChatService } from '../chat/chat.service';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
 import { BanUserDto } from './dto/ban-user.dto';
 import { UpdateReportStatusDto } from './dto/update-report-status.dto';
-
+import type { BanDuration } from '../common/types/ban-duration';
 @Controller('admin')
 @UseGuards(JwtAuthGuard)
 export class AdminController {
@@ -149,7 +149,7 @@ export class AdminController {
       throw new BadRequestException('Only admins can ban users');
     }
 
-    return this.adminService.banUser(userId, banUserDto.duration);
+    return this.adminService.banUser(userId, (banUserDto.duration ?? '1d') as BanDuration);
   }
 
   // Get all livestreams

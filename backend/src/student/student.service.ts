@@ -253,7 +253,8 @@ export class StudentService {
 
   // Update friend request status (accept/reject/block)
   async updateFriendRequest(userId: string, requestId: string, dto: UpdateFriendRequestDto) {
-    const status: FriendStatus = dto.status;
+    if (!dto.status) throw new BadRequestException('status is required');
+    const status: FriendStatus = dto.status as FriendStatus;
 
     // Get user's student profile
     const user = await this.prisma.postgres.user.findUnique({

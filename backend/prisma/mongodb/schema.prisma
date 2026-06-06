@@ -237,62 +237,6 @@ model WatchHistory {
   @@map("watch_history")
 }
 
-// Notebook/Notes taken during livestream
-model Notebook {
-  id           String  @id @default(auto()) @map("_id") @mongodb.ObjectId
-  userId       String
-  livestreamId String
-  title        String?
-  content      String
-  timestamp    Int? // at what point in video (seconds)
-
-  // Organization
-  tags      String[]
-  isPrivate Boolean  @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId, livestreamId])
-  @@index([userId, createdAt])
-  @@map("notebooks")
-}
-
-// Comments on recorded livestreams
-model Comment {
-  id           String  @id @default(auto()) @map("_id") @mongodb.ObjectId
-  livestreamId String
-  userId       String
-  userName     String
-  userAvatar   String?
-  content      String
-  timestamp    Int? // at what point in video (seconds)
-
-  // Thread support
-  parentId String? // for replies
-  replies  Int     @default(0)
-
-  // Engagement
-  likes   Int      @default(0)
-  likedBy String[] // Array of user IDs
-
-  // Moderation
-  isEdited  Boolean @default(false)
-  isDeleted Boolean @default(false)
-  isPinned  Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([livestreamId, createdAt])
-  @@index([parentId])
-  @@index([userId])
-  @@map("comments")
-}
-
-// Real-time User Presence
-// User presence model removed (unused)
-// Student Notebook - Saved documents from livestreams
 model StudentNotebook {
   id           String @id @default(auto()) @map("_id") @mongodb.ObjectId
   studentId    String

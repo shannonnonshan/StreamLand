@@ -57,7 +57,6 @@ html, body {
   background: #f0d5dd;
 }
 
-/* Ẩn thanh cuộn nhưng vẫn cho phép cuộn */
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
@@ -67,7 +66,6 @@ html, body {
   scrollbar-width: none;
 }
 
-/* Ẩn scrollbar - alternative class */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }

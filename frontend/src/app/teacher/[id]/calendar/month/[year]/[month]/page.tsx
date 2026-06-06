@@ -22,7 +22,6 @@ interface CalendarEvent {
   type?: "livestream"; status?: string; scheduleId?: string;
 }
 
-// Pha màu nền event — alpha cao hơn hẳn để rõ
 function eventBg(hex: string): string {
   const c = hex.replace("#","");
   if (c.length !== 6) return "#e0e7ff";

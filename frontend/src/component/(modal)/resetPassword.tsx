@@ -315,7 +315,6 @@ export default function ResetPasswordModal({
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          {/* Lớp phủ mờ (backdrop) */}
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
         </Transition.Child>
 
@@ -330,7 +329,6 @@ export default function ResetPasswordModal({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              {/* Nội dung modal */}
               <Dialog.Panel className={`w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-8 text-left align-middle shadow-2xl transition-all border-t-4 border-[#${PrimaryColor}]`}>
                 {step === 1 ? renderStep1() : renderStep2()}
               </Dialog.Panel>

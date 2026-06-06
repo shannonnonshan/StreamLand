@@ -202,8 +202,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     }
 
-    // Notify watchers đang chờ trong room của livestream này
-    // Không dùng broadcast.emit (gửi tất cả) — chỉ emit trong room cụ thể
     socket.to(key).emit('broadcaster', { livestreamID: data.livestreamID });
   }
 
@@ -215,7 +213,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
 
-    // Luôn join room trước — để nhận 'broadcaster' event khi teacher bắt đầu stream
     socket.join(key);
 
     if (channel) {
@@ -258,8 +255,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         timestamp: Date.now(),
       });
     } else {
-      // Stream chưa bắt đầu — watcher đã join room rồi, sẽ nhận 'broadcaster' khi teacher start
-      // Vẫn emit stream-not-found để frontend hiện trạng thái "waiting"
       this.server.to(socket.id).emit('stream-not-found', {
         livestreamID: data.livestreamID,
         waiting: true,

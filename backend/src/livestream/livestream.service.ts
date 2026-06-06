@@ -706,8 +706,7 @@ export class LivestreamService {
       const duration = Math.floor(durationMs / 1000); // duration in seconds
 
       // --- Update peakViewers and totalViews ---
-      // Giả sử bạn đang track current viewers ở server:
-      const currentViewers = livestream.currentViewers || 0; // hoặc lấy từ cache/Socket.IO
+      const currentViewers = livestream.currentViewers || 0; //cache/Socket.IO
       const peakViewers = Math.max(livestream.peakViewers || 0, currentViewers);
       const totalViews = (livestream.totalViews || 0) + currentViewers;
 

@@ -9,8 +9,8 @@ import {
   ArrowLeftIcon
 } from '@heroicons/react/24/outline';
 
-const PrimaryColor = '161853'; // Xanh Đậm
-const SecondaryColor = 'EC255A'; // Đỏ/Hồng
+const PrimaryColor = '161853'; 
+const SecondaryColor = 'EC255A';
 
 type ForgotPasswordModalProps = {
   isOpen: boolean;
@@ -209,15 +209,15 @@ export default function ForgotPasswordModal({
           as="h3"
           className={`text-xl font-bold text-[#${SecondaryColor}] mb-2`}
         >
-          Đã gửi hướng dẫn đặt lại mật khẩu!
+          Password Reset Instructions Sent!
         </Dialog.Title>
         <p className="text-sm text-gray-600 mb-6">
-          Chúng tôi đã gửi hướng dẫn đặt lại mật khẩu đến <span className="font-medium text-gray-800">{email}</span>. 
-          Vui lòng kiểm tra hộp thư của bạn và làm theo hướng dẫn để đặt lại mật khẩu.
+          We have sent password reset instructions to <span className="font-medium text-gray-800">{email}</span>. 
+          Please check your inbox and follow the instructions to reset your password.
         </p>
         <p className="text-xs text-gray-500 mb-6">
-          Lưu ý: Nếu bạn không nhận được email trong vòng vài phút, hãy kiểm tra thư mục spam 
-          hoặc thử lại với một địa chỉ email khác.
+          Note: If you don't receive the email within a few minutes, please check your spam folder 
+          or try again with a different email address.
         </p>
 
         {/* Buttons */}
@@ -227,14 +227,14 @@ export default function ForgotPasswordModal({
             onClick={() => setStep(1)}
             className={`flex items-center justify-center rounded-lg border-2 border-[#${PrimaryColor}] px-4 py-2 text-base font-semibold text-[#${PrimaryColor}] hover:bg-gray-50 transition duration-150`}
           >
-            Thử lại với email khác
+            Try again with a different email
           </button>
           <button
             type="button"
             onClick={() => { closeModal(); openLoginModal(); }}
             className={`flex items-center justify-center rounded-lg bg-[#${PrimaryColor}] px-4 py-2 text-base font-semibold text-white hover:bg-opacity-90 transition duration-150`}
           >
-            Quay lại đăng nhập
+            Back to Sign In
           </button>
         </div>
       </div>
@@ -253,7 +253,6 @@ export default function ForgotPasswordModal({
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          {/* Lớp phủ mờ (backdrop) */}
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
         </Transition.Child>
 
@@ -268,7 +267,6 @@ export default function ForgotPasswordModal({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              {/* Nội dung modal */}
               <Dialog.Panel className={`w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-8 text-left align-middle shadow-2xl transition-all border-t-4 border-[#${PrimaryColor}]`}>
                 {step === 1 ? renderStep1() : renderStep2()}
               </Dialog.Panel>

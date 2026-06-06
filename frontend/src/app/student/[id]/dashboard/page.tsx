@@ -225,7 +225,7 @@ function LivestreamCard({ stream, index }: { stream: LivestreamData; index: numb
                 </div>
             )}
             
-            {/* Top Badge - Chỉ hiển thị cho 3 stream đầu tiên */}
+            {/* Top Badge - first 3 streams */}
             {isTopThree && (
                 <div className={`absolute top-3 right-3 flex items-center justify-center h-8 w-8 rounded-full text-xs font-bold text-white bg-[#${PrimaryColor}] shadow-md`}>
                     Top {index + 1}
@@ -908,10 +908,8 @@ export default function StudentDashboard() {
     fetchVideosByInterest(selectedInterest);
   }, [selectedInterest]);
 
-  // Poll live viewer counts — chỉ khi có LIVE stream đang active, interval 30s
   useEffect(() => {
     const pollLiveViewers = async () => {
-      // Chỉ fetch nếu đang có ít nhất 1 stream LIVE
       const hasLive = topLivestreams.some((s) => s.status === 'LIVE');
       if (!hasLive) return;
 
@@ -919,7 +917,6 @@ export default function StudentDashboard() {
         const resp = await fetch(`${API_URL}/livestream/active/all`);
         if (!resp.ok) return;
         const liveData = await resp.json();
-        // Chỉ update currentViewers, không refetch scheduled
         setTopLivestreams((prev) =>
           prev.map((stream) => {
             const updated = liveData.find((l: { id: string; currentViewers?: number }) => l.id === stream.id);

@@ -10,13 +10,13 @@ interface MessageStatusIconProps {
 export default function MessageStatusIcon({ status, className = '' }: MessageStatusIconProps) {
   if (status === 'SEEN') {
     return (
-      <EyeIcon className={`w-4 h-4 ${className}`} title="Đã xem" />
+      <EyeIcon className={`w-4 h-4 ${className}`} title="seen" />
     );
   }
 
   if (status === 'DELIVERED') {
     return (
-      <div className="relative inline-flex items-center w-4 h-4" title="Đã nhận">
+      <div className="relative inline-flex items-center w-4 h-4" title="Delivered">
         <CheckIcon className={`w-3.5 h-3.5 absolute ${className}`} style={{ left: '0px' }} />
         <CheckIcon className={`w-3.5 h-3.5 absolute ${className}`} style={{ left: '4px' }} />
       </div>
@@ -25,6 +25,6 @@ export default function MessageStatusIcon({ status, className = '' }: MessageSta
 
   // SENT - single tick
   return (
-    <CheckIcon className={`w-4 h-4 ${className}`} title="Đã gửi" />
+    <CheckIcon className={`w-4 h-4 ${className}`} title="Sent" />
   );
 }

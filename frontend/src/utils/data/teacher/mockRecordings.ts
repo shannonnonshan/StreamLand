@@ -5,10 +5,10 @@ export interface Recording {
   thumbnail: string;
   date: string; // YYYY-MM-DD
   videopath: string;
-  month: string; // YYYY-MM, để filter theo tháng
-  teacherId: string; // ID của teacher
-  duration: string; // Duration của video (e.g., "45:30")
-  views: number; // Số lượt xem
+  month: string; // YYYY-MM,
+  teacherId: string; // 
+  duration: string; // Duration (e.g., "45:30")
+  views: number;
 }
 
 export const mockRecordings: Recording[] = [

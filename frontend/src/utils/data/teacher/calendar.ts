@@ -1,7 +1,6 @@
-// Kiểu dữ liệu sự kiện cho lịch
 export interface CalendarEvent {
   id?: string;
-  teacherId: string; // 🔥 id của giáo viên
+  teacherId: string;
   title: string;
   date: string;     // yyyy-mm-dd
   start: string;    // HH:mm

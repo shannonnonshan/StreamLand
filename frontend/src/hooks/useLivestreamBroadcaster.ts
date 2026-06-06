@@ -20,7 +20,6 @@ export function useLivestreamBroadcaster({
   const chunkIndexRef = useRef<number>(0);
 
   useEffect(() => {
-    // Khi có watcher mới
     const handleWatcher = async ({ id }: { id: string }) => {
       try {
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -89,7 +88,6 @@ export function useLivestreamBroadcaster({
       }
     };
 
-    // **Mới**: cập nhật viewerCount từ server
     const handleViewerCount = (count: number) => {
       setViewerCount(count);
     };

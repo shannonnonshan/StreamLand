@@ -455,7 +455,7 @@ export default function LivestreamViewerPage() {
         if (checkResult.isSaved && checkResult.document) {
           await removeSavedDocument(checkResult.document.id);
           setSavedDocuments(savedDocuments.filter(id => id !== docId));
-          toast.success('Đã xóa khỏi tài liệu đã lưu');
+          toast.success('Document removed from saved list');
         }
       } else {
         // Save document to MongoDB
@@ -472,11 +472,11 @@ export default function LivestreamViewerPage() {
         });
 
         setSavedDocuments([...savedDocuments, docId]);
-        toast.success('Đã lưu tài liệu thành công');
+        toast.success('Document saved successfully');
       }
     } catch (error) {
       console.error('Error saving document:', error);
-      toast.error('Không thể lưu tài liệu');
+      toast.error('Failed to save document');
     }
   };
 

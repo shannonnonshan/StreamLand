@@ -250,7 +250,7 @@ export default function StudentProfilePage() {
 
   const formatActivityTime = useCallback((value: string) => {
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return 'Vừa xong';
+    if (Number.isNaN(date.getTime())) return 'Just now';
 
     return date.toLocaleString('vi-VN', {
       year: 'numeric',
@@ -282,9 +282,7 @@ export default function StudentProfilePage() {
     if (activityFilter === 'notes') return entry.type === 'note';
     return entry.type === 'checkin';
   });
-  // pinnedActivity = entry được user pin thật, không phải entry đầu tiên
   const pinnedActivity = filteredRecentActivity.find((e) => e.pinned) || null;
-  // Hiện tất cả entries trong list
   const visibleActivity = filteredRecentActivity;
   const reactionOptions = [
     { type: 'like' as const, label: 'Like', emoji: '👍' },
@@ -345,7 +343,7 @@ export default function StudentProfilePage() {
     }
 
     if (content.length > 280) {
-      toast.error('Note tối đa 280 ký tự');
+      toast.error('Note must be less than 280 characters');
       return;
     }
 
@@ -382,17 +380,16 @@ export default function StudentProfilePage() {
         throw new Error(errText || 'Failed to post note');
       }
 
-      // Backend trả về full journal entry (loadJournalEntry shape)
+      // (loadJournalEntry shape)
       const created = (await response.json()) as ProfileActivityNote;
 
-      // Prepend entry ngay lập tức — không cần gọi thêm API getUserStats
       const type = classifyJournalEntry(created.content) as ProfileJournalEntry['type'];
       const newEntry: ProfileJournalEntry = {
         id: created.id,
         type,
         title: created.content,
         time: formatActivityTime(String(created.createdAt)),
-        streak: stats.streak || 0,   // dùng streak hiện có trong state, không fetch lại
+        streak: stats.streak || 0,  
         visibility: created.visibility || activityVisibility,
         pinned: false,
         reactions: [],
@@ -401,7 +398,6 @@ export default function StudentProfilePage() {
       setRecentActivity((prev) => [newEntry, ...prev]);
 
       setNewActivityNote('');
-      // Refresh ở background — không block toast/UI
       loadRecentActivity().catch(() => {});
       window.dispatchEvent(new CustomEvent(STREAK_UPDATED_EVENT, { detail: { updated: true } }));
       toast.success('Reflection added to your journal.', { id: loadingToastId });
@@ -806,9 +802,8 @@ export default function StudentProfilePage() {
         setStreakLeaderboard(leaderboard?.leaderboard || []);
       }
 
-      // Fallback chỉ dùng khi streak API hoàn toàn fail — không inflate bằng Math.max
       setStreakInfo((prev) => {
-        if (prev) return prev; // đã có data từ API, không ghi đè
+        if (prev) return prev;
         const fallbackStreak = Number(stats.streak || 0);
         return {
           userId: profileId,
@@ -1573,7 +1568,7 @@ export default function StudentProfilePage() {
                             <p className="font-semibold">Today's Goal</p>
                             <p>
                               {Math.max(0, Math.floor((dailyStreakProgress?.activeWatchSeconds || 0) / 60))}/
-                              {Math.max(1, Math.floor((dailyStreakProgress?.goalSeconds || 900) / 60))} phút
+                              {Math.max(1, Math.floor((dailyStreakProgress?.goalSeconds || 900) / 60))} minutes
                             </p>
                             <p className="text-xs text-orange-700/80">
                               {Math.max(0, Math.floor((dailyStreakProgress?.remainingSeconds || 0) / 60))} minutes left to complete
@@ -1625,7 +1620,7 @@ export default function StudentProfilePage() {
                                   <p className="truncate pr-2 text-orange-900">
                                     <span className="mr-2 font-bold">#{entry.rank}</span>
                                     {entry.fullName}
-                                    {entry.isCurrentUser ? ' (Bạn)' : ''}
+                                    {entry.isCurrentUser ? ' (You)' : ''}
                                   </p>
                                   <p className="shrink-0 font-semibold text-orange-800">🔥 {entry.currentStreak}</p>
                                 </div>

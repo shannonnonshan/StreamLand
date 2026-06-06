@@ -96,7 +96,6 @@ export default function OAuthCompletePage() {
       throw new Error(result.error || 'Registration failed. Please try again.');
     }
 
-    // ✅ Lưu sessionStorage cho teacher
     if (data.role === 'TEACHER') {
       sessionStorage.setItem(
         `pending-teacher-profile:${profile.email.toLowerCase()}`,

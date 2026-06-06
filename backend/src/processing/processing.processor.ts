@@ -221,7 +221,7 @@ export class ProcessingProcessor {
     }
   }
   private async waitForAiService(maxWaitMs = 5 * 60 * 1000): Promise<void> {
-    const interval = 15000; // check mỗi 15s
+    const interval = 15000; 
     const start = Date.now();
 
     while (Date.now() - start < maxWaitMs) {

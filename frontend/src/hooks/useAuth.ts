@@ -393,7 +393,7 @@ export function useAuth() {
             sessionStorage.removeItem(cvKey);
           }
         } catch {
-          // Không block login nếu upload fail
+          console.warn('Failed to upload pending teacher profile or CV, but login will proceed anyway');
         }
       }
 

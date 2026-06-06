@@ -24,13 +24,11 @@ interface CompleteOAuthModalProps {
   };
   onComplete: (data: {
     role: 'STUDENT' | 'TEACHER';
-    // Teacher fields
     teacherCV?: File;
-    teacherSubjects?: string;
-    teacherExperience?: string;
-    teacherSpecialty?: string;
+    subjects?: string[];
+    experience?: number;
+    education?: string;
     teacherIntroduction?: string;
-    // Student fields
     studentSchool?: string;
     studentClass?: string;
   }) => void;
@@ -128,9 +126,9 @@ export default function CompleteOAuthModal({
       const data: {
         role: 'STUDENT' | 'TEACHER';
         teacherCV?: File;
-        teacherSubjects?: string;
-        teacherExperience?: string;
-        teacherSpecialty?: string;
+        subjects?: string[];
+        experience?: number;
+        education?: string;
         teacherIntroduction?: string;
         studentSchool?: string;
         studentClass?: string;
@@ -140,9 +138,9 @@ export default function CompleteOAuthModal({
       
       if (selectedRole === 'TEACHER') {
         data.teacherCV = teacherCV ?? undefined;
-        data.teacherSubjects = teacherSubjects;
-        data.teacherExperience = teacherExperience;
-        data.teacherSpecialty = teacherSpecialty;
+        data.subjects = teacherSubjects.split(',').map(s => s.trim()).filter(Boolean);
+        data.experience = parseInt(teacherExperience) || 0;
+        data.education = teacherSpecialty;
         data.teacherIntroduction = teacherIntroduction;
       } else if (selectedRole === 'STUDENT') {
         data.studentSchool = studentSchool;
@@ -151,7 +149,7 @@ export default function CompleteOAuthModal({
       
       await onComplete(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Có lỗi xảy ra');
+      setError(err instanceof Error ? err.message : 'Error occurred during registration');
       setIsSubmitting(false);
     }
   };
@@ -262,7 +260,7 @@ export default function CompleteOAuthModal({
                   exit={{ opacity: 0, x: -20 }}
                 >
                   <label className="block text-sm font-medium text-gray-700 mb-3">
-                    Bạn muốn đăng ký với vai trò nào? <span className="text-red-500">*</span>
+                    Which role would you like to register as? <span className="text-red-500">*</span>
                   </label>
                   <div className="grid grid-cols-2 gap-4">
                     <button

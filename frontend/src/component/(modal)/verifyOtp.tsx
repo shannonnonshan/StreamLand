@@ -50,7 +50,6 @@ export default function OTPModal({
       }
   };
 
-  // Xử lý phím Backspace/Delete để xóa và quay lại ô trước đó
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
     if (e.key === 'Backspace' && otp[index] === '' && index > 0 && inputRefs.current[index - 1]) {
       inputRefs.current[index - 1]?.focus();
@@ -107,9 +106,6 @@ export default function OTPModal({
         sessionStorage.removeItem(key);
       };
 
-      // Upload teacher profile info + CV được xử lý khi teacher login lần đầu sau khi admin duyệt
-      // (xem useAuth.ts login function - đọc pending-teacher-profile từ sessionStorage)
-
       let result;
       
       // Use different API based on purpose
@@ -129,8 +125,6 @@ export default function OTPModal({
         if (otpPurpose === 'registration' && result.user?.role === 'STUDENT') {
           await applyPendingStudentProfile();
         }
-        // Teacher: verifyOtp trả về requiresApproval (không có token) nên không upload ở đây
-        // Thay vào đó ta đã lưu pending profile, sẽ upload khi teacher login lần đầu sau khi được duyệt
 
         setSuccessMessage('OTP verified successfully!');
         
@@ -254,7 +248,7 @@ export default function OTPModal({
                             value={data}
                             onChange={(e) => handleChange(e.target, index)}
                             onKeyDown={(e) => handleKeyDown(e, index)}
-                            ref={(el) => { inputRefs.current[index] = el }} // Gán ref
+                            ref={(el) => { inputRefs.current[index] = el }}
                             className={`w-10 h-10 sm:w-12 sm:h-12 text-center text-xl font-bold rounded-lg border-2 ring-1 ring-inset ${
                                 data 
                                     ? `border-[#${PrimaryColor}] ring-[#${PrimaryColor}] text-[#${SecondaryColor}]`

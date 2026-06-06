@@ -75,6 +75,8 @@ export default function OAuthCompletePage() {
   }) => {
     if (!profile) return;
 
+  
+
     const result = await completeOAuthRegistration({
       provider,
       socialId: profile.socialId,
@@ -82,46 +84,19 @@ export default function OAuthCompletePage() {
       fullName: profile.fullName,
       avatar: profile.avatar,
       role: data.role,
+      teacherCV: data.teacherCV,
       teacherIntroduction: data.teacherIntroduction,
       subjects: data.subjects,
       experience: data.experience,
       education: data.education,
-      website: data.website,
-      linkedin: data.linkedin,
       studentSchool: data.studentSchool,
       studentClass: data.studentClass,
     });
 
     if (!result.success) {
-      throw new Error(result.error || 'Registration failed. Please try again.');
+      throw new Error(result.error || 'Registration failed.');
     }
 
-    if (data.role === 'TEACHER') {
-      sessionStorage.setItem(
-        `pending-teacher-profile:${profile.email.toLowerCase()}`,
-        JSON.stringify({
-          subjects: data.subjects,
-          experience: data.experience,
-          education: data.education,
-          bio: data.teacherIntroduction,
-        }),
-      );
-
-      if (data.teacherCV) {
-        const cvFile = data.teacherCV;
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64 = (reader.result as string).split(',')[1];
-          sessionStorage.setItem(
-            `pending-teacher-cv:${profile.email.toLowerCase()}`,
-            JSON.stringify({ name: cvFile.name, type: cvFile.type, data: base64 }),
-          );
-        };
-        reader.readAsDataURL(cvFile);
-      }
-    }
-
-    // ✅ Redirect
     if (result.user?.role === 'TEACHER') {
       router.push(`/teacher/${result.user.id}`);
     } else {

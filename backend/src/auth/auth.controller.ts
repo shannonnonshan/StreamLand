@@ -57,8 +57,12 @@ export class AuthController {
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
-  async register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(registerDto);
+  @UseInterceptors(FileInterceptor('teacherCV'))
+  async register(
+    @Body() registerDto: RegisterDto,
+    @UploadedFile() cvFile?: any,
+  ) {
+    return this.authService.register(registerDto, cvFile);
   }
 
   @Post('login')
@@ -188,8 +192,12 @@ export class AuthController {
 
   @Post('complete-oauth')
   @HttpCode(HttpStatus.CREATED)
-  async completeOAuth(@Body() completeOAuthDto: CompleteOAuthDto) {
-    return this.authService.completeOAuthRegistration(completeOAuthDto);
+  @UseInterceptors(FileInterceptor('teacherCV'))
+  async completeOAuth(
+    @Body() completeOAuthDto: CompleteOAuthDto,
+    @UploadedFile() cvFile?: any,
+  ) {
+    return this.authService.completeOAuthRegistration(completeOAuthDto, cvFile);
   }
 
   // Profile update routes

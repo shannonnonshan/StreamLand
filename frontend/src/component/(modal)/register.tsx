@@ -318,6 +318,14 @@ export default function RegisterModal({
           email: formData.email,
           password: formData.password,
           role: role as 'STUDENT' | 'TEACHER',
+          ...(role === 'TEACHER' && {
+            teacherCV: formData.teacherCV ?? undefined,
+            teacherIntroduction: formData.teacherIntroduction,
+            subjects: formData.teacherSubjects
+              .split(',').map(s => s.trim()).filter(Boolean),
+            experience: parseInt(formData.teacherExperience, 10) || 0,
+            education: formData.teacherSpecialty,
+          }),
         });
         
         if (result.success) {
@@ -332,39 +340,6 @@ export default function RegisterModal({
               `pending-student-profile:${formData.email.toLowerCase()}`,
               JSON.stringify(pendingStudentProfile),
             );
-          }
-
-          if (role === 'TEACHER') {
-            const subjects = formData.teacherSubjects
-              ? formData.teacherSubjects.split(',').map((s) => s.trim()).filter(Boolean)
-              : [];
-            const pendingTeacherProfile = {
-              subjects,
-              experience: formData.teacherExperience ? parseInt(formData.teacherExperience, 10) || 0 : 0,
-              education: formData.teacherSpecialty || '',
-              bio: formData.teacherIntroduction || '',
-            };
-            sessionStorage.setItem(
-              `pending-teacher-profile:${formData.email.toLowerCase()}`,
-              JSON.stringify(pendingTeacherProfile),
-            );
-
-            if (formData.teacherCV) {
-              const cvFile = formData.teacherCV;
-              const reader = new FileReader();
-              reader.onload = () => {
-                const base64 = (reader.result as string).split(',')[1];
-                sessionStorage.setItem(
-                  `pending-teacher-cv:${formData.email.toLowerCase()}`,
-                  JSON.stringify({
-                    name: cvFile.name,
-                    type: cvFile.type,
-                    data: base64,
-                  }),
-                );
-              };
-              reader.readAsDataURL(cvFile);
-            }
           }
 
           // Registration successful, move to OTP verification

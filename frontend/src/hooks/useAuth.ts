@@ -147,17 +147,34 @@ export function useAuth() {
 
 
   // Register
-  const register = useCallback(async (data: RegisterData) => {
+  const register = useCallback(async (data: RegisterData & {
+    teacherCV?: File;
+    teacherIntroduction?: string;
+    subjects?: string[];
+    experience?: number;
+    education?: string;
+  }) => {
     setLoading(true);
     setError(null);
 
     try {
+      const fd = new FormData();
+      fd.append('fullName', data.fullName);
+      fd.append('email', data.email);
+      fd.append('password', data.password);
+      if (data.role) fd.append('role', data.role);
+
+      if (data.role === 'TEACHER') {
+        if (data.teacherIntroduction) fd.append('teacherIntroduction', data.teacherIntroduction);
+        if (data.education) fd.append('education', data.education);
+        if (data.experience !== undefined) fd.append('experience', String(data.experience));
+        if (data.subjects) data.subjects.forEach(s => fd.append('subjects[]', s));
+        if (data.teacherCV) fd.append('teacherCV', data.teacherCV);
+      }
+
       const response = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
+        body: fd,
       });
 
       const result = await response.json();
@@ -555,34 +572,30 @@ export function useAuth() {
     setError(null);
 
     try {
-      // For now, send as JSON (file uploads will be handled later)
-      // TODO: Implement file upload to cloud storage first
-      const jsonData = {
-        provider: data.provider,
-        socialId: data.socialId,
-        email: data.email,
-        fullName: data.fullName,
-        avatar: data.avatar,
-        role: data.role,
-        // Teacher fields (files excluded for now)
-        teacherIntroduction: data.teacherIntroduction,
-        subjects: data.subjects,
-        experience: data.experience,
-        education: data.education,
-        website: data.website,
-        linkedin: data.linkedin,
-        // Student fields
-        studentID: data.studentID,
-        studentSchool: data.studentSchool,
-        studentClass: data.studentClass,
-      };
+      const fd = new FormData();
+      fd.append('provider', data.provider);
+      fd.append('socialId', data.socialId);
+      fd.append('email', data.email);
+      fd.append('fullName', data.fullName);
+      fd.append('role', data.role);
+      if (data.avatar) fd.append('avatar', data.avatar);
+
+      if (data.role === 'TEACHER') {
+        if (data.teacherIntroduction) fd.append('teacherIntroduction', data.teacherIntroduction);
+        if (data.education) fd.append('education', data.education);
+        if (data.experience !== undefined) fd.append('experience', String(data.experience));
+        if (data.website) fd.append('website', data.website);
+        if (data.linkedin) fd.append('linkedin', data.linkedin);
+        if (data.subjects) data.subjects.forEach(s => fd.append('subjects[]', s));
+        if (data.teacherCV) fd.append('teacherCV', data.teacherCV);
+      } else {
+        if (data.studentSchool) fd.append('studentSchool', data.studentSchool);
+        if (data.studentClass) fd.append('studentClass', data.studentClass);
+      }
 
       const response = await fetch(`${API_URL}/auth/complete-oauth`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(jsonData),
+        body: fd,
       });
 
       const result = await response.json();

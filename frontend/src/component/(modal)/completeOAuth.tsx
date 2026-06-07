@@ -371,7 +371,7 @@ export default function CompleteOAuthModal({
                   {/* Experience */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Years of Experience <span className="text-red-500">*</span>
+                      Years of Experience (years) <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -383,7 +383,7 @@ export default function CompleteOAuthModal({
                       className={`block w-full rounded-lg border-0 py-2.5 px-4 ring-1 ring-inset ${
                         formErrors.teacherExperience ? 'ring-red-500' : 'ring-gray-300'
                       } focus:ring-2 focus:ring-purple-500`}
-                      placeholder="E.g., 5 years"
+                      placeholder="E.g., 5 "
                     />
                     {formErrors.teacherExperience && (
                       <p className="mt-1 text-sm text-red-600">{formErrors.teacherExperience}</p>

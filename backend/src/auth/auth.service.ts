@@ -175,11 +175,12 @@ export class AuthService {
 
     if (user.role === 'TEACHER') {
       if (!user.teacherProfile || !user.teacherProfile.isApproved) {
-        throw new UnauthorizedException(
-          'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).'
-        );
+        throw new UnauthorizedException({
+          message: 'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).',
+          isApproved: false,
+        });
       }
-
+        
       if (user.teacherProfile.rejectedAt) {
         const reason = user.teacherProfile.rejectionReason || 'No reason provided';
         throw new UnauthorizedException(
@@ -692,20 +693,24 @@ export class AuthService {
         where: { userId: user.id },
       });
 
-      if (!teacherProfile || !teacherProfile.isApproved) {
-        throw new UnauthorizedException(
-          'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).'
-        );
+      if (teacherProfile?.rejectedAt) {
+        const reason =
+          teacherProfile.rejectionReason || 'No reason provided';
+
+        throw new UnauthorizedException({
+          message: `Your teacher account was rejected. Reason: ${reason}. Please contact support.`,
+          isApproved: false,
+        });
       }
 
-      if (teacherProfile.rejectedAt) {
-        const reason = teacherProfile.rejectionReason || 'No reason provided';
-        throw new UnauthorizedException(
-          `Your teacher account was rejected. Reason: ${reason}. Please contact support.`
-        );
+      if (!teacherProfile || !teacherProfile.isApproved) {
+        throw new UnauthorizedException({
+          message:
+            'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).',
+          isApproved: false,
+        });
       }
     }
-
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
     await this.prisma.postgres.session.create({
@@ -776,17 +781,22 @@ export class AuthService {
         where: { userId: user.id },
       });
 
-      if (!teacherProfile || !teacherProfile.isApproved) {
-        throw new UnauthorizedException(
-          'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).'
-        );
+      if (teacherProfile?.rejectedAt) {
+        const reason =
+          teacherProfile.rejectionReason || 'No reason provided';
+
+        throw new UnauthorizedException({
+          message: `Your teacher account was rejected. Reason: ${reason}. Please contact support.`,
+          isApproved: false,
+        });
       }
 
-      if (teacherProfile.rejectedAt) {
-        const reason = teacherProfile.rejectionReason || 'No reason provided';
-        throw new UnauthorizedException(
-          `Your teacher account was rejected. Reason: ${reason}. Please contact support.`
-        );
+      if (!teacherProfile || !teacherProfile.isApproved) {
+        throw new UnauthorizedException({
+          message:
+            'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).',
+          isApproved: false,
+        });
       }
     }
     const tokens = await this.generateTokens(user.id, user.email, user.role);

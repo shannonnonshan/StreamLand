@@ -45,14 +45,23 @@ export class GithubStrategy extends PassportStrategy(Strategy, 'github') {
       console.error('Failed to parse OAuth state:', error);
     }
 
-    const user = await this.authService.githubLogin({
-      githubId: String(id),
-      email: (emails?.[0]?.value as string) || `${username}@github.com`,
-      fullName: displayName || username,
-      avatar: photos?.[0]?.value,
-      role, // Pass role to auth service
-    });
+    try {
+      const user = await this.authService.githubLogin({
+        githubId: String(id),
+        email: (emails?.[0]?.value as string) || `${username}@github.com`,
+        fullName: displayName || username,
+        avatar: photos?.[0]?.value,
+        role,
+      });
 
-    done(null, user);
+      done(null, user);
+    } catch (error: any) {
+      done(null, {
+        oauthError: true,
+        message: error?.response?.message || error?.message,
+        isApproved: error?.response?.isApproved,
+        bannedUntil: error?.response?.bannedUntil,
+      });
+    }
   }
 }

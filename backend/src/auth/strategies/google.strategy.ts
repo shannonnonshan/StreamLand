@@ -38,14 +38,22 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       console.error('Failed to parse OAuth state:', error);
     }
 
-    const user = await this.authService.googleLogin({
-      googleId: id,
-      email: emails?.[0]?.value || '',
-      fullName: displayName,
-      avatar: photos?.[0]?.value,
-      role, // Pass role to auth service
-    });
-
-    done(null, user);
+    try {
+        const user = await this.authService.googleLogin({
+        googleId: id,
+        email: emails?.[0]?.value || '',
+        fullName: displayName,
+        avatar: photos?.[0]?.value,
+        role
+        });
+      done(null, user);
+    } catch (error: any) {
+      done(null, {
+        oauthError: true,
+        message: error?.response?.message || error?.message,
+        isApproved: error?.response?.isApproved,
+        bannedUntil: error?.response?.bannedUntil,
+      });
+    }
   }
 }

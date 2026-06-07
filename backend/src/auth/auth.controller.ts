@@ -136,18 +136,34 @@ export class AuthController {
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
   googleAuthCallback(@Request() req: { user: any }, @Res() res: Response) {
-    const result = req.user as OAuthResult;
+    try
+    {
+      const result = req.user as any;
 
-    if (result.isNewUser) {
-      const profileData = encodeURIComponent(JSON.stringify(result.profile));
+      if (result.oauthError) {
+        return res.redirect(
+          `${process.env.FRONTEND_URL}/auth/callback?error=${encodeURIComponent(
+            result.message,
+          )}&isApproved=${result.isApproved ?? ''}&bannedUntil=${result.bannedUntil ?? ''}`,
+        );
+      }
+      if (result.isNewUser) {
+        const profileData = encodeURIComponent(JSON.stringify(result.profile));
+        res.redirect(
+          `${process.env.FRONTEND_URL}/auth/oauth-complete?provider=${result.provider}&profile=${profileData}`,
+        );
+      } else {
+        // Existing user - redirect with tokens
+        const { accessToken, refreshToken } = result;
+        res.redirect(
+          `${process.env.FRONTEND_URL}/auth/callback?accessToken=${accessToken}&refreshToken=${refreshToken}`,
+        );
+      }
+    } catch (error: any) {
       res.redirect(
-        `${process.env.FRONTEND_URL}/auth/oauth-complete?provider=${result.provider}&profile=${profileData}`,
-      );
-    } else {
-      // Existing user - redirect with tokens
-      const { accessToken, refreshToken } = result;
-      res.redirect(
-        `${process.env.FRONTEND_URL}/auth/callback?accessToken=${accessToken}&refreshToken=${refreshToken}`,
+        `${process.env.FRONTEND_URL}/auth/callback?error=${encodeURIComponent(
+          error?.response?.message || error.message
+        )}&isApproved=${error?.response?.isApproved ?? ''}&bannedUntil=${error?.response?.bannedUntil ?? ''}`
       );
     }
   }
@@ -161,19 +177,35 @@ export class AuthController {
   @Get('github/callback')
   @UseGuards(GithubAuthGuard)
   githubAuthCallback(@Request() req: { user: any }, @Res() res: Response) {
-    const result = req.user as OAuthResult;
+    try {
+      const result = req.user as any;
 
-    if (result.isNewUser) {
-      // New user - redirect to frontend with profile data to complete registration
-      const profileData = encodeURIComponent(JSON.stringify(result.profile));
+      if (result.oauthError) {
+        return res.redirect(
+          `${process.env.FRONTEND_URL}/auth/callback?error=${encodeURIComponent(
+            result.message,
+          )}&isApproved=${result.isApproved ?? ''}&bannedUntil=${result.bannedUntil ?? ''}`,
+        );
+      }
+
+      if (result.isNewUser) {
+        // New user - redirect to frontend with profile data to complete registration
+        const profileData = encodeURIComponent(JSON.stringify(result.profile));
+        res.redirect(
+          `${process.env.FRONTEND_URL}/auth/oauth-complete?provider=${result.provider}&profile=${profileData}`,
+        );
+      } else {
+        // Existing user - redirect with tokens
+        const { accessToken, refreshToken } = result;
+        res.redirect(
+          `${process.env.FRONTEND_URL}/auth/callback?accessToken=${accessToken}&refreshToken=${refreshToken}`,
+        );
+      }
+    } catch (error: any) {
       res.redirect(
-        `${process.env.FRONTEND_URL}/auth/oauth-complete?provider=${result.provider}&profile=${profileData}`,
-      );
-    } else {
-      // Existing user - redirect with tokens
-      const { accessToken, refreshToken } = result;
-      res.redirect(
-        `${process.env.FRONTEND_URL}/auth/callback?accessToken=${accessToken}&refreshToken=${refreshToken}`,
+        `${process.env.FRONTEND_URL}/auth/callback?error=${encodeURIComponent(
+          error?.response?.message || error.message
+        )}&isApproved=${error?.response?.isApproved ?? ''}&bannedUntil=${error?.response?.bannedUntil ?? ''}`
       );
     }
   }

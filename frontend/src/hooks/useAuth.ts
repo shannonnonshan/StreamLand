@@ -314,13 +314,14 @@ export function useAuth() {
         body: JSON.stringify(data),
       });
 
-      const result = await response.json() as AuthResponse & { requires2FA?: boolean; email?: string; bannedUntil?: string };
+      const result = await response.json() as AuthResponse & { requires2FA?: boolean; email?: string; bannedUntil?: string; isApproved?: boolean };
 
       if (!response.ok) {
         return {
           success: false,
           error: result.message || 'Login failed',
           bannedUntil: result.bannedUntil,
+          isApproved: result.isApproved,
         };
       }
 
@@ -418,12 +419,12 @@ export function useAuth() {
       dispatchAuthStateChanged();
       setLoading(false);
 
-      return { success: true, user: finalUser, bannedUntil: undefined };
+      return { success: true, user: finalUser, bannedUntil: undefined, isApproved: result.isApproved };
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred';
       setError(errorMessage);
       setLoading(false);
-      return { success: false, error: errorMessage, bannedUntil: undefined };
+      return { success: false, error: errorMessage, bannedUntil: undefined, isApproved: undefined };
     }
   }, [setUser, setIsAuthenticated]);
 
@@ -601,7 +602,11 @@ export function useAuth() {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.message || 'OAuth registration failed');
+        return {
+          success: false,
+          error: result.message,
+          requiresApproval: result.requiresApproval,
+        };
       }
 
       // Save tokens and user data
@@ -614,7 +619,7 @@ export function useAuth() {
       dispatchAuthStateChanged();
       setLoading(false);
 
-      return { success: true, user: result.user };
+      return { success: true, user: result.user, requiresApproval: result.requiresApproval };
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'OAuth registration failed';
       setError(errorMessage);

@@ -142,11 +142,20 @@ export default function LoginModal({
           router.replace(`/student/${userId}/dashboard`);
         }
       } else {
-        if (!result.success && result.bannedUntil) {
+        if (!result.success) {
+          if (result.bannedUntil) {
+            setNotification({
+              type: 'error',
+              message: `Your account is banned until ${formatBanUntil(result.bannedUntil)}`,
+            });
+            return;
+          }
+
           setNotification({
             type: 'error',
-            message: `Your account is banned until ${formatBanUntil(result.bannedUntil)}`,
+            message: result.error || 'Login failed. Please check your email and password.'
           });
+
           return;
         }
 

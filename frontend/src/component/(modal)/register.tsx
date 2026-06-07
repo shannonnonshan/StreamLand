@@ -696,7 +696,7 @@ export default function RegisterModal({
               
               <div>
                 <label htmlFor="teacherExperience" className="block text-sm font-medium text-gray-700 mb-1">
-                  Years of Experience <span className="text-red-500">*</span>
+                  Years of Experience (years) <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
@@ -712,7 +712,7 @@ export default function RegisterModal({
                     className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset ${
                       formErrors.teacherExperience ? 'ring-red-500' : 'ring-gray-300'
                     } focus:ring-2 focus:ring-[#${PrimaryColor}]`}
-                    placeholder="e.g., 5 years"
+                    placeholder="e.g., 5"
                   />
                 </div>
                 {formErrors.teacherExperience && (

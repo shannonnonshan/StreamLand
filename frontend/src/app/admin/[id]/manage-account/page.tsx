@@ -868,137 +868,164 @@ export default function ManageAccount() {
         }}
       />
 
-      {/* --- TEACHER DETAILS DIALOG --- */}
-      <Dialog.Root open={isTeacherDetailsOpen} onOpenChange={setIsTeacherDetailsOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-          <Dialog.Content className={`fixed left-1/2 top-1/2 max-h-[90vh] w-[90vw] max-w-5xl -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[28px] border border-white/10 bg-white p-0 shadow-[0_30px_120px_rgba(15,23,42,0.35)] ${raleway.className}`}>
-            <div className="flex shrink-0 items-start justify-between gap-4 bg-[#292C6D] px-6 py-5 text-white">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Teacher Review</p>
-                <Dialog.Title className="mt-1 text-2xl font-bold">
-                  Teacher Profile Details
-                </Dialog.Title>
-                <p className="mt-1 text-sm text-white/75">Review profile information, CV, and moderation outcome</p>
-              </div>
-              <Dialog.Close className="rounded-full border border-white/10 bg-white/10 p-2 text-white transition hover:bg-white/20">
-                <X className="h-4 w-4" />
-              </Dialog.Close>
+        {/* --- TEACHER DETAILS DIALOG --- */}
+    <Dialog.Root open={isTeacherDetailsOpen} onOpenChange={setIsTeacherDetailsOpen}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
+        <Dialog.Content
+          className={`fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-[95vw] max-w-5xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-[0_30px_120px_rgba(15,23,42,0.35)] ${raleway.className}`}
+        >
+          {/* Header — fixed, never scrolls */}
+          <div className="flex shrink-0 items-start justify-between gap-4 bg-[#292C6D] px-6 py-5 text-white">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Teacher Review</p>
+              <Dialog.Title className="mt-1 text-2xl font-bold">Teacher Profile Details</Dialog.Title>
+              <p className="mt-1 text-sm text-white/75">Review profile information, CV, and moderation outcome</p>
             </div>
+            <Dialog.Close className="rounded-full border border-white/10 bg-white/10 p-2 text-white transition hover:bg-white/20">
+              <X className="h-4 w-4" />
+            </Dialog.Close>
+          </div>
 
-            <div className="max-h-[90vh] overflow-y-auto bg-slate-50 px-6 py-6">
+          {/* Body — scrollable */}
+          <div className="flex-1 overflow-y-auto bg-slate-50 px-6 py-6">
+            {selectedTeacher && (() => {
+              const isApprovedTeacher = selectedTeacher.status === "approved";
+              return (
+                <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
 
-            {selectedTeacher && (
-              (() => {
-                const isApprovedTeacher = selectedTeacher.status === "approved";
-
-                return (
-              <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-                <div className="grid gap-4">
-                  <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#292C6D]/50">Teacher Details</p>
-                        <h3 className="mt-1 text-base font-bold text-slate-900">Profile</h3>
+                  {/* LEFT — profile info */}
+                  <div className="grid gap-4 content-start">
+                    <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                      <div className="mb-4 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#292C6D]/50">Teacher Details</p>
+                          <h3 className="mt-1 text-base font-bold text-slate-900">Profile</h3>
+                        </div>
+                        <span className={clsx(
+                          "rounded-full px-3 py-1 text-xs font-semibold",
+                          selectedTeacher.status === "waiting" ? "bg-amber-100 text-amber-700"
+                            : selectedTeacher.status === "require-update" ? "bg-sky-100 text-sky-700"
+                            : "bg-emerald-100 text-emerald-700"
+                        )}>
+                          {selectedTeacher.status.replace("-", " ")}
+                        </span>
                       </div>
-                      <span className={clsx(
-                        "rounded-full px-3 py-1 text-xs font-semibold",
-                        selectedTeacher.status === "waiting"
-                          ? "bg-amber-100 text-amber-700"
-                          : selectedTeacher.status === "require-update"
-                          ? "bg-sky-100 text-sky-700"
-                          : "bg-emerald-100 text-emerald-700"
-                      )}>
-                        {selectedTeacher.status.replace("-", " ")}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                      <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-slate-950">
-                        <Image
-                          src={selectedTeacher.avatar || defaultLogoUrl}
-                          alt={selectedTeacher.name}
-                          width={64}
-                          height={64}
-                          className="object-cover"
-                        />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-semibold text-slate-950">{selectedTeacher.name}</h4>
-                        <p className="text-xs text-slate-500">{selectedTeacher.email}</p>
-                        {selectedTeacher.location && (
-                          <p className="text-xs text-slate-500">📍 {selectedTeacher.location}</p>
-                        )}
-                      </div>
-                    </div>
-                  </section>
-
-                  <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-2xl bg-slate-50 p-3 sm:col-span-2">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Bio</p>
-                        <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.bio || "N/A"}</p>
-                      </div>
-                      <div className="rounded-2xl bg-slate-50 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Education</p>
-                        <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.education || "N/A"}</p>
-                      </div>
-                      <div className="rounded-2xl bg-slate-50 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Experience</p>
-                        <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.experience ? `${selectedTeacher.experience} years` : "N/A"}</p>
-                      </div>
-                      <div className="rounded-2xl bg-slate-50 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Subjects</p>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {selectedTeacher.subjects && selectedTeacher.subjects.length > 0 ? (
-                            selectedTeacher.subjects.map((subject, idx) => (
-                              <span
-                                key={idx}
-                                className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-semibold text-sky-700"
-                              >
-                                {subject}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">N/A</span>
-                          )}
+                      <div className="flex items-center gap-4">
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-950">
+                          <Image src={selectedTeacher.avatar || defaultLogoUrl} alt={selectedTeacher.name} width={64} height={64} className="object-cover" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-semibold text-slate-950">{selectedTeacher.name}</h4>
+                          <p className="text-xs text-slate-500">{selectedTeacher.email}</p>
+                          {selectedTeacher.location && <p className="text-xs text-slate-500">📍 {selectedTeacher.location}</p>}
                         </div>
                       </div>
-                    </div>
-                  </section>
+                    </section>
 
-                  <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-2xl bg-slate-50 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Submit Date</p>
-                        <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.submitDate}</p>
+                    <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl bg-slate-50 p-3 sm:col-span-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Bio</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.bio || "N/A"}</p>
+                        </div>
+                        <div className="rounded-2xl bg-slate-50 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Education</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.education || "N/A"}</p>
+                        </div>
+                        <div className="rounded-2xl bg-slate-50 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Experience</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.experience ? `${selectedTeacher.experience} years` : "N/A"}</p>
+                        </div>
+                        <div className="rounded-2xl bg-slate-50 p-3 sm:col-span-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Subjects</p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {selectedTeacher.subjects && selectedTeacher.subjects.length > 0
+                              ? selectedTeacher.subjects.map((subject, idx) => (
+                                  <span key={idx} className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-semibold text-sky-700">{subject}</span>
+                                ))
+                              : <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">N/A</span>
+                            }
+                          </div>
+                        </div>
                       </div>
-                      <div className="rounded-2xl bg-slate-50 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Website</p>
-                        <p className="mt-1 text-xs leading-5 text-slate-700 break-all">{selectedTeacher.website || "N/A"}</p>
+                    </section>
+
+                    <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl bg-slate-50 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Submit Date</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-700">{selectedTeacher.submitDate}</p>
+                        </div>
+                        <div className="rounded-2xl bg-slate-50 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Website</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-700 break-all">{selectedTeacher.website || "N/A"}</p>
+                        </div>
                       </div>
-                    </div>
+                      {selectedTeacher.linkedin && (
+                        <div className="mt-3 rounded-2xl bg-slate-50 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">LinkedIn</p>
+                          <a href={selectedTeacher.linkedin} target="_blank" rel="noopener noreferrer"
+                            className="mt-1 block break-all text-xs font-medium text-[#292C6D] underline decoration-[#EC255A]/40 underline-offset-4">
+                            {selectedTeacher.linkedin}
+                          </a>
+                        </div>
+                      )}
+                    </section>
+                  </div>
 
-                    {selectedTeacher.linkedin && (
-                      <div className="mt-3 rounded-2xl bg-slate-50 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">LinkedIn</p>
-                        <a
-                          href={selectedTeacher.linkedin}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-1 block break-all text-xs font-medium text-[#292C6D] underline decoration-[#EC255A]/40 underline-offset-4"
-                        >
-                          {selectedTeacher.linkedin}
-                        </a>
+                  {/* RIGHT — CV + actions */}
+                  <div className="grid gap-4 content-start">
+
+                    {/* CV inline preview — always visible */}
+                    <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                      <div className="mb-3 flex items-center justify-between">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">CV / Resume</p>
+                        {selectedTeacher.cvUrl && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => { setCVPreviewUrl(selectedTeacher.cvUrl || null); setIsCVPreviewOpen(true); }}
+                              className="inline-flex items-center gap-1.5 rounded-full bg-[#292C6D] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#1f2350]"
+                            >
+                              <Eye className="h-3.5 w-3.5" /> Full screen
+                            </button>
+                            <a href={selectedTeacher.cvUrl} target="_blank" rel="noopener noreferrer"
+                              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50">
+                              Download
+                            </a>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </section>
 
-                </div>
+                      {selectedTeacher.cvUrl ? (
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50" style={{ height: 320 }}>
+                          {selectedTeacher.cvUrl.toLowerCase().endsWith('.pdf') ? (
+                            <iframe src={selectedTeacher.cvUrl} className="h-full w-full" title="CV Preview" />
+                          ) : selectedTeacher.cvUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                            <div className="relative h-full w-full">
+                              <Image src={selectedTeacher.cvUrl} alt="CV Preview" fill sizes="600px" className="object-contain" />
+                            </div>
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-center text-sm text-slate-500">
+                              <div>
+                                <p className="mb-3">Preview not available for this file type</p>
+                                <a href={selectedTeacher.cvUrl} target="_blank" rel="noopener noreferrer"
+                                  className="rounded-full bg-[#292C6D] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1f2350]">
+                                  Open in new tab
+                                </a>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex h-24 items-center justify-center rounded-2xl border border-dashed border-slate-200 text-xs text-slate-400">
+                          No CV uploaded
+                        </div>
+                      )}
+                    </section>
 
-                <div className="space-y-4">
-                  {isApprovedTeacher ? (
-                    <>
+                    {/* Moderation actions */}
+                    {isApprovedTeacher ? (
                       <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
                         <div className="grid gap-3 sm:grid-cols-2">
                           <div className="rounded-2xl bg-slate-50 p-3">
@@ -1011,264 +1038,170 @@ export default function ManageAccount() {
                           </div>
                         </div>
                       </section>
-
-                      <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
-                        <p className="text-sm font-semibold text-slate-900">This teacher is already approved.</p>
-                        <p className="mt-1 text-xs leading-5 text-slate-600">No moderation actions are available.</p>
-                      </section>
-
-                      {selectedTeacher.cvUrl && (
+                    ) : (
+                      <>
                         <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
-                          <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3">
-                            <div>
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">CV / Resume</p>
-                              <p className="mt-1 text-xs text-slate-700">Available for preview and download</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => {
-                                  setCVPreviewUrl(selectedTeacher.cvUrl || null);
-                                  setIsCVPreviewOpen(true);
-                                }}
-                                className="inline-flex items-center gap-2 rounded-full bg-[#292C6D] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#1f2350]"
-                              >
-                                <Eye className="w-4 h-4" /> Preview
-                              </button>
-                              <a
-                                href={selectedTeacher.cvUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                              >
-                                Download
-                              </a>
-                            </div>
+                          <label className="mb-2 block text-sm font-semibold text-slate-900">Rejection Reason</label>
+                          <textarea
+                            value={rejectReason}
+                            onChange={(e) => setRejectReason(e.target.value)}
+                            placeholder={selectedTeacher.status === 'require-update' ? 'Edit the existing rejection reason here' : 'Enter reason for rejection'}
+                            className="min-h-24 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-[#292C6D] focus:ring-1 focus:ring-[#292C6D]"
+                          />
+                        </section>
+
+                        <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
+                          <div className="flex flex-wrap justify-end gap-3">
+                            <button
+                              onClick={() => selectedTeacher && handleApproveTeacher(selectedTeacher.id)}
+                              className="inline-flex items-center rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={handleRejectTeacher}
+                              disabled={!rejectReason.trim()}
+                              className={clsx(
+                                "inline-flex items-center rounded-full px-4 py-2 text-sm font-semibold transition focus:ring-2 focus:ring-red-500 focus:ring-offset-2",
+                                rejectReason.trim() ? "bg-[#EC255A] text-white hover:bg-[#d31f4c]" : "cursor-not-allowed bg-slate-100 text-slate-400"
+                              )}
+                            >
+                              Reject
+                            </button>
                           </div>
                         </section>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
-                        <label className="mb-2 block text-sm font-semibold text-slate-900">Rejection Reason</label>
-                        <textarea
-                          value={rejectReason}
-                          onChange={(e) => setRejectReason(e.target.value)}
-                          placeholder={selectedTeacher.status === 'require-update' ? 'Edit the existing rejection reason here' : 'Enter reason for rejection (saved to teacher profile)'}
-                          className="min-h-20 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none"
-                        />
-                      </section>
-
-                      <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
-                        <div className="flex flex-wrap justify-end gap-3">
-                          <button
-                            onClick={() => selectedTeacher && handleApproveTeacher(selectedTeacher.id)}
-                            className="inline-flex items-center rounded-full bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleRejectTeacher()}
-                            disabled={!rejectReason.trim()}
-                            className={`inline-flex items-center rounded-full px-3.5 py-2 text-sm font-semibold transition focus:ring-2 focus:ring-red-500 focus:ring-offset-2
-                              ${rejectReason.trim() ? 'bg-[#EC255A] text-white hover:bg-[#d31f4c]' : 'cursor-not-allowed bg-slate-100 text-slate-400'}`}
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      </section>
-
-                      {selectedTeacher.cvUrl && (
-                        <section className="rounded-3xl border border-[#292C6D]/10 bg-white p-4 shadow-sm">
-                          <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3">
-                            <div>
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">CV / Resume</p>
-                              <p className="mt-1 text-xs text-slate-700">Available for preview and download</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => {
-                                  setCVPreviewUrl(selectedTeacher.cvUrl || null);
-                                  setIsCVPreviewOpen(true);
-                                }}
-                                className="inline-flex items-center gap-2 rounded-full bg-[#292C6D] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#1f2350]"
-                              >
-                                <Eye className="w-4 h-4" /> Preview
-                              </button>
-                              <a
-                                href={selectedTeacher.cvUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                              >
-                                Download
-                              </a>
-                            </div>
-                          </div>
-                        </section>
-                      )}
-                    </>
-                  )}
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-                );
-              })()
-            )}
+              );
+            })()}
+          </div>
 
-              <div className="flex justify-end mt-6 pt-4 border-t">
-                <Dialog.Close className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-                  Close
-                </Dialog.Close>
-              </div>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+          {/* Footer — fixed */}
+          <div className="flex shrink-0 justify-end border-t border-slate-200 bg-white px-6 py-4">
+            <Dialog.Close className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+              Close
+            </Dialog.Close>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
 
-      {/* --- REJECT TEACHER DIALOG --- */}
-      <Dialog.Root open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-          <Dialog.Content className={`fixed top-1/2 left-1/2 w-[90vw] max-w-125 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-lg ${raleway.className}`}>
-            <div className="flex items-center justify-between mb-4">
-              <Dialog.Title className="text-lg font-semibold text-[#161853]">
-                Reject Teacher Application
-              </Dialog.Title>
-              <Dialog.Close className="rounded-full p-1.5 hover:bg-gray-100">
-                <X className="h-4 w-4" />
-              </Dialog.Close>
-            </div>
+    {/* --- REJECT DIALOG --- */}
+    <Dialog.Root open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
+        <Dialog.Content className={`fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-[90vw] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl bg-white shadow-lg ${raleway.className}`}>
+          <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
+            <Dialog.Title className="text-base font-semibold text-[#161853]">Reject Teacher Application</Dialog.Title>
+            <Dialog.Close className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100">
+              <X className="h-4 w-4" />
+            </Dialog.Close>
+          </div>
 
-            <p className="text-sm text-gray-600 mb-4">
-              Please provide a reason for rejecting{" "}
-              <span className="font-medium">{selectedTeacher?.name}</span>&apos;s application.
-              This will help them understand what needs to be improved.
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            <p className="mb-4 text-sm text-slate-600">
+              Please provide a reason for rejecting <span className="font-medium text-slate-900">{selectedTeacher?.name}</span>. This will help them understand what needs to be improved.
             </p>
-
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               placeholder="Enter rejection reason (required)..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 min-h-30 resize-none"
+              className="min-h-32 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             />
+          </div>
 
-            <div className="flex justify-end space-x-2 mt-6">
-              <Dialog.Close className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-800 border rounded-md hover:bg-gray-50">
-                Cancel
-              </Dialog.Close>
-              <button
-                onClick={handleRejectTeacher}
-                disabled={!rejectReason.trim()}
-                className="rounded-md bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
-              >
-                Reject Application
-              </button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+          <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 px-5 py-4">
+            <Dialog.Close className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              Cancel
+            </Dialog.Close>
+            <button
+              onClick={handleRejectTeacher}
+              disabled={!rejectReason.trim()}
+              className="rounded-full bg-red-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              Reject Application
+            </button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
 
-      {/* --- DELETE CONFIRMATION --- */}
-      <Dialog.Root open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 w-[90vw] max-w-100 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-lg">
-            <Dialog.Title className="text-lg font-semibold text-[#161853] mb-4">
-              Confirm Deletion
-            </Dialog.Title>
-            <p className="text-sm text-gray-600 mb-6">
-              Are you sure you want to delete{" "}
-              <span className="font-medium">{selectedAdmin?.name}</span>? This
-              action cannot be undone.
+    {/* --- DELETE CONFIRMATION --- */}
+    <Dialog.Root open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex w-[90vw] max-w-sm -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl bg-white shadow-lg">
+          <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
+            <Dialog.Title className="text-base font-semibold text-[#161853]">Confirm Deletion</Dialog.Title>
+            <Dialog.Close className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100">
+              <X className="h-4 w-4" />
+            </Dialog.Close>
+          </div>
+
+          <div className="px-5 py-4">
+            <p className="text-sm text-slate-600">
+              Are you sure you want to delete <span className="font-medium text-slate-900">{selectedAdmin?.name}</span>? This action cannot be undone.
             </p>
+          </div>
 
-            <div className="flex justify-end space-x-2">
-              <Dialog.Close className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-800">
-                Cancel
-              </Dialog.Close>
-              <Dialog.Close
-                asChild
-                onClick={() => {
-                  if (selectedAdmin) handleDeleteAdmin(selectedAdmin.id);
-                }}
-              >
-                <button className="rounded-md bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600">
-                  Delete
-                </button>
-              </Dialog.Close>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-
-      {/* --- CV PREVIEW PANEL --- */}
-      {isCVPreviewOpen && (
-        <div className={`fixed inset-0 z-50 ${raleway.className}`}>
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setIsCVPreviewOpen(false)}
-          />
-          <div className="absolute right-0 top-0 bottom-0 w-full max-w-3xl bg-white shadow-lg flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b p-4">
-              <h3 className="text-lg font-semibold text-[#161853]">CV Preview</h3>
-              <button
-                onClick={() => setIsCVPreviewOpen(false)}
-                className="rounded-full p-1.5 hover:bg-gray-100"
-              >
-                <X className="h-5 w-5" />
+          <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 px-5 py-4">
+            <Dialog.Close className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              Cancel
+            </Dialog.Close>
+            <Dialog.Close asChild onClick={() => { if (selectedAdmin) handleDeleteAdmin(selectedAdmin.id); }}>
+              <button className="rounded-full bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600">
+                Delete
               </button>
-            </div>
+            </Dialog.Close>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
 
-            {/* Preview Content */}
-            <div className="flex-1 overflow-auto">
-              {cvPreviewUrl && (
-                <div className="w-full h-full flex items-center justify-center bg-gray-50">
-                  {/* Check if it's a PDF */}
-                  {cvPreviewUrl.toLowerCase().endsWith('.pdf') ? (
-                    <iframe
-                      src={cvPreviewUrl}
-                      className="w-full h-full"
-                      title="CV Preview"
-                    />
-                  ) : (
-                    /* For images and other formats */
-                    <div className="p-4 w-full h-full flex flex-col items-center justify-center overflow-auto">
-                      {cvPreviewUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                        <div className="relative h-[60vh] w-full">
-                          <Image
-                            src={cvPreviewUrl}
-                            alt="CV Preview"
-                            fill
-                            sizes="(max-width: 768px) 100vw, 768px"
-                            className="object-contain"
-                          />
-                        </div>
-                      ) : (
-                        <div className="text-center text-gray-500">
-                          <p className="mb-4">Preview not available for this file type</p>
-                          <a
-                            href={cvPreviewUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-block px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
-                          >
-                            Open in New Tab
-                          </a>
-                        </div>
-                      )}
+    {/* --- CV FULLSCREEN PANEL --- */}
+    {isCVPreviewOpen && (
+      <div className={`fixed inset-0 z-[60] ${raleway.className}`}>
+        <div className="absolute inset-0 bg-black/60" onClick={() => setIsCVPreviewOpen(false)} />
+        <div className="absolute bottom-0 right-0 top-0 flex w-full max-w-3xl flex-col bg-white shadow-2xl">
+          <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
+            <h3 className="text-base font-semibold text-[#161853]">CV Preview</h3>
+            <button onClick={() => setIsCVPreviewOpen(false)} className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-auto bg-slate-50">
+            {cvPreviewUrl && (
+              <>
+                {cvPreviewUrl.toLowerCase().endsWith('.pdf') ? (
+                  <iframe src={cvPreviewUrl} className="h-full w-full" title="CV Preview" />
+                ) : cvPreviewUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                  <div className="relative h-full w-full">
+                    <Image src={cvPreviewUrl} alt="CV Preview" fill sizes="(max-width: 768px) 100vw, 768px" className="object-contain" />
+                  </div>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-center text-slate-500">
+                    <div>
+                      <p className="mb-4 text-sm">Preview not available for this file type</p>
+                      <a href={cvPreviewUrl} target="_blank" rel="noopener noreferrer"
+                        className="rounded-full bg-[#292C6D] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1f2350]">
+                        Open in New Tab
+                      </a>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
-      )}
-    </div>
-  </div>
-  );
-}
+      </div>
+    )}
+        </div>
+      </div>
+      );
+    }
 
 /* ------------------- REUSABLE DIALOG FORM ------------------- */
 function AdminFormDialogImpl({

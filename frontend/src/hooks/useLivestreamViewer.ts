@@ -120,22 +120,27 @@ export function useLivestreamViewer({
     };
 
     pc.onconnectionstatechange = () => {
-      console.log(`[Student WebRTC] Connection state: ${pc.connectionState}`);
-      if (pc.connectionState === 'connected') {
-        setIsConnected(true);
-        setIsLoading(false);
-        // Clear timeout since connection succeeded
-        if (loadingTimeoutRef.current) {
-          clearTimeout(loadingTimeoutRef.current);
-          loadingTimeoutRef.current = null;
-        }
-      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      console.log(
+        '[Student] connection state:',
+        pc.connectionState
+      );
+
+      if (
+        pc.connectionState === 'disconnected' ||
+        pc.connectionState === 'failed'
+      ) {
         setIsConnected(false);
+
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = null;
+        }
+
+        // Đóng peer cũ
+        pc.close();
+
         setTimeout(() => {
-          if (pcRef.current?.connectionState !== 'connected') {
-            socket.emit('watcher', { livestreamID });
-          }
-        }, 2000);
+          socket.emit('watcher', { livestreamID });
+        }, 1000);
       }
     };
 
@@ -154,6 +159,9 @@ export function useLivestreamViewer({
       try {
         console.log(`[Student WebRTC] Received offer from broadcaster: ${from}`);
         broadcasterIdRef.current = from;
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = null;
+        }
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
         console.log('[Student WebRTC] Remote description set');
 

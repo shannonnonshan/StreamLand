@@ -122,7 +122,8 @@ export default function BroadcasterPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const cameraToggleByCameraStateRef = useRef(false); // Track if last toggle was from effect, not user
-
+  const [showUnloadConfirm, setShowUnloadConfirm] = useState(false);
+  const userTriedToCloseRef = useRef(false);
   const { showDialog, DialogComponent } = useConfirmDialog();
 
   // Track isLive for internal debugging
@@ -144,6 +145,15 @@ export default function BroadcasterPage() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!isLive) return;
+    
+    const heartbeatInterval = setInterval(() => {
+      socket.emit('broadcaster-heartbeat', { livestreamID });
+    }, 10000); // 10 giây
+
+    return () => clearInterval(heartbeatInterval);
+  }, [isLive, livestreamID]);
   useEffect(() => {
     fetchTeacherDocuments();
     
@@ -204,85 +214,8 @@ export default function BroadcasterPage() {
     return () => clearTimeout(timeoutId);
   }, [teacherID, livestreamID, router, fetchTeacherDocuments]);
 
-  useEffect(() => {
-    socket.on("watcher", handleWatcher);
-    socket.on("answer", handleAnswer);
-    socket.on("candidate", handleCandidate);
-    socket.on("bye", handleBye);
-    socket.on("viewerCount", (count: number) => setWatcherCount(count));
-    
-    // Listen for chat messages
-    socket.on("chat-message", (data: any) => {
-      // Safely extract username in case it's an object
-      const usernameValue = typeof data.username === 'string' 
-        ? data.username 
-        : (data.username?.fullName || data.username?.name || 'Anonymous');
-      
-      const message = {
-        id: data.id || Date.now().toString(),
-        username: usernameValue,
-        userRole: data.userRole || 'student',
-        message: data.message || '',
-        timestamp: data.timestamp || new Date().toISOString(),
-        avatar: data.avatar || (typeof data.username === 'object' && data.username?.avatar) || '/teacher-avatar.png',
-      };
-      setChatMessages(prev => [...prev, message]);
-    });
+ 
 
-    // Handle page unload (tab/browser close)
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isLive) {
-        e.preventDefault();
-        e.returnValue = '';
-        return '';
-      }
-    };
-
-    // Handle actual unload
-    const handleUnload = async () => {
-      if (isLive) {
-        const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
-        if (token) {
-          try {
-            // Send end livestream request without saving recording
-            await fetch(`${API_URL}/livestream/${livestreamID}/end`, {
-              method: 'PATCH',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-              },
-              body: JSON.stringify({ saveRecording: false }),
-              keepalive: true, // Important: allows request to complete even if page unloads
-            });
-          } catch (error) {
-            console.warn('[Broadcaster] Error ending livestream on unload:', error);
-          }
-        }
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('unload', handleUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.removeEventListener('unload', handleUnload);
-      
-      socket.off("watcher", handleWatcher);
-      socket.off("answer", handleAnswer);
-      socket.off("candidate", handleCandidate);
-      socket.off("bye", handleBye);
-      socket.off("viewerCount");
-      socket.off("chat-message");
-
-      // Don't disconnect socket - it's a shared instance
-      // socket.disconnect();
-      // Only close peer connections, NOT local stream
-      // Local stream is managed by confirmEndStream function
-      Object.values(peersRef.current).forEach((pc) => pc.close());
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLive, livestreamID]);
 
   // Get available cameras when component mounts or stream changes
   useEffect(() => {
@@ -1037,7 +970,7 @@ export default function BroadcasterPage() {
 
       // Update viewer count
       socket.emit('updateCurrentViewers', { livestreamID, currentViewers: watcherCount });
-
+      socket.emit('stream-ended', { livestreamID });
       // End livestream in database
       const response = await fetch(`${API_URL}/livestream/${livestreamID}/end`, {
         method: 'PATCH',
@@ -1110,36 +1043,37 @@ export default function BroadcasterPage() {
     }
   };
 
-  async function handleWatcher(data: { id: string } | string) {
+  const handleWatcher = useCallback(async (data: { id: string } | string) => {
     const watcherId = typeof data === 'string' ? data : data.id;
     console.log(`[WebRTC] handleWatcher called for: ${watcherId}`);
-    
+
     if (peersRef.current[watcherId]) {
-      console.log(`[WebRTC] Peer ${watcherId} already exists, skipping`);
-      return;
+      const existingPc = peersRef.current[watcherId];
+      if (
+        existingPc.connectionState === 'failed' ||
+        existingPc.connectionState === 'disconnected'
+      ) {
+        existingPc.close();
+        delete peersRef.current[watcherId];
+      } else {
+        return;
+      }
     }
 
     if (!localStreamRef.current) {
       console.error(`[WebRTC] ERROR: localStreamRef is null! Cannot send stream to watcher ${watcherId}`);
       return;
     }
-    
-    console.log(`[WebRTC] localStreamRef has ${localStreamRef.current.getTracks().length} tracks`);
 
-    const pc = new RTCPeerConnection({ 
+    const pc = new RTCPeerConnection({
       iceServers: ICE_SERVERS,
-      // Critical for cross-network connections
-      iceTransportPolicy: ICE_TRANSPORT_POLICY, // Use configured ICE transport policy
-      bundlePolicy: 'max-bundle', // Bundle all media on one connection
-      rtcpMuxPolicy: 'require', // Multiplex RTP and RTCP on same port
+      iceTransportPolicy: ICE_TRANSPORT_POLICY,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
     });
     peersRef.current[watcherId] = pc;
 
-    const tracks = localStreamRef.current.getTracks();
-    console.log(`[WebRTC] Adding ${tracks.length} tracks to peer connection for ${watcherId}`);
-    
-    tracks.forEach((track, index) => {
-      // Ensure track is enabled before adding
+    localStreamRef.current.getTracks().forEach((track, index) => {
       track.enabled = true;
       console.log(`[WebRTC] Adding track ${index}: kind=${track.kind}, enabled=${track.enabled}, readyState=${track.readyState}`);
       pc.addTrack(track, localStreamRef.current!);
@@ -1147,45 +1081,31 @@ export default function BroadcasterPage() {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        const candidateType = event.candidate.type; // host, srflx (STUN), or relay (TURN)
-        console.log(`[Teacher WebRTC] ICE candidate for ${watcherId} (${candidateType}):`, {
-          type: event.candidate.type,
-          protocol: event.candidate.protocol,
-          address: event.candidate.address,
-          port: event.candidate.port,
-        });
-        
-        // Log TURN usage for cross-network debugging
+        const candidateType = event.candidate.type;
         if (candidateType === 'relay') {
-          console.log(`✅ [Teacher WebRTC] Using TURN relay for ${watcherId} - good for cross-network!`);
+          console.log(`✅ [Teacher WebRTC] Using TURN relay for ${watcherId}`);
         }
-        
         socket.emit("candidate", {
           to: watcherId,
           candidate: event.candidate,
           livestreamID,
         });
-      } else {
-        console.log(`[Teacher WebRTC] ICE gathering complete for ${watcherId}`);
       }
     };
-    
+
     pc.onicegatheringstatechange = () => {
       console.log(`[Teacher WebRTC] ICE gathering state for ${watcherId}: ${pc.iceGatheringState}`);
     };
-    
+
     pc.oniceconnectionstatechange = () => {
       console.log(`[Teacher WebRTC] ICE connection state for ${watcherId}: ${pc.iceConnectionState}`);
       if (pc.iceConnectionState === 'failed') {
-        console.error(`[Teacher WebRTC] ICE connection failed for ${watcherId} - may need TURN server`);
+        console.error(`[Teacher WebRTC] ICE connection failed for ${watcherId}`);
       }
     };
 
     pc.onconnectionstatechange = () => {
       console.log(`[Teacher WebRTC] Connection state for ${watcherId}: ${pc.connectionState}`);
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        console.error(`[Teacher WebRTC] Connection failed/disconnected for ${watcherId}`);
-      }
     };
 
     const offer = await pc.createOffer();
@@ -1197,14 +1117,11 @@ export default function BroadcasterPage() {
       teacherID,
       livestreamID,
     });
-    
-    // Update currentViewers in database
+
     const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
     if (token) {
       try {
         const currentViewers = Object.keys(peersRef.current).length;
-        
-        // Update DB
         await fetch(`${API_URL}/livestream/${livestreamID}/update-viewers`, {
           method: 'PATCH',
           headers: {
@@ -1212,22 +1129,17 @@ export default function BroadcasterPage() {
             'Authorization': `Bearer ${token}`,
           },
           body: JSON.stringify({ totalViewers: currentViewers }),
-        }).catch(() => {
-          // Silently handle update viewers error
-        });
-        
-        // Update local state
+        }).catch(() => {});
+
         setWatcherCount(currentViewers);
-        
-        // Broadcast to all clients immediately
-        socket.emit('updateCurrentViewers', { livestreamID, currentViewers: currentViewers });
+        socket.emit('updateCurrentViewers', { livestreamID, currentViewers });
       } catch (error) {
-        // Silently handle error updating viewers
+        // ignore
       }
     }
-  }
+  }, [livestreamID, teacherID]); 
 
-  function handleAnswer({ from, sdp }: { from: string; sdp: RTCSessionDescriptionInit }) {
+  const handleAnswer = useCallback(({ from, sdp }: { from: string; sdp: RTCSessionDescriptionInit }) => {
     const pc = peersRef.current[from];
     if (pc) {
       pc.setRemoteDescription(new RTCSessionDescription(sdp))
@@ -1250,9 +1162,9 @@ export default function BroadcasterPage() {
           console.error(`[Teacher WebRTC] Error setting remote description:`, err);
         });
     }
-  }
+  }, []);
 
-  function handleCandidate({ from, candidate }: { from: string; candidate: RTCIceCandidateInit }) {
+  const handleCandidate = useCallback(({ from, candidate }: { from: string; candidate: RTCIceCandidateInit }) => {
     const pc = peersRef.current[from];
     if (pc) {
       if (pc.remoteDescription && pc.remoteDescription.type) {
@@ -1269,9 +1181,9 @@ export default function BroadcasterPage() {
         pendingCandidatesRef.current[from].push(candidate);
       }
     }
-  }
+  }, []);
 
-  function handleBye(id: string) {
+  const handleBye = useCallback((id: string) => {
     const pc = peersRef.current[id];
     if (pc) {
       pc.close();
@@ -1302,9 +1214,9 @@ export default function BroadcasterPage() {
       // Broadcast updated viewer count immediately
       socket.emit('updateCurrentViewers', { livestreamID, currentViewers: currentViewers });
     }
-  }
+  }, []);
 
-  function toggleMic() {
+  const toggleMic = useCallback(() => {
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (audioTrack) {
@@ -1312,9 +1224,9 @@ export default function BroadcasterPage() {
         setIsMicOn(audioTrack.enabled);
       }
     }
-  }
+  }, []);
 
-  function toggleCamera() {
+  const toggleCamera = useCallback(() => {
     if (localStreamRef.current) {
       const videoTrack = localStreamRef.current.getVideoTracks()[0];
       if (videoTrack) {
@@ -1331,8 +1243,78 @@ export default function BroadcasterPage() {
         // Note: Do NOT stop the track - recording should continue
       }
     }
-  }
+  }, []);
+   useEffect(() => {
+      socket.on("watcher", handleWatcher);
+      socket.on("answer", handleAnswer);
+      socket.on("candidate", handleCandidate);
+      socket.on("bye", handleBye);
+      socket.on("viewerCount", (count: number) => setWatcherCount(count));
+      socket.on("chat-message", (data: any) => {
+        const usernameValue = typeof data.username === 'string'
+          ? data.username
+          : (data.username?.fullName || data.username?.name || 'Anonymous');
 
+        setChatMessages(prev => [...prev, {
+          id: data.id || Date.now().toString(),
+          username: usernameValue,
+          userRole: data.userRole || 'student',
+          message: data.message || '',
+          timestamp: data.timestamp || new Date().toISOString(),
+          avatar: data.avatar || '/teacher-avatar.png',
+        }]);
+      });
+
+      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+        if (isLiveRef.current) {  // ✅ dùng ref, không cần isLive trong deps
+          e.preventDefault();
+          e.returnValue = '';
+          userTriedToCloseRef.current = true;
+        }
+      };
+
+      const handleUnload = () => {
+        if (isLiveRef.current) {
+          const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+          const payload = JSON.stringify({ saveRecording: false, forceEnd: true });
+          navigator.sendBeacon(
+            `${API_URL}/livestream/${livestreamID}/end-beacon`,
+            new Blob([payload], { type: 'application/json' })
+          );
+          fetch(`${API_URL}/livestream/${livestreamID}/end`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: payload,
+            keepalive: true,
+          }).catch(() => {});
+        }
+      };
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible' && userTriedToCloseRef.current && isLiveRef.current) {
+          userTriedToCloseRef.current = false;
+          setShowUnloadConfirm(true);
+        }
+      };
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      window.addEventListener('unload', handleUnload);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        window.removeEventListener('unload', handleUnload);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        socket.off("watcher", handleWatcher);
+        socket.off("answer", handleAnswer);
+        socket.off("candidate", handleCandidate);
+        socket.off("bye", handleBye);
+        socket.off("viewerCount");
+        socket.off("chat-message");
+        Object.values(peersRef.current).forEach((pc) => pc.close());
+      };
+    }, [livestreamID, handleWatcher, handleAnswer, handleCandidate, handleBye]); 
   // Ensure camera stays on after start (prevent auto-disable) - but respect user toggles
   useEffect(() => {
     if (!isLive) return; // Only monitor when live
@@ -1546,6 +1528,8 @@ export default function BroadcasterPage() {
 
       setIsScreenSharing(false);
       setIsCameraOn(true);
+      socket.emit('screen-share-paused', { livestreamID });
+  
       console.log(`[ScreenShare] Screen share stopped`);
     } catch (error) {
       console.error(`[ScreenShare] Error stopping screen share:`, error);
@@ -1992,7 +1976,63 @@ export default function BroadcasterPage() {
           </div>
         </div>
       )}
+      {showUnloadConfirm && (
+      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-yellow-100 rounded-full">
+                <Square className="w-6 h-6 text-yellow-600" />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900">You just tried to close the tab</h2>
+            </div>
+          </div>
 
+          <div className="p-6">
+            <p className="text-gray-700 mb-6">
+              Livestream is still running. Do you want to end and save it?
+            </p>
+
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={saveRecording}
+                  onChange={(e) => setSaveRecording(e.target.checked)}
+                  className="mt-1 w-5 h-5 text-blue-600 rounded border-gray-300"
+                />
+                <div>
+                  <p className="font-semibold text-gray-900">Save Recording</p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Save this livestream for later review and sharing with your students.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowUnloadConfirm(false)}
+                className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium"
+              >
+                Continue Livestream
+              </button>
+              <button
+                onClick={async () => {
+                  if (isEndingStream) return;
+                  setShowUnloadConfirm(false);
+                  setShowEndConfirm(false);
+                  await confirmEndStream();
+                }}
+                className="flex-1 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium"
+              >
+                End Livestream
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
       {/* Recording Preview Modal */}
       {showRecordingPreview && recordingPreview && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">

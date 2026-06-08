@@ -318,6 +318,14 @@ export default function RegisterModal({
           email: formData.email,
           password: formData.password,
           role: role as 'STUDENT' | 'TEACHER',
+          ...(role === 'TEACHER' && {
+            teacherCV: formData.teacherCV ?? undefined,
+            teacherIntroduction: formData.teacherIntroduction,
+            subjects: formData.teacherSubjects
+              .split(',').map(s => s.trim()).filter(Boolean),
+            experience: parseInt(formData.teacherExperience, 10) || 0,
+            education: formData.teacherSpecialty,
+          }),
         });
         
         if (result.success) {
@@ -332,39 +340,6 @@ export default function RegisterModal({
               `pending-student-profile:${formData.email.toLowerCase()}`,
               JSON.stringify(pendingStudentProfile),
             );
-          }
-
-          if (role === 'TEACHER') {
-            const subjects = formData.teacherSubjects
-              ? formData.teacherSubjects.split(',').map((s) => s.trim()).filter(Boolean)
-              : [];
-            const pendingTeacherProfile = {
-              subjects,
-              experience: formData.teacherExperience ? parseInt(formData.teacherExperience, 10) || 0 : 0,
-              education: formData.teacherSpecialty || '',
-              bio: formData.teacherIntroduction || '',
-            };
-            sessionStorage.setItem(
-              `pending-teacher-profile:${formData.email.toLowerCase()}`,
-              JSON.stringify(pendingTeacherProfile),
-            );
-
-            if (formData.teacherCV) {
-              const cvFile = formData.teacherCV;
-              const reader = new FileReader();
-              reader.onload = () => {
-                const base64 = (reader.result as string).split(',')[1];
-                sessionStorage.setItem(
-                  `pending-teacher-cv:${formData.email.toLowerCase()}`,
-                  JSON.stringify({
-                    name: cvFile.name,
-                    type: cvFile.type,
-                    data: base64,
-                  }),
-                );
-              };
-              reader.readAsDataURL(cvFile);
-            }
           }
 
           // Registration successful, move to OTP verification
@@ -721,7 +696,7 @@ export default function RegisterModal({
               
               <div>
                 <label htmlFor="teacherExperience" className="block text-sm font-medium text-gray-700 mb-1">
-                  Years of Experience <span className="text-red-500">*</span>
+                  Years of Experience (years) <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
@@ -737,7 +712,7 @@ export default function RegisterModal({
                     className={`block w-full rounded-lg border-0 py-2.5 pl-10 pr-4 ring-1 ring-inset ${
                       formErrors.teacherExperience ? 'ring-red-500' : 'ring-gray-300'
                     } focus:ring-2 focus:ring-[#${PrimaryColor}]`}
-                    placeholder="e.g., 5 years"
+                    placeholder="e.g., 5"
                   />
                 </div>
                 {formErrors.teacherExperience && (

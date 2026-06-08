@@ -7,11 +7,19 @@ import { useRouter, useSearchParams } from "next/navigation";
 export default function AuthCallback() {
   const router = useRouter();
   const searchParams = useSearchParams();
-
+  const error = searchParams.get("error");
+  const isApproved = searchParams.get("isApproved");
+  const bannedUntil = searchParams.get("bannedUntil");
   useEffect(() => {
     const accessToken = searchParams.get("accessToken");
     const refreshToken = searchParams.get("refreshToken");
 
+    if (error) {
+      router.push(
+        `/?error=${encodeURIComponent(error)}&isApproved=${isApproved || ""}&bannedUntil=${bannedUntil || ""}`
+      );
+      return;
+    }
     if (accessToken && refreshToken) {
       localStorage.setItem("accessToken", accessToken);
       localStorage.setItem("refreshToken", refreshToken);

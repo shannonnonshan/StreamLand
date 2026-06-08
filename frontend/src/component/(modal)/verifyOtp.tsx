@@ -106,6 +106,72 @@ export default function OTPModal({
         sessionStorage.removeItem(key);
       };
 
+      const applyPendingTeacherProfile = async () => {
+        const profileKey = `pending-teacher-profile:${email.toLowerCase()}`;
+        const cvKey = `pending-teacher-cv:${email.toLowerCase()}`;
+        const rawData = sessionStorage.getItem(profileKey);
+        if (!rawData) return;
+
+        const token = localStorage.getItem('accessToken');
+        if (!token) return;
+
+        const payload = JSON.parse(rawData) as {
+          subjects?: string[];
+          experience?: number;
+          education?: string;
+          bio?: string;
+        };
+
+        // Update teacher profile
+        await fetch(`${API_URL}/auth/profile/teacher`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            subjects: payload.subjects || [],
+            experience: payload.experience || 0,
+            education: payload.education || '',
+          }),
+        });
+
+        // Update bio vào User (không phải TeacherProfile)
+        if (payload.bio) {
+          await fetch(`${API_URL}/auth/profile`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ bio: payload.bio }),
+          });
+        }
+
+        // Upload CV nếu có
+        const rawCV = sessionStorage.getItem(cvKey);
+        if (rawCV) {
+          const cvData = JSON.parse(rawCV) as { name: string; type: string; data: string };
+          const byteString = atob(cvData.data);
+          const ab = new ArrayBuffer(byteString.length);
+          const ia = new Uint8Array(ab);
+          for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+          const file = new Blob([ab], { type: cvData.type });
+
+          const formData = new FormData();
+          formData.append('cv', file, cvData.name);
+
+          await fetch(`${API_URL}/auth/profile/teacher/upload-cv`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+          });
+
+          sessionStorage.removeItem(cvKey);
+        }
+
+        sessionStorage.removeItem(profileKey);
+      };
       let result;
       
       // Use different API based on purpose
@@ -122,8 +188,12 @@ export default function OTPModal({
       }
 
       if (result.success) {
-        if (otpPurpose === 'registration' && result.user?.role === 'STUDENT') {
-          await applyPendingStudentProfile();
+        if (otpPurpose === 'registration') {
+          if (result.user?.role === 'STUDENT') {
+            await applyPendingStudentProfile();
+          } else if (result.user?.role === 'TEACHER') {
+            await applyPendingTeacherProfile();
+          }
         }
 
         setSuccessMessage('OTP verified successfully!');

@@ -147,17 +147,34 @@ export function useAuth() {
 
 
   // Register
-  const register = useCallback(async (data: RegisterData) => {
+  const register = useCallback(async (data: RegisterData & {
+    teacherCV?: File;
+    teacherIntroduction?: string;
+    subjects?: string[];
+    experience?: number;
+    education?: string;
+  }) => {
     setLoading(true);
     setError(null);
 
     try {
+      const fd = new FormData();
+      fd.append('fullName', data.fullName);
+      fd.append('email', data.email);
+      fd.append('password', data.password);
+      if (data.role) fd.append('role', data.role);
+
+      if (data.role === 'TEACHER') {
+        if (data.teacherIntroduction) fd.append('teacherIntroduction', data.teacherIntroduction);
+        if (data.education) fd.append('education', data.education);
+        if (data.experience !== undefined) fd.append('experience', String(data.experience));
+        if (data.subjects) data.subjects.forEach(s => fd.append('subjects[]', s));
+        if (data.teacherCV) fd.append('teacherCV', data.teacherCV);
+      }
+
       const response = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
+        body: fd,
       });
 
       const result = await response.json();
@@ -297,13 +314,14 @@ export function useAuth() {
         body: JSON.stringify(data),
       });
 
-      const result = await response.json() as AuthResponse & { requires2FA?: boolean; email?: string; bannedUntil?: string };
+      const result = await response.json() as AuthResponse & { requires2FA?: boolean; email?: string; bannedUntil?: string; isApproved?: boolean };
 
       if (!response.ok) {
         return {
           success: false,
           error: result.message || 'Login failed',
           bannedUntil: result.bannedUntil,
+          isApproved: result.isApproved,
         };
       }
 
@@ -401,12 +419,12 @@ export function useAuth() {
       dispatchAuthStateChanged();
       setLoading(false);
 
-      return { success: true, user: finalUser, bannedUntil: undefined };
+      return { success: true, user: finalUser, bannedUntil: undefined, isApproved: result.isApproved };
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred';
       setError(errorMessage);
       setLoading(false);
-      return { success: false, error: errorMessage, bannedUntil: undefined };
+      return { success: false, error: errorMessage, bannedUntil: undefined, isApproved: undefined };
     }
   }, [setUser, setIsAuthenticated]);
 
@@ -555,40 +573,40 @@ export function useAuth() {
     setError(null);
 
     try {
-      // For now, send as JSON (file uploads will be handled later)
-      // TODO: Implement file upload to cloud storage first
-      const jsonData = {
-        provider: data.provider,
-        socialId: data.socialId,
-        email: data.email,
-        fullName: data.fullName,
-        avatar: data.avatar,
-        role: data.role,
-        // Teacher fields (files excluded for now)
-        teacherIntroduction: data.teacherIntroduction,
-        subjects: data.subjects,
-        experience: data.experience,
-        education: data.education,
-        website: data.website,
-        linkedin: data.linkedin,
-        // Student fields
-        studentID: data.studentID,
-        studentSchool: data.studentSchool,
-        studentClass: data.studentClass,
-      };
+      const fd = new FormData();
+      fd.append('provider', data.provider);
+      fd.append('socialId', data.socialId);
+      fd.append('email', data.email);
+      fd.append('fullName', data.fullName);
+      fd.append('role', data.role);
+      if (data.avatar) fd.append('avatar', data.avatar);
+
+      if (data.role === 'TEACHER') {
+        if (data.teacherIntroduction) fd.append('teacherIntroduction', data.teacherIntroduction);
+        if (data.education) fd.append('education', data.education);
+        if (data.experience !== undefined) fd.append('experience', String(data.experience));
+        if (data.website) fd.append('website', data.website);
+        if (data.linkedin) fd.append('linkedin', data.linkedin);
+        if (data.subjects) data.subjects.forEach(s => fd.append('subjects[]', s));
+        if (data.teacherCV) fd.append('teacherCV', data.teacherCV);
+      } else {
+        if (data.studentSchool) fd.append('studentSchool', data.studentSchool);
+        if (data.studentClass) fd.append('studentClass', data.studentClass);
+      }
 
       const response = await fetch(`${API_URL}/auth/complete-oauth`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(jsonData),
+        body: fd,
       });
 
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.message || 'OAuth registration failed');
+        return {
+          success: false,
+          error: result.message,
+          requiresApproval: result.requiresApproval,
+        };
       }
 
       // Save tokens and user data
@@ -601,7 +619,7 @@ export function useAuth() {
       dispatchAuthStateChanged();
       setLoading(false);
 
-      return { success: true, user: result.user };
+      return { success: true, user: result.user, requiresApproval: result.requiresApproval };
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'OAuth registration failed';
       setError(errorMessage);

@@ -7,7 +7,7 @@ import {
   Matches,
 } from 'class-validator';
 import { IsArray, IsInt, Min } from 'class-validator';
-import { Type} from 'class-transformer';
+import { Type, Transform} from 'class-transformer';
 import { Role } from './register.dto';
 
 export class CompleteOAuthDto {
@@ -43,12 +43,13 @@ export class CompleteOAuthDto {
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
+  @Transform(({ value }) => Array.isArray(value) ? value : [value].filter(Boolean))
   subjects?: string[];
 
   @IsInt()
   @Min(0)
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => value ? parseInt(value, 10) : undefined)
   experience?: number;
 
   @IsString()

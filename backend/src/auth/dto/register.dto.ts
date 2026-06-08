@@ -6,7 +6,11 @@ import {
   Matches,
   IsOptional,
   IsEnum,
+  IsArray,
+  IsInt,
+  Min,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { Role } from '@prisma/client';
 
 export class RegisterDto {
@@ -25,8 +29,7 @@ export class RegisterDto {
   @IsNotEmpty()
   @MinLength(6)
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, {
-    message:
-      'Password must contain at least one uppercase letter, one lowercase letter, and one number',
+    message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number',
   })
   password!: string;
 
@@ -34,6 +37,27 @@ export class RegisterDto {
   @IsNotEmpty()
   @IsOptional()
   role!: Role;
+
+  // Teacher fields
+  @IsString()
+  @IsOptional()
+  teacherIntroduction?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  @Transform(({ value }) => Array.isArray(value) ? value : [value].filter(Boolean))
+  subjects?: string[];
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  @Transform(({ value }) => value ? parseInt(value, 10) : undefined)
+  experience?: number;
+
+  @IsString()
+  @IsOptional()
+  education?: string;
 }
 
 export { Role };

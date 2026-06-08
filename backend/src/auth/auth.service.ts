@@ -29,7 +29,13 @@ import {
 export class AuthService {
   private otpRateLimitMap = new Map<string, number>();
   private readonly OTP_RATE_LIMIT_MS = 60 * 1000; // 1 minute
-
+    private pendingTeacherData = new Map<string, {
+    subjects?: string[];
+    experience?: number;
+    education?: string;
+    bio?: string;
+    cvUrl?: string;
+  }>();
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -69,7 +75,7 @@ export class AuthService {
     });
   }
 
-  async register(registerDto: RegisterDto) {
+  async register(registerDto: RegisterDto, cvFile?: any) {
     const { email, password, fullName, role } = registerDto;
 
     const existingUser = await this.prisma.postgres.user.findUnique({
@@ -88,7 +94,26 @@ export class AuthService {
 
     const otp = this.generateOTP();
     const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    let cvUrl: string | undefined;
+    if (role === 'TEACHER' && cvFile) {
+      cvUrl = await this.r2StorageService.uploadCV(
+        email,
+        cvFile.originalname,
+        cvFile.buffer,
+        cvFile.mimetype,
+      );
+    }
 
+    // Lưu teacher data vào Map
+    if (role === 'TEACHER') {
+      this.pendingTeacherData.set(email, {
+        subjects: registerDto.subjects,
+        experience: registerDto.experience,
+        education: registerDto.education,
+        bio: registerDto.teacherIntroduction,
+        cvUrl,
+      });
+    }
     if (existingPending) {
       await this.prisma.postgres.pendingRegistration.update({
         where: { email },
@@ -150,11 +175,12 @@ export class AuthService {
 
     if (user.role === 'TEACHER') {
       if (!user.teacherProfile || !user.teacherProfile.isApproved) {
-        throw new UnauthorizedException(
-          'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).'
-        );
+        throw new UnauthorizedException({
+          message: 'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).',
+          isApproved: false,
+        });
       }
-
+        
       if (user.teacherProfile.rejectedAt) {
         const reason = user.teacherProfile.rejectionReason || 'No reason provided';
         throw new UnauthorizedException(
@@ -260,12 +286,27 @@ export class AuthService {
     });
 
     if (pendingReg.role === 'TEACHER') {
-      await this.prisma.postgres.teacherProfile.create({
-        data: {
-          userId: user.id,
-        },
-      });
-    } else if (pendingReg.role === 'STUDENT') {
+        const teacherData = this.pendingTeacherData.get(email) || {};
+
+        await this.prisma.postgres.teacherProfile.create({
+          data: {
+            userId: user.id,
+            subjects: teacherData.subjects || [],
+            experience: teacherData.experience,
+            education: teacherData.education,
+            cvUrl: teacherData.cvUrl,
+          },
+        });
+
+        if (teacherData.bio) {
+          await this.prisma.postgres.user.update({
+            where: { id: user.id },
+            data: { bio: teacherData.bio },
+          });
+        }
+
+        this.pendingTeacherData.delete(email); // cleanup
+      } else if (pendingReg.role === 'STUDENT') {
       await this.prisma.postgres.studentProfile.create({
         data: {
           userId: user.id,
@@ -652,20 +693,24 @@ export class AuthService {
         where: { userId: user.id },
       });
 
-      if (!teacherProfile || !teacherProfile.isApproved) {
-        throw new UnauthorizedException(
-          'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).'
-        );
+      if (teacherProfile?.rejectedAt) {
+        const reason =
+          teacherProfile.rejectionReason || 'No reason provided';
+
+        throw new UnauthorizedException({
+          message: `Your teacher account was rejected. Reason: ${reason}. Please contact support.`,
+          isApproved: false,
+        });
       }
 
-      if (teacherProfile.rejectedAt) {
-        const reason = teacherProfile.rejectionReason || 'No reason provided';
-        throw new UnauthorizedException(
-          `Your teacher account was rejected. Reason: ${reason}. Please contact support.`
-        );
+      if (!teacherProfile || !teacherProfile.isApproved) {
+        throw new UnauthorizedException({
+          message:
+            'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).',
+          isApproved: false,
+        });
       }
     }
-
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
     await this.prisma.postgres.session.create({
@@ -736,17 +781,22 @@ export class AuthService {
         where: { userId: user.id },
       });
 
-      if (!teacherProfile || !teacherProfile.isApproved) {
-        throw new UnauthorizedException(
-          'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).'
-        );
+      if (teacherProfile?.rejectedAt) {
+        const reason =
+          teacherProfile.rejectionReason || 'No reason provided';
+
+        throw new UnauthorizedException({
+          message: `Your teacher account was rejected. Reason: ${reason}. Please contact support.`,
+          isApproved: false,
+        });
       }
 
-      if (teacherProfile.rejectedAt) {
-        const reason = teacherProfile.rejectionReason || 'No reason provided';
-        throw new UnauthorizedException(
-          `Your teacher account was rejected. Reason: ${reason}. Please contact support.`
-        );
+      if (!teacherProfile || !teacherProfile.isApproved) {
+        throw new UnauthorizedException({
+          message:
+            'Your teacher account is pending approval. Please wait for admin review (usually within 4 hours).',
+          isApproved: false,
+        });
       }
     }
     const tokens = await this.generateTokens(user.id, user.email, user.role);
@@ -774,13 +824,13 @@ export class AuthService {
     };
   }
 
-  async completeOAuthRegistration(completeOAuthDto: CompleteOAuthDto) {
+  async completeOAuthRegistration(completeOAuthDto: CompleteOAuthDto, cvFile?: any) {
     const {
       provider, socialId, email, fullName, avatar, role,
       teacherIntroduction, studentSchool, studentClass,
       subjects, experience, education, website, linkedin,
     } = completeOAuthDto;
-
+    
     const existingUser = await this.prisma.postgres.user.findFirst({
       where: {
         OR: [
@@ -828,6 +878,15 @@ export class AuthService {
       data: userData,
     });
 
+    let cvUrl: string | undefined;
+    if (role === 'TEACHER' && cvFile) {
+      cvUrl = await this.r2StorageService.uploadCV(
+        user.id,
+        cvFile.originalname,
+        cvFile.buffer,
+        cvFile.mimetype,
+      );
+    }
     if (role === 'TEACHER') {
       await this.prisma.postgres.teacherProfile.create({
         data: {
@@ -837,6 +896,7 @@ export class AuthService {
           ...(experience && { experience }),
           ...(website && { website }),
           ...(linkedin && { linkedin }),
+          ...(cvUrl && { cvUrl }),
         },
       });
     } else if (role === 'STUDENT') {

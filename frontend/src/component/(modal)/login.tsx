@@ -151,6 +151,14 @@ export default function LoginModal({
             return;
           }
 
+          if (result.isApproved === false) {
+            setNotification({
+              type: 'error',
+              message: 'Your teacher account has not been approved yet. Please wait for the approval email before signing in.',
+            });
+            return;
+          }
+
           setNotification({
             type: 'error',
             message: result.error || 'Login failed. Please check your email and password.'
@@ -383,7 +391,6 @@ export default function LoginModal({
                     </button>
                   </p>
                 </div>
-                
               </Dialog.Panel>
             </Transition.Child>
           </div>

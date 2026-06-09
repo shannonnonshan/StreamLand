@@ -63,6 +63,7 @@ export default function OAuthCompletePage() {
 
   const handleComplete = async (data: {
     role: 'STUDENT' | 'TEACHER';
+    approvalEmail: string;
     teacherCV?: File;
     teacherIntroduction?: string;
     subjects?: string[];
@@ -75,12 +76,10 @@ export default function OAuthCompletePage() {
   }) => {
     if (!profile) return;
 
-  
-
     const result = await completeOAuthRegistration({
       provider,
       socialId: profile.socialId,
-      email: profile.email,
+      email: data.approvalEmail,   // use the confirmed/entered email
       fullName: profile.fullName,
       avatar: profile.avatar,
       role: data.role,

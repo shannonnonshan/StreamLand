@@ -241,6 +241,9 @@ export default function VideoPlayerPage() {
   const [relatedVideos, setRelatedVideos] = useState<RelatedVideo[]>([]);
   const [displayedVideos, setDisplayedVideos] = useState(5);
   const [loading, setLoading] = useState(true);
+  const [relatedLoading, setRelatedLoading] = useState(true);
+  const [commentsLoading, setCommentsLoading] = useState(true);
+  const [reactionsLoading, setReactionsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reportedView, setReportedView] = useState(false);
   const autoPlayAttemptedRef = useRef(false);
@@ -255,6 +258,8 @@ export default function VideoPlayerPage() {
   const syncProgressRef = useRef<(position: number, totalDuration: number, force?: boolean) => void>(() => {});
   const readSnapshotRef = useRef<() => LocalVideoProgressSnapshot | null>(() => null);
   const videoInfoRef = useRef<typeof videoInfo>(null);
+  const isSeekingRef = useRef(false);      // true while user is dragging the seek bar
+  const seekingTimeRef = useRef<number>(0); // visual position while dragging
 
   const coerceNumber = (value: unknown): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -470,11 +475,7 @@ export default function VideoPlayerPage() {
           : null;
 
         const response = await fetch(`${API_URL}/livestream/${livestreamID}`, {
-          headers: token
-            ? {
-                Authorization: `Bearer ${token}`,
-              }
-            : undefined,
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         });
         
         if (!response.ok) {
@@ -486,11 +487,11 @@ export default function VideoPlayerPage() {
 
         const data = await response.json();
         
-        // Check if video has recording
         if (!data.recordingUrl || data.status !== 'ENDED') {
           throw new Error('This video is not available');
         }
 
+        // ── CRITICAL: set videoInfo immediately so player + progress can start ──
         setVideoInfo({
           id: data.id,
           title: data.title,
@@ -501,8 +502,8 @@ export default function VideoPlayerPage() {
             avatar: data.teacher.avatar,
           },
           totalViews: data.totalViews || 0,
-          likes: 0, // TODO: Implement likes system
-          dislikes: 0, // TODO: Implement dislikes system
+          likes: 0,
+          dislikes: 0,
           endedAt: data.endedAt,
           duration: data.duration || 0,
           category: data.category || 'Education',
@@ -513,24 +514,11 @@ export default function VideoPlayerPage() {
         if (data.duration && data.duration > 0) {
           setDuration((prev) => (prev > 0 ? prev : data.duration));
         }
-        
-        console.log('[Fetch] VideoInfo set with recording URL:', data.recordingUrl);
-
-        // Fetch related videos
-        try {
-          const relatedResponse = await fetch(`${API_URL}/livestream/${livestreamID}/related?limit=10`);
-          if (relatedResponse.ok) {
-            const relatedData = await relatedResponse.json();
-            setRelatedVideos(relatedData);
-          }
-        } catch (relatedErr) {
-          console.error('Error fetching related videos:', relatedErr);
-          // Don't fail the whole page if related videos fail
-        }
       } catch (err) {
         console.error('Error fetching video:', err);
         setError(err instanceof Error ? err.message : 'Failed to load video');
       } finally {
+        // Unblock render immediately — don't wait for any secondary data
         setLoading(false);
       }
     };
@@ -538,69 +526,98 @@ export default function VideoPlayerPage() {
     fetchVideoData();
   }, [livestreamID]);
 
-  // Load current student profile and comments
+  // ── DEFERRED: related videos — loads after player is visible ──────────────
   useEffect(() => {
-    const loadProfileAndComments = async () => {
+    if (!livestreamID) return;
+    setRelatedLoading(true);
+
+    const controller = new AbortController();
+    fetch(`${API_URL}/livestream/${livestreamID}/related?limit=10`, { signal: controller.signal })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setRelatedVideos(data || []))
+      .catch(() => {}) // silent fail — not critical
+      .finally(() => setRelatedLoading(false));
+
+    return () => controller.abort();
+  }, [livestreamID]);
+
+  // ── CRITICAL: resolve auth state as soon as videoInfo is ready ────────────
+  useEffect(() => {
+    const loadAuth = async () => {
       const token = getStoredToken();
-      if (token) {
-        try {
-          const p = await fetch(`${API_URL}/auth/profile`, { headers: { Authorization: `Bearer ${token}` } });
-          if (p.ok) {
-            const jd = await p.json();
-            setCurrentStudent({ id: jd.id || jd.userId || jd.sub || '', fullName: jd.fullName || 'Student', avatar: jd.avatar });
-            setIsAuthenticated(true);
-          } else {
-            setCurrentStudent(null);
-            setIsAuthenticated(false);
-          }
-        } catch (e) {
-          console.error('Profile load failed', e);
+      if (!token) {
+        setCurrentStudent(null);
+        setIsAuthenticated(false);
+        return;
+      }
+      try {
+        const p = await fetch(`${API_URL}/auth/profile`, { headers: { Authorization: `Bearer ${token}` } });
+        if (p.ok) {
+          const jd = await p.json();
+          setCurrentStudent({ id: jd.id || jd.userId || jd.sub || '', fullName: jd.fullName || 'Student', avatar: jd.avatar });
+          setIsAuthenticated(true);
+        } else {
           setCurrentStudent(null);
           setIsAuthenticated(false);
         }
-      } else {
+      } catch {
         setCurrentStudent(null);
         setIsAuthenticated(false);
       }
+    };
+    loadAuth();
+  }, [videoInfo?.id]);
 
-      if (!videoInfo?.id) return;
+  // ── DEFERRED: comments + streak enrichment — non-blocking ─────────────────
+  useEffect(() => {
+    if (!videoInfo?.id) return;
+    setCommentsLoading(true);
+
+    const controller = new AbortController();
+
+    (async () => {
       try {
-        const r = await fetch(`${API_URL}/livestream/${videoInfo.id}/comments?limit=50`);
-        if (r.ok) {
-          const data = await r.json();
-          const mapped: VideoComment[] = (data || []).map((c: any) => ({
-            id: c.id,
-            author: c.author || 'Student',
-            authorId: c.studentId || c.student_id || null,
-            authorAvatar: c.authorAvatar || undefined,
-            content: c.content,
-            createdAt: c.createdAt,
-            likes: c.likes || 0,
-            dislikes: c.dislikes || 0,
-            myReaction: null,
-            authorStreak: null,
-          }));
-          setComments(mapped);
-          // Enrich with per-author streaks (dedupe)
-          const uniqueIds = Array.from(new Set(mapped.map((m) => m.authorId).filter(Boolean))) as string[];
-          if (uniqueIds.length > 0) {
-            try {
+        const r = await fetch(`${API_URL}/livestream/${videoInfo.id}/comments?limit=50`, { signal: controller.signal });
+        if (!r.ok) return;
+        const data = await r.json();
+        const mapped: VideoComment[] = (data || []).map((c: any) => ({
+          id: c.id,
+          author: c.author || 'Student',
+          authorId: c.studentId || c.student_id || null,
+          authorAvatar: c.authorAvatar || undefined,
+          content: c.content,
+          createdAt: c.createdAt,
+          likes: c.likes || 0,
+          dislikes: c.dislikes || 0,
+          myReaction: null,
+          authorStreak: null,
+        }));
+        setComments(mapped);
+
+        // Enrich streaks in background — fire-and-forget, never block comments render
+        const uniqueIds = Array.from(new Set(mapped.map((m) => m.authorId).filter(Boolean))) as string[];
+        if (uniqueIds.length > 0) {
+          Promise.all(uniqueIds.map(async (uid) => [uid, await getUserStats(uid)] as const))
+            .then((results) => {
               const streakMap: Record<string, number> = {};
-              const statsResults = await Promise.all(uniqueIds.map(async (uid) => [uid, await getUserStats(uid)] as const));
-              statsResults.forEach(([uid, stats]) => {
+              results.forEach(([uid, stats]) => {
                 if (stats && typeof stats.streak === 'number') streakMap[uid] = stats.streak;
               });
-              setComments((prev) => prev.map((c) => ({ ...c, authorStreak: c.authorId ? streakMap[c.authorId] ?? 0 : null })));
-            } catch (e) {
-              // ignore enrich failures
-            }
-          }
+              setComments((prev) => prev.map((c) => ({
+                ...c,
+                authorStreak: c.authorId ? (streakMap[c.authorId] ?? 0) : null,
+              })));
+            })
+            .catch(() => {});
         }
-      } catch (e) {
-        console.error('Comments load failed', e);
+      } catch {
+        // silent fail — comments are non-critical
+      } finally {
+        setCommentsLoading(false);
       }
-    };
-    loadProfileAndComments();
+    })();
+
+    return () => controller.abort();
   }, [videoInfo?.id]);
 
   useEffect(() => {
@@ -700,7 +717,7 @@ export default function VideoPlayerPage() {
   useEffect(() => {
     const fetchVideoReactionData = async () => {
       if (!videoInfo?.id) return;
-
+      setReactionsLoading(true);
       try {
         const statsResp = await fetch(`${API_URL}/livestream/${videoInfo.id}/reaction-stats`);
         if (statsResp.ok) {
@@ -725,6 +742,8 @@ export default function VideoPlayerPage() {
         }
       } catch (err) {
         console.error('Failed to fetch video reactions:', err);
+      } finally {
+        setReactionsLoading(false);
       }
     };
 
@@ -830,8 +849,10 @@ export default function VideoPlayerPage() {
       };
 
       const updateTime = () => {
-        setCurrentTime(video.currentTime);
-        console.log('[Video] Time update:', video.currentTime, 'Duration:', video.duration); // Debug
+        // Don't override visual position while user is dragging the seek bar
+        if (!isSeekingRef.current) {
+          setCurrentTime(video.currentTime);
+        }
 
         const previousPlaybackPosition = lastPlaybackPositionRef.current;
         if (previousPlaybackPosition !== null) {
@@ -950,6 +971,8 @@ export default function VideoPlayerPage() {
         }
       };
 
+      let isRestoringSeek = false;
+
       const handleCanPlay = () => {
         if (video.duration && isFinite(video.duration) && !isNaN(video.duration) && video.duration > 0) {
           setDuration(video.duration);
@@ -962,8 +985,10 @@ export default function VideoPlayerPage() {
           const target = maxDur > 0 ? Math.min(seekTo, maxDur - 1) : seekTo;
           pendingSeekRef.current = null;
 
+          isRestoringSeek = true;
           const onSeeked = () => {
             video.removeEventListener('seeked', onSeeked);
+            isRestoringSeek = false;
             startPlayback();
           };
           video.addEventListener('seeked', onSeeked);
@@ -971,6 +996,21 @@ export default function VideoPlayerPage() {
           setCurrentTime(target);
         } else {
           startPlayback();
+        }
+      };
+
+      const handleSeeked = () => {
+        // Skip the initial restore seek — only react to user-initiated seeks
+        if (isRestoringSeek) return;
+
+        // video.currentTime is now the real new position — reset throttle and sync immediately
+        lastPlaybackPositionRef.current = video.currentTime;
+        lastProgressPostRef.current = 0;
+        const effectiveDuration = video.duration && isFinite(video.duration) && video.duration > 0
+          ? video.duration
+          : (videoInfoRef.current?.duration || 0);
+        if (effectiveDuration > 0) {
+          void syncProgressRef.current(video.currentTime, effectiveDuration, true);
         }
       };
 
@@ -983,6 +1023,7 @@ export default function VideoPlayerPage() {
       video.addEventListener("play", handlePlay);
       video.addEventListener("pause", handlePause);
       video.addEventListener("ended", handleEnded);
+      video.addEventListener("seeked", handleSeeked);
 
       // Store cleanup functions
       cleanupFns.push(() => {
@@ -993,7 +1034,7 @@ export default function VideoPlayerPage() {
         video.removeEventListener("play", handlePlay);
         video.removeEventListener("pause", handlePause);
         video.removeEventListener("ended", handleEnded);
-        video.removeEventListener("seeked", () => {});
+        video.removeEventListener("seeked", handleSeeked);
       });
 
       // Do not force `load()` here; it can reset currentTime and fight resume logic.
@@ -1044,7 +1085,7 @@ export default function VideoPlayerPage() {
 
         const target = Math.max(0, Math.min(progress.lastPosition, (progress.duration || video.duration || 0) - 1));
         pendingSeekRef.current = target;
-        activeWatchSecondsRef.current = Math.max(0, progress.lastPosition || 0);
+        activeWatchSecondsRef.current = 0;
         lastPlaybackPositionRef.current = target;
         if ((progress.duration || 0) > 0) {
           writeSnapshot(videoInfo.id, target, progress.duration);
@@ -1130,28 +1171,55 @@ export default function VideoPlayerPage() {
     setIsMuted(newVolume === 0);
   };
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Called while dragging — only update visual position, don't seek video yet
+  const handleSeekStart = () => {
+    isSeekingRef.current = true;
+  };
+
+  const handleSeekMove = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newTime = parseFloat(e.target.value);
+    if (isNaN(newTime)) return;
+    seekingTimeRef.current = newTime;
+    setCurrentTime(newTime); // update bar visually while dragging
+  };
+
+  // Called on mouse/touch release — seek video to final position and sync
+  const handleSeekEnd = () => {
     const video = videoRef.current;
     if (!video) return;
 
-    const newTime = parseFloat(e.target.value);
-    
-    // Validate the new time is within bounds
-    if (isNaN(newTime)) return;
-    
-    // Ensure video duration is valid before seeking
     const videoDuration = video.duration;
-    if (!videoDuration || isNaN(videoDuration) || !isFinite(videoDuration)) {
-      console.warn('[Video] Cannot seek - invalid duration:', videoDuration);
-      return;
+    if (!videoDuration || isNaN(videoDuration) || !isFinite(videoDuration)) return;
+
+    // currentTime state already has the dragged value from handleSeekMove
+    const clampedTime = Math.max(0, Math.min(currentTime, videoDuration));
+
+    isSeekingRef.current = false;
+    seekingTimeRef.current = 0;
+
+    try {
+      video.currentTime = clampedTime;
+      // seeked event will fire → handleSeeked will force sync
+    } catch (err) {
+      console.error('[Video] Seek error:', err);
     }
-    
-    // Clamp the time to valid range
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Kept for the sidebar transcript slider (instant seek, no drag pattern needed)
+    const video = videoRef.current;
+    if (!video) return;
+    const newTime = parseFloat(e.target.value);
+    if (isNaN(newTime)) return;
+    const videoDuration = video.duration;
+    if (!videoDuration || isNaN(videoDuration) || !isFinite(videoDuration)) return;
     const clampedTime = Math.max(0, Math.min(newTime, videoDuration));
-    
     try {
       video.currentTime = clampedTime;
       setCurrentTime(clampedTime);
+      lastPlaybackPositionRef.current = clampedTime;
+      lastProgressPostRef.current = 0;
+      void syncProgressRef.current(clampedTime, videoDuration, true);
     } catch (error) {
       console.error('[Video] Seek error:', error);
     }
@@ -1452,7 +1520,6 @@ export default function VideoPlayerPage() {
                     <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
                       {/* Progress fill */}
                       <div 
-                        key={currentTime}
                         className="h-full bg-linear-to-r from-[#EC255A] to-[#ff4d7a] transition-all duration-100"
                         style={{ 
                           width: `${(currentTime / (duration > 0 ? duration : (videoInfo?.duration || 1))) * 100}%` 
@@ -1465,7 +1532,11 @@ export default function VideoPlayerPage() {
                       min="0"
                       max={duration > 0 ? duration : (videoInfo?.duration || 100)}
                       value={currentTime}
-                      onChange={handleSeek}
+                      onMouseDown={handleSeekStart}
+                      onTouchStart={handleSeekStart}
+                      onChange={handleSeekMove}
+                      onMouseUp={handleSeekEnd}
+                      onTouchEnd={handleSeekEnd}
                       disabled={!duration && !videoInfo?.duration}
                       className="absolute top-0 left-0 w-full h-1.5 appearance-none cursor-pointer disabled:cursor-not-allowed bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg hover:[&::-webkit-slider-thumb]:scale-110 [&::-webkit-slider-thumb]:transition-transform [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
                     />
@@ -1543,6 +1614,13 @@ export default function VideoPlayerPage() {
                   </div>
 
                   <div className="flex items-center gap-3">
+                    {reactionsLoading ? (
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-20 rounded-xl bg-gray-100 animate-pulse" />
+                        <div className="h-10 w-20 rounded-xl bg-gray-100 animate-pulse" />
+                      </div>
+                    ) : (
+                      <>
                     <button
                       onClick={handleLike}
                       className={`group flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all duration-300 font-semibold shadow-md hover:shadow-lg hover:scale-105 ${
@@ -1565,6 +1643,8 @@ export default function VideoPlayerPage() {
                       <ThumbsDown size={18} className={videoReaction === 'dislike' ? "fill-current" : ""} />
                       <span className="text-sm">{videoDislikeCount}</span>
                     </button>
+                      </>
+                    )}
                     <button
                       onClick={handleShare}
                       className="group flex items-center gap-2 px-5 py-2.5 bg-linear-to-r from-[#EC255A] to-[#ff4d7a] text-white rounded-xl hover:shadow-lg transition-all duration-300 font-semibold hover:scale-105"
@@ -1619,7 +1699,9 @@ export default function VideoPlayerPage() {
 
                 {/* Comments Section */}
                 <div className="mt-6 bg-white rounded-2xl p-4 border border-gray-100">
-                  <h4 className="text-sm font-bold text-gray-900 mb-3 uppercase tracking-wide">Comments ({comments.length})</h4>
+                  <h4 className="text-sm font-bold text-gray-900 mb-3 uppercase tracking-wide">
+                    Comments {commentsLoading ? '' : `(${comments.length})`}
+                  </h4>
                   {isAuthenticated ? (
                     <div className="mb-4">
                       <div className="flex items-start gap-3">
@@ -1652,42 +1734,59 @@ export default function VideoPlayerPage() {
                   )}
 
                   <div className="space-y-3">
-                    {comments.map(c => (
-                      <div key={c.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                        <div className="flex items-start justify-between">
+                    {commentsLoading ? (
+                      [1, 2, 3].map((i) => (
+                        <div key={i} className="p-3 bg-gray-50 rounded-lg border border-gray-100 animate-pulse">
                           <div className="flex items-start gap-3">
-                            <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 shrink-0">
-                              {c.authorAvatar ? (
-                                <Image
-                                  src={c.authorAvatar}
-                                  alt={c.author || 'Student'}
-                                  width={32}
-                                  height={32}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-[#161853] to-[#292C6D] text-white text-xs font-bold">
-                                  {(c.author||'S').charAt(0)}
-                                </div>
-                              )}
+                            <div className="w-8 h-8 rounded-full bg-gray-200 shrink-0" />
+                            <div className="flex-1 space-y-2">
+                              <div className="h-3 w-24 bg-gray-200 rounded" />
+                              <div className="h-3 w-full bg-gray-200 rounded" />
+                              <div className="h-3 w-3/4 bg-gray-200 rounded" />
                             </div>
-                            <div>
-                              <div className="text-sm font-semibold text-gray-900">
-                                {c.author}
-                                {typeof c.authorStreak === 'number' && c.authorStreak > 0 && (
-                                  <span className="ml-2 inline-flex items-center gap-1 text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded">🔥 {c.authorStreak}</span>
-                                )}
-                              </div>
-                              <div className="text-sm text-gray-700 mt-1">{c.content}</div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => handleCommentReaction(c.id, 'like')} className="text-sm px-2 py-1 bg-white rounded">👍 {c.likes}</button>
-                            <button onClick={() => handleCommentReaction(c.id, 'dislike')} className="text-sm px-2 py-1 bg-white rounded">👎 {c.dislikes}</button>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    ) : comments.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-4">No comments yet. Be the first!</p>
+                    ) : (
+                      comments.map(c => (
+                        <div key={c.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-start gap-3">
+                              <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 shrink-0">
+                                {c.authorAvatar ? (
+                                  <Image
+                                    src={c.authorAvatar}
+                                    alt={c.author || 'Student'}
+                                    width={32}
+                                    height={32}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-[#161853] to-[#292C6D] text-white text-xs font-bold">
+                                    {(c.author||'S').charAt(0)}
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <div className="text-sm font-semibold text-gray-900">
+                                  {c.author}
+                                  {typeof c.authorStreak === 'number' && c.authorStreak > 0 && (
+                                    <span className="ml-2 inline-flex items-center gap-1 text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded">🔥 {c.authorStreak}</span>
+                                  )}
+                                </div>
+                                <div className="text-sm text-gray-700 mt-1">{c.content}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => handleCommentReaction(c.id, 'like')} className="text-sm px-2 py-1 bg-white rounded">👍 {c.likes}</button>
+                              <button onClick={() => handleCommentReaction(c.id, 'dislike')} className="text-sm px-2 py-1 bg-white rounded">👎 {c.dislikes}</button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               </div>
@@ -1828,7 +1927,20 @@ export default function VideoPlayerPage() {
                 </h3>
               </div>
               
-              {relatedVideos.length === 0 ? (
+              {relatedLoading ? (
+                <div className="p-4 space-y-3">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="flex items-start gap-3 p-2 animate-pulse">
+                      <div className="w-36 h-20 shrink-0 rounded-md bg-gray-200" />
+                      <div className="flex-1 space-y-2 pt-1">
+                        <div className="h-3 bg-gray-200 rounded w-full" />
+                        <div className="h-3 bg-gray-200 rounded w-4/5" />
+                        <div className="h-3 bg-gray-200 rounded w-1/2" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : relatedVideos.length === 0 ? (
                 <div className="text-center py-12 px-6">
                   <div className="w-16 h-16 bg-linear-to-br from-purple-100 to-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
                     <Play className="text-purple-500" size={28} />

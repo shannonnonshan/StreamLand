@@ -1355,7 +1355,7 @@ export class StudentService {
       },
     });
 
-    const lastPosition = Math.max(existingProgress?.lastPosition || 0, incomingLastPosition);
+    const lastPosition = incomingLastPosition;
     const duration = Math.max(existingProgress?.duration || 0, incomingDuration);
     const computedProgress = duration > 0
       ? Math.max(0, Math.min(100, (lastPosition / duration) * 100))

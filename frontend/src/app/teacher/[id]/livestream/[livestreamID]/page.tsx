@@ -212,7 +212,7 @@ export default function BroadcasterPage() {
       fetchSavedChatMessages();
     }, 0);
     return () => clearTimeout(timeoutId);
-  }, [teacherID, livestreamID, router, fetchTeacherDocuments]);
+  }, [teacherID, livestreamID, fetchTeacherDocuments]);
 
  
 
@@ -1990,43 +1990,15 @@ export default function BroadcasterPage() {
 
           <div className="p-6">
             <p className="text-gray-700 mb-6">
-              Livestream is still running. Do you want to end and save it?
+              Please end your livestream before leaving. Click the <strong>Stop</strong> button to end the stream properly.
             </p>
-
-            <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={saveRecording}
-                  onChange={(e) => setSaveRecording(e.target.checked)}
-                  className="mt-1 w-5 h-5 text-blue-600 rounded border-gray-300"
-                />
-                <div>
-                  <p className="font-semibold text-gray-900">Save Recording</p>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Save this livestream for later review and sharing with your students.
-                  </p>
-                </div>
-              </label>
-            </div>
 
             <div className="flex gap-3">
               <button
                 onClick={() => setShowUnloadConfirm(false)}
-                className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium"
+                className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
               >
-                Continue Livestream
-              </button>
-              <button
-                onClick={async () => {
-                  if (isEndingStream) return;
-                  setShowUnloadConfirm(false);
-                  setShowEndConfirm(false);
-                  await confirmEndStream();
-                }}
-                className="flex-1 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium"
-              >
-                End Livestream
+                Back to Livestream
               </button>
             </div>
           </div>

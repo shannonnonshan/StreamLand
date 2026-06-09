@@ -78,7 +78,7 @@ export default function LivestreamViewerPage() {
   const [isStreamEnded, setIsStreamEnded] = useState(false);
   
   // WebRTC connection using custom hook
-  const { isConnected, isLoading, remoteVideoRef } = useLivestreamViewer({
+  const { isConnected, isLoading, isPlayBlocked, setIsPlayBlocked, remoteVideoRef } = useLivestreamViewer({
     livestreamID: livestreamID,
     onError: (error) => {
       setStreamError(error.message || 'Unable to connect to livestream');
@@ -569,91 +569,95 @@ export default function LivestreamViewerPage() {
               <div ref={videoContainerRef} className="relative bg-black rounded-2xl overflow-hidden shadow-2xl aspect-video group">
             
                 {/* Split view: Video + Shared Document */}
-                <div className="absolute inset-0 flex">
-                  {/* Video Stream - takes full width or 50% if document is shared */}
-                  <div className={`relative transition-all duration-300 ${showSharedDocument ? 'w-1/2' : 'w-full'}`}>
-                    <video
-                      ref={remoteVideoRef}
-                      autoPlay
-                      playsInline
-                      className="absolute inset-0 w-full h-full object-contain bg-gray-900"
-                    />
-                  </div>
-
-                  {/* Shared Document Viewer - 50% when active */}
-                  {showSharedDocument && sharedDocument && (
-                    <div className="w-1/2 bg-white flex flex-col border-l-4 border-green-500 shadow-2xl">
-                      {/* Document Header */}
-                      <div className="flex items-center justify-between p-3 bg-green-50 border-b-2 border-green-200">
-                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                          {sharedDocument.type === 'pdf' || sharedDocument.type === 'doc' || sharedDocument.type === 'ppt' ? (
-                            <DocumentIcon className="h-5 w-5 text-red-600 shrink-0" />
-                          ) : sharedDocument.type === 'image' ? (
-                            <PhotoIcon className="h-5 w-5 text-blue-600 shrink-0" />
-                          ) : (
-                            <VideoCameraIcon className="h-5 w-5 text-purple-600 shrink-0" />
-                          )}
-                          <h3 className="font-semibold text-sm truncate">{sharedDocument.name}</h3>
-                        </div>
-                        <span className="text-xs text-white px-3 py-1 bg-green-600 rounded-full shrink-0 font-semibold animate-pulse">
-                          🎓 Shared by Teacher
-                        </span>
+              <div className="absolute inset-0 flex">
+                <div className={`relative transition-all duration-300 ${showSharedDocument ? 'w-1/2' : 'w-full'}`}>
+                  <video
+                    ref={remoteVideoRef}
+                    autoPlay
+                    playsInline
+                    className="absolute inset-0 w-full h-full object-contain bg-gray-900"
+                  />
+                  {isPlayBlocked && (
+                    <div
+                      className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer z-20 bg-black/40"
+                      onClick={() => {
+                        if (remoteVideoRef.current) {
+                          remoteVideoRef.current.muted = false;
+                          remoteVideoRef.current.play().catch(() => {});
+                          setIsPlayBlocked(false);
+                        }
+                      }}
+                    >
+                      <div className="bg-black/60 rounded-full p-6 mb-3">
+                        <PlayIcon className="h-12 w-12 text-white" />
                       </div>
-                  
-                      {/* Document Content */}
-                      <div className="flex-1 overflow-auto p-4 bg-gray-50">
-                        {sharedDocument.type === 'image' ? (
-                          <div className="relative mx-auto h-64 w-full max-w-3xl overflow-hidden rounded">
-                            <Image
-                              src={sharedDocument.url}
-                              alt={sharedDocument.name}
-                              fill
-                              sizes="(max-width: 768px) 100vw, 768px"
-                              className="object-contain"
-                            />
-                          </div>
-                        ) : sharedDocument.type === 'video' ? (
-                          <video
-                            src={sharedDocument.url}
-                            controls
-                            className="max-w-full h-auto mx-auto"
-                            onLoadedMetadata={(e) => {
-                              // Handle play promise for shared document video
-                              const video = e.currentTarget;
-                              const playPromise = video.play();
-                              if (playPromise !== undefined) {
-                                playPromise.catch(error => {
-                                  if (error.name !== 'AbortError') {
-                                    console.warn('Shared document video play interrupted:', error);
-                                  }
-                                });
-                              }
-                            }}
-                          />
-                        ) : sharedDocument.type === 'pdf' ? (
-                          <iframe
-                            src={sharedDocument.url}
-                            className="w-full h-full border-0"
-                            title={sharedDocument.name}
-                          />
-                        ) : (
-                          <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                            <DocumentIcon className="h-16 w-16 mb-4 opacity-50" />
-                            <p className="text-lg font-medium mb-2">{sharedDocument.name}</p>
-                            <p className="text-sm mb-4">Preview not available</p>
-                            <a
-                              href={sharedDocument.url}
-                              download={sharedDocument.name}
-                              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-                            >
-                              Download File
-                            </a>
-                          </div>
-                        )}
-                      </div>
+                      <p className="text-white text-sm font-medium">Click to play</p>
                     </div>
                   )}
                 </div>
+
+                {/* Shared Document Viewer - 50% when active */}
+                {showSharedDocument && sharedDocument && (
+                  <div className="w-1/2 bg-white flex flex-col border-l-4 border-green-500 shadow-2xl">
+                    {/* Document Header */}
+                    <div className="flex items-center justify-between p-3 bg-green-50 border-b-2 border-green-200">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        {sharedDocument.type === 'pdf' || sharedDocument.type === 'doc' || sharedDocument.type === 'ppt' ? (
+                          <DocumentIcon className="h-5 w-5 text-red-600 shrink-0" />
+                        ) : sharedDocument.type === 'image' ? (
+                          <PhotoIcon className="h-5 w-5 text-blue-600 shrink-0" />
+                        ) : (
+                          <VideoCameraIcon className="h-5 w-5 text-purple-600 shrink-0" />
+                        )}
+                        <h3 className="font-semibold text-sm truncate">{sharedDocument.name}</h3>
+                      </div>
+                      <span className="text-xs text-white px-3 py-1 bg-green-600 rounded-full shrink-0 font-semibold animate-pulse">
+                        🎓 Shared by Teacher
+                      </span>
+                    </div>
+                
+                    {/* Document Content */}
+                    <div className="flex-1 overflow-auto p-4 bg-gray-50">
+                      {sharedDocument.type === 'image' ? (
+                        <div className="relative mx-auto h-64 w-full max-w-3xl overflow-hidden rounded">
+                          <Image
+                            src={sharedDocument.url}
+                            alt={sharedDocument.name}
+                            fill
+                            sizes="(max-width: 768px) 100vw, 768px"
+                            className="object-contain"
+                          />
+                        </div>
+                      ) : sharedDocument.type === 'video' ? (
+                        <video
+                          src={sharedDocument.url}
+                          controls
+                          className="max-w-full h-auto mx-auto"
+                        />
+                      ) : sharedDocument.type === 'pdf' ? (
+                        <iframe
+                          src={sharedDocument.url}
+                          className="w-full h-full border-0"
+                          title={sharedDocument.name}
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                          <DocumentIcon className="h-16 w-16 mb-4 opacity-50" />
+                          <p className="text-lg font-medium mb-2">{sharedDocument.name}</p>
+                          <p className="text-sm mb-4">Preview not available</p>
+                          <a>
+                            href={sharedDocument.url}
+                            download={sharedDocument.name}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                          
+                            Download File
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             
             
                 {/* Loading state */}
@@ -834,6 +838,16 @@ export default function LivestreamViewerPage() {
                 {/* Top Info Bar */}
                 <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-10">
                   <div className="flex items-center gap-2">
+                    {/* Back to Home */}
+                    <button
+                      onClick={() => window.history.back()}
+                      className="flex items-center gap-2 px-3 py-2 bg-slate-400 hover:bg-black/80 backdrop-blur-md rounded-xl transition-all border border-white/20 shadow-lg text-white text-sm font-medium"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      </svg>
+                      Back
+                    </button>
                     {/* Live Badge */}
                     {livestreamInfo?.isLive && (
                       <div className="flex items-center gap-2.5 px-4 py-2 bg-gradient-to-r from-red-600 to-red-500 rounded-xl shadow-lg">

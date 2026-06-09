@@ -22,7 +22,6 @@ import { LivestreamService } from './livestream.service';
 import { CreateLivestreamDto } from './dto/create-livestream.dto';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
-import { error } from 'console';
 
 @Controller('livestream')
 export class LivestreamController {
@@ -49,6 +48,12 @@ export class LivestreamController {
     }
   }
 
+  @Get('active')
+  @UseGuards(JwtAuthGuard)
+  async getActiveLivestream(@Request() req: { user: { id: string } }) {
+    const livestream = await this.livestreamService.findActiveLivestream(req.user.id);
+    return { livestream }; // null nếu không có
+  }
   @Post('create')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)

@@ -35,11 +35,13 @@ export default function LoginModal({
   const [showPassword, setShowPassword] = useState(false);
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [activeLivestream, setActiveLivestream] = useState<{ id: string; title: string; teacherId: string } | null>(null);
+  const [showActiveLivestreamModal, setShowActiveLivestreamModal] = useState(false);
   const [notification, setNotification] = useState<{ type: NotificationType; message: string }>({
     type: null,
     message: '',
   });
-
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
   const formatBanUntil = (value: string) => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
@@ -99,6 +101,18 @@ export default function LoginModal({
     return true;
   };
 
+    const checkActiveLivestream = async (token: string) => {
+      try {
+        const res = await fetch(`${API_URL}/livestream/active`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          return data.livestream || null;
+        }
+      } catch {}
+      return null;
+    };
   const handleSubmit = async (e: { preventDefault: () => void; }) => {
     e.preventDefault();
     
@@ -135,6 +149,13 @@ export default function LoginModal({
         // Redirect based on role immediately after a successful login.
         const userId = result.user?.id;
         if (result.user?.role === 'TEACHER') {
+          const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+          const active = token ? await checkActiveLivestream(token) : null;
+          if (active) {
+            setActiveLivestream(active);
+            setShowActiveLivestreamModal(true);
+            return;
+          }
           router.replace(`/teacher/${userId}`);
         } else if (result.user?.role === 'ADMIN') {
           router.replace(`/admin/${userId}`);
@@ -173,6 +194,62 @@ export default function LoginModal({
   };
 
   return (
+    <>
+    {/* Active Livestream Modal */}
+    {showActiveLivestreamModal && activeLivestream && (
+      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 border-t-4 border-yellow-500">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-yellow-100 rounded-full">
+                <ExclamationCircleIcon className="h-6 w-6 text-yellow-600" />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900">Livestream is Live!</h2>
+            </div>
+          </div>
+          <div className="p-6">
+            <p className="text-gray-700 mb-2">You have an ongoing livestream:</p>
+            <div className="p-3 bg-gray-50 rounded-lg border mb-6">
+              <p className="font-semibold text-gray-900">{activeLivestream.title}</p>
+            </div>
+            <p className="text-gray-600 text-sm mb-6">What is your next step?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowActiveLivestreamModal(false);
+                  closeModal();
+                  router.replace(`/teacher/${activeLivestream.teacherId}/livestream/${activeLivestream.id}`);
+                }}
+                className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+              >
+                Return to livestream
+              </button>
+              <button
+                onClick={async () => {
+                  setShowActiveLivestreamModal(false);
+                  const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
+                  try {
+                    await fetch(`${API_URL}/livestream/${activeLivestream.id}/end`, {
+                      method: 'PATCH',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`,
+                      },
+                      body: JSON.stringify({ saveRecording: false }),
+                    });
+                  } catch {}
+                  closeModal();
+                  router.replace(`/teacher/${activeLivestream.teacherId}`);
+                }}
+                className="flex-1 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium"
+              >
+                End livestream
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     <Transition appear show={isOpen} as={Fragment}>
       <Dialog as="div" className="relative z-50" onClose={closeModal}>
         <Transition.Child
@@ -390,5 +467,6 @@ export default function LoginModal({
         </div>
       </Dialog>
     </Transition>
+    </>
   );
 }

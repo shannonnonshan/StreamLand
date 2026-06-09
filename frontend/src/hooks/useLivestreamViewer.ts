@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ICE_SERVERS, ICE_TRANSPORT_POLICY } from '@/utils/ice';
 import socket from '@/socket';
 
@@ -20,170 +20,163 @@ export function useLivestreamViewer({
   const broadcasterIdRef = useRef<string | null>(null);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const livestreamIDRef = useRef(livestreamID);
+  livestreamIDRef.current = livestreamID;
+  const [isPlayBlocked, setIsPlayBlocked] = useState(false);
 
-  useEffect(() => {
-    const pc = new RTCPeerConnection({ 
-      iceServers: ICE_SERVERS,
-      // Use configured ICE transport policy
-      iceTransportPolicy: ICE_TRANSPORT_POLICY,
-      bundlePolicy: 'max-bundle',
-      rtcpMuxPolicy: 'require',
-    });
-    pcRef.current = pc;
-
+  const setupPcHandlers = useCallback((pc: RTCPeerConnection) => {
     pc.ontrack = (event) => {
-      console.log(`[Student WebRTC] ontrack fired - received ${event.streams.length} streams`);
-      if (event.streams[0]) {
-        console.log(`[Student WebRTC] Stream has ${event.streams[0].getTracks().length} tracks`);
-        event.streams[0].getTracks().forEach((track, i) => {
-          console.log(`[Student WebRTC] Track ${i}: kind=${track.kind}, enabled=${track.enabled}, readyState=${track.readyState}`);
-        });
+      console.log(`[Student WebRTC] ontrack - track: ${event.track.kind}`);
+
+      if (event.track.kind !== 'video') return;
+
+      if (!remoteVideoRef.current) return;
+
+      const video = remoteVideoRef.current;
+      const stream = event.streams[0] || new MediaStream([event.track]);
+
+      video.srcObject = null;
+      video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
+
+      const tryPlay = () => {
+        video.play()
+          .then(() => {
+            console.log('[Student WebRTC] play() succeeded');
+            setIsPlayBlocked(true);
+          })
+          .catch((err) => {
+            console.log('[Student WebRTC] play() blocked:', err.name);
+            setIsPlayBlocked(true);
+            const playOnClick = () => {
+              video.muted = false;
+              video.play().catch(() => {});
+              video.removeEventListener('click', playOnClick);
+              setIsPlayBlocked(false);
+            };
+            video.addEventListener('click', playOnClick);
+          });
+      };
+
+      if (video.readyState >= 1) {
+        tryPlay();
+      } else {
+        video.addEventListener('loadedmetadata', tryPlay, { once: true });
       }
-      
-      if (remoteVideoRef.current) {
-        const video = remoteVideoRef.current;
-        video.srcObject = event.streams[0];
-        
-        // Set initial properties
-        video.muted = true; // Start muted for autoplay
-        video.playsInline = true;
-        
-        // Wait for loadedmetadata before playing
-        const handleLoadedMetadata = () => {
-          console.log('[Student WebRTC] Video metadata loaded, attempting play');
-          video.play()
-            .then(() => {
-              console.log('[Student WebRTC] Video playing successfully');
-              // Try to unmute after successful play
-              setTimeout(() => {
-                video.muted = false;
-                console.log('[Student WebRTC] Audio unmuted');
-              }, 100);
-            })
-            .catch((error) => {
-              console.warn('[Student WebRTC] Autoplay blocked, keeping muted:', error.name);
-            });
-          
-          video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-        };
-        
-        video.addEventListener('loadedmetadata', handleLoadedMetadata);
-        
-        setIsConnected(true);
-        setIsLoading(false);
-        console.log('[Student WebRTC] Stream connected!');
-        
-        // Clear timeout since stream was received
-        if (loadingTimeoutRef.current) {
-          clearTimeout(loadingTimeoutRef.current);
-          loadingTimeoutRef.current = null;
-        }
+
+      setIsConnected(true);
+      setIsLoading(false);
+
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
       }
     };
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        const candidateType = event.candidate.type; // host, srflx (STUN), or relay (TURN)
-        console.log(`[Student WebRTC] ICE candidate (${candidateType}):`, {
-          type: event.candidate.type,
-          protocol: event.candidate.protocol,
-          address: event.candidate.address,
-          port: event.candidate.port,
-        });
-        
-        // Log TURN usage for cross-network debugging
-        if (candidateType === 'relay') {
-          console.log('✅ [Student WebRTC] Using TURN relay - good for cross-network!');
+        if (event.candidate.type === 'relay') {
+          console.log('✅ [Student WebRTC] Using TURN relay');
         }
-        
         if (broadcasterIdRef.current) {
           socket.emit('candidate', {
             to: broadcasterIdRef.current,
             candidate: event.candidate,
-            livestreamID,
+            livestreamID: livestreamIDRef.current,
           });
         }
       } else {
-        console.log('[Student WebRTC] ICE gathering complete (null candidate)');
+        console.log('[Student WebRTC] ICE gathering complete');
       }
     };
-    
+
     pc.onicegatheringstatechange = () => {
-      console.log(`[Student WebRTC] ICE gathering state: ${pc.iceGatheringState}`);
+      console.log(`[Student WebRTC] ICE gathering: ${pc.iceGatheringState}`);
     };
-    
+
     pc.oniceconnectionstatechange = () => {
-      console.log(`[Student WebRTC] ICE connection state: ${pc.iceConnectionState}`);
+      console.log(`[Student WebRTC] ICE connection: ${pc.iceConnectionState}`);
       if (pc.iceConnectionState === 'failed') {
         try { pc.restartIce(); } catch { /* not supported */ }
       }
     };
 
     pc.onconnectionstatechange = () => {
-      console.log(
-        '[Student] connection state:',
-        pc.connectionState
-      );
-
-      if (
-        pc.connectionState === 'disconnected' ||
-        pc.connectionState === 'failed'
-      ) {
+      console.log('[Student] connection state:', pc.connectionState);
+      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         setIsConnected(false);
-
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = null;
         }
-
-        // Đóng peer cũ
-        pc.close();
-
+        broadcasterIdRef.current = null;
+        pendingCandidatesRef.current = [];
         setTimeout(() => {
-          socket.emit('watcher', { livestreamID });
+          socket.emit('watcher', { livestreamID: livestreamIDRef.current });
         }, 1000);
       }
     };
+  }, []);
+
+  useEffect(() => {
+    const pc = new RTCPeerConnection({
+      iceServers: ICE_SERVERS,
+      iceTransportPolicy: ICE_TRANSPORT_POLICY,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
+    });
+    setupPcHandlers(pc);
+    pcRef.current = pc;
 
     const handleBroadcaster = () => {
-      console.log('[Student WebRTC] Received broadcaster event, emitting watcher');
+      console.log('[Student WebRTC] Received broadcaster, emitting watcher');
       socket.emit('watcher', { livestreamID });
     };
 
-    const handleOffer = async ({
-      from,
-      sdp,
-    }: {
-      from: string;
-      sdp: RTCSessionDescriptionInit;
-    }) => {
+    const handleOffer = async ({ from, sdp }: { from: string; sdp: RTCSessionDescriptionInit }) => {
       try {
-        console.log(`[Student WebRTC] Received offer from broadcaster: ${from}`);
+        console.log(`[Student WebRTC] Received offer from: ${from}`);
         broadcasterIdRef.current = from;
+
+        const currentPc = pcRef.current;
+        let activePc: RTCPeerConnection;
+
+        if (!currentPc ||
+            currentPc.signalingState === 'closed' ||
+            currentPc.connectionState === 'failed') {
+          console.log('[Student WebRTC] Creating new RTCPeerConnection');
+          const newPc = new RTCPeerConnection({
+            iceServers: ICE_SERVERS,
+            iceTransportPolicy: ICE_TRANSPORT_POLICY,
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require',
+          });
+          setupPcHandlers(newPc);
+          if (currentPc) {
+            try { currentPc.close(); } catch {}
+          }
+          pcRef.current = newPc;
+          activePc = newPc;
+        } else {
+          activePc = currentPc;
+        }
+
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = null;
         }
-        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+
+        pendingCandidatesRef.current = [];
+
+        await activePc.setRemoteDescription(new RTCSessionDescription(sdp));
         console.log('[Student WebRTC] Remote description set');
 
-        // Process any pending ICE candidates
-        if (pendingCandidatesRef.current.length > 0) {
-          console.log(`[Student WebRTC] Processing ${pendingCandidatesRef.current.length} pending ICE candidates`);
-          for (const candidate of pendingCandidatesRef.current) {
-            try {
-              await pc.addIceCandidate(new RTCIceCandidate(candidate));
-            } catch (err) {
-              console.error('[Student WebRTC] Error adding pending candidate:', err);
-            }
-          }
-          pendingCandidatesRef.current = [];
-        }
+        const answer = await activePc.createAnswer();
+        await activePc.setLocalDescription(answer);
+        console.log('[Student WebRTC] Sending answer');
 
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        console.log('[Student WebRTC] Sending answer back to broadcaster');
         socket.emit('answer', {
           to: from,
-          sdp: pc.localDescription,
+          sdp: activePc.localDescription,
           livestreamID,
         });
       } catch (error) {
@@ -194,15 +187,15 @@ export function useLivestreamViewer({
     };
 
     const handleCandidate = ({ candidate }: { candidate: RTCIceCandidateInit }) => {
-      if (pc.remoteDescription && pc.remoteDescription.type) {
-        // Remote description is set - add candidate now
-        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
-          console.error('[Student WebRTC] ICE error:', error);
-          onError?.(error as Error);
+      const activePc = pcRef.current;
+      if (!activePc || activePc.signalingState === 'closed') return;
+
+      if (activePc.remoteDescription && activePc.remoteDescription.type) {
+        activePc.addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
+          console.error('[Student WebRTC] ICE error:', err);
         });
       } else {
-        // Remote description not yet set - queue candidate
-        console.log('[Student WebRTC] Queuing ICE candidate (remote description not set)');
+        console.log('[Student WebRTC] Queuing ICE candidate');
         pendingCandidatesRef.current.push(candidate);
       }
     };
@@ -225,20 +218,19 @@ export function useLivestreamViewer({
       onError?.(new Error('Teacher is not streaming yet. Please wait...'));
     };
 
+    const handleSocketReconnect = () => {
+      socket.emit('watcher', { livestreamID });
+    };
+
     socket.on('broadcaster', handleBroadcaster);
     socket.on('offer', handleOffer);
     socket.on('candidate', handleCandidate);
     socket.on('stream-ended', handleStreamEnded);
     socket.on('stream-not-found', handleStreamNotFound);
-
-    const handleSocketReconnect = () => {
-      socket.emit('watcher', { livestreamID });
-    };
     socket.on('reconnect', handleSocketReconnect);
 
-    // Ensure socket is connected before emitting (autoConnect is false in socket.ts)
     const emitWatcher = () => {
-      console.log('[Student WebRTC] Emitting watcher event for', livestreamID);
+      console.log('[Student WebRTC] Emitting watcher for', livestreamID);
       socket.emit('watcher', { livestreamID });
     };
 
@@ -249,11 +241,10 @@ export function useLivestreamViewer({
       socket.once('connect', emitWatcher);
     }
 
-    // Set timeout for loading state
     loadingTimeoutRef.current = setTimeout(() => {
       setIsLoading(false);
       loadingTimeoutRef.current = null;
-    }, 10000); // 10 seconds timeout
+    }, 10000);
 
     return () => {
       if (loadingTimeoutRef.current) {
@@ -265,18 +256,20 @@ export function useLivestreamViewer({
       socket.off('candidate', handleCandidate);
       socket.off('stream-ended', handleStreamEnded);
       socket.off('stream-not-found', handleStreamNotFound);
-      // Remove the once('connect') listener in case cleanup runs before socket connected
       socket.off('connect', emitWatcher);
       socket.off('reconnect', handleSocketReconnect);
 
-      pc.close();
+      pcRef.current?.close();
+      pcRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [livestreamID]);
+  }, [livestreamID, setupPcHandlers]);
 
   return {
     isConnected,
     isLoading,
     remoteVideoRef,
+    isPlayBlocked,
+    setIsPlayBlocked,
   };
 }

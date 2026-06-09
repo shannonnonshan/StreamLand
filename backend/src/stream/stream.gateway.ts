@@ -95,7 +95,8 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(StreamGateway.name);
   private pendingAnalytics: Map<string, { viewerCount: number; timestamp: number }> = new Map();
   private debouncedUpdateViewer: Map<string, ReturnType<typeof debounce>> = new Map();
-
+  private endedStreams = new Set<string>();
+  private broadcasterHeartbeats: Map<string, NodeJS.Timeout> = new Map();
   constructor(
     private readonly redisService: RedisService,
     private readonly prismaService: PrismaService,
@@ -149,19 +150,18 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const channel = this.channels[key];
 
       if (channel.broadcaster === socket.id) {
-        // Broadcaster closed stream unexpectedly (not via stream-ended)
-        // Note: Normal stream ends should go through handleStreamEnded
-        const livestreamID = key; // keys are livestreamIDs
+        const livestreamID = key;
         
-        // Notify all watchers via room that stream ended
-        this.server.to(key).emit('stream-ended', {
-          livestreamID,
-        });
+        if (this.endedStreams.has(livestreamID)) {
+          this.endedStreams.delete(livestreamID);
+          return;
+        }
         
-        // Cleanup Redis viewers
-        this.redisService.cleanupLivestream(livestreamID).catch(() => {
-          // Silently handle redis cleanup error
-        });
+        this.trackStreamEnd('', livestreamID, channel.watchers.size)
+          .catch(err => this.logger.error('trackStreamEnd on disconnect error', err));
+        
+        this.server.to(key).emit('stream-ended', { livestreamID });
+        this.redisService.cleanupLivestream(livestreamID).catch(() => {});
         delete this.channels[key];
       } else if (channel.watchers.has(socket.id)) {
         // Watcher left, notify broadcaster
@@ -183,12 +183,52 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+   @SubscribeMessage('broadcaster-heartbeat')
+  handleBroadcasterHeartbeat(
+    @MessageBody() data: { livestreamID: string },
+    @ConnectedSocket() socket: Socket,
+  ) {
+    const key = this.getKey(data.livestreamID);
+    
+    // Reset timer mỗi khi nhận heartbeat
+    if (this.broadcasterHeartbeats.has(key)) {
+      clearTimeout(this.broadcasterHeartbeats.get(key)!);
+    }
+    
+    // Nếu 30s không có heartbeat → tự end
+    const timeout = setTimeout(async () => {
+      const channel = this.channels[key];
+      if (channel && !this.endedStreams.has(data.livestreamID)) {
+        this.logger.warn(`[Heartbeat] No heartbeat for ${data.livestreamID} — force ending`);
+        
+        await this.trackStreamEnd('', data.livestreamID, channel.watchers.size).catch(() => {});
+        
+        // Update DB status
+        await this.prismaService.postgres.liveStream.updateMany({
+          where: { id: data.livestreamID },
+          data: { status: 'ENDED', currentViewers: 0 },
+        }).catch(() => {});
+        
+        this.server.to(key).emit('stream-ended', { livestreamID: data.livestreamID });
+        this.redisService.cleanupLivestream(data.livestreamID).catch(() => {});
+        delete this.channels[key];
+        this.broadcasterHeartbeats.delete(key);
+      }
+    }, 30000);
+    
+    this.broadcasterHeartbeats.set(key, timeout);
+  }
+
+
+
   @SubscribeMessage('broadcaster')
   handleBroadcaster(
     @MessageBody() data: BroadcasterPayload,
     @ConnectedSocket() socket: Socket,
   ) {
     const key = this.getKey(data.livestreamID);
+
+    socket.join(key);
     if (!this.channels[key]) {
       this.channels[key] = { 
         broadcaster: socket.id, 
@@ -205,6 +245,20 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
     socket.to(key).emit('broadcaster', { livestreamID: data.livestreamID });
   }
 
+  @SubscribeMessage('screen-share-paused')
+  handleScreenSharePaused(
+    @MessageBody() data: { livestreamID: string },
+    @ConnectedSocket() socket: Socket,
+  ) {
+    const key = this.getKey(data.livestreamID);
+    const channel = this.channels[key];
+    
+    if (channel && channel.broadcaster === socket.id) {
+      this.server.to(key).emit('stream-paused', {
+        message: 'Teacher paused screen share',
+      });
+    }
+  }
   @SubscribeMessage('watcher')
   handleWatcher(
     @MessageBody() data: WatcherPayload,
@@ -291,7 +345,12 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleStreamEnded(@MessageBody() data: BroadcasterPayload & { saveRecording?: boolean }) {
     const key = this.getKey(data.livestreamID);
     const channel = this.channels[key];
+    if (this.broadcasterHeartbeats.has(key)) {
+      clearTimeout(this.broadcasterHeartbeats.get(key)!);
+      this.broadcasterHeartbeats.delete(key);
+    }
     if (channel) {
+      this.endedStreams.add(data.livestreamID);
       // Emit to room instead of array of socket IDs
       this.server.to(key).emit('stream-ended', data);
       
@@ -449,8 +508,6 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Broadcast message to everyone in the channel (broadcaster + all watchers)
       // Emit to the room that all watchers joined
       this.server.to(key).emit('chat-message', data.message);
-      // Also emit to broadcaster explicitly
-      this.server.to(channel.broadcaster).emit('chat-message', data.message);
       
       // Save chat to MongoDB (fire and forget for performance)
       setImmediate(() => {
@@ -589,18 +646,17 @@ export class StreamGateway implements OnGatewayConnection, OnGatewayDisconnect {
         where: { livestreamId: livestreamID },
       });
 
-      if (analytics) {
-        
-        // Update PostgreSQL livestream with final peakViewers and currentViewers from MongoDB
-        await this.prismaService.postgres.liveStream.update({
-          where: { id: livestreamID },
-          data: {
+      await this.prismaService.postgres.liveStream.updateMany({
+        where: { id: livestreamID },
+        data: {
+          status: 'ENDED',
+          currentViewers: finalViewerCount,
+          ...(analytics ? {
             peakViewers: analytics.peakViewers,
-            currentViewers: finalViewerCount,
             totalViews: analytics.totalViews,
-          },
-        });
-      }
+          } : {}),
+        },
+      });
 
       // Save video chunks from memory if available
       const key = this.getKey(livestreamID);

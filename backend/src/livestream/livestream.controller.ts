@@ -48,6 +48,12 @@ export class LivestreamController {
     }
   }
 
+  @Get('active')
+  @UseGuards(JwtAuthGuard)
+  async getActiveLivestream(@Request() req: { user: { id: string } }) {
+    const livestream = await this.livestreamService.findActiveLivestream(req.user.id);
+    return { livestream }; // null nếu không có
+  }
   @Post('create')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
@@ -185,6 +191,19 @@ export class LivestreamController {
     return livestream;
   }
 
+  @Public()
+  @Post(':id/end-beacon')
+  async endLivestreamBeacon(
+    @Param('id') id: string,
+    @Body() body: any, 
+  ) {
+    try {
+      await this.livestreamService.endLivestream(id, false);
+    } catch (err) {
+      console.error(`Failed to end livestream ${id} via beacon:`, err);
+    }
+    return { ok: true };
+  }
   @Get(':id/moderation')
   @UseGuards(OptionalJwtAuthGuard)
   async getRecordingModeration(

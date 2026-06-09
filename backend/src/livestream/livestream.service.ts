@@ -2961,4 +2961,10 @@ export class LivestreamService {
 
     return await this.getRecordingAiAnalysis(recordingId);
   }
+  async findActiveLivestream(teacherId: string) {
+    return this.prisma.postgres.liveStream.findFirst({
+      where: { teacherId, status: 'LIVE' },
+      select: { id: true, title: true, teacherId: true }
+    });
+  }
 }

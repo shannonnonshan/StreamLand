@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Process, Processor } from '@nestjs/bull';
-import { Prisma } from '@prisma/client';
+import { Prisma, RecordingApprovalStatus } from '@prisma/client';
 import { Job } from 'bull';
 import { createWriteStream, promises as fs } from 'fs';
 import { inspect } from 'util';
@@ -179,10 +179,40 @@ export class ProcessingProcessor {
 
       this.logger.log(`[5/5] Moderating transcript...`);
       const moderation = await this.moderate(transcript.text);
+      let approvalStatus: RecordingApprovalStatus;
+      switch (moderation.status) {
+        case 'SAFE':
+          approvalStatus = 'TRUE';
+          break;
 
+        case 'REVIEW':
+          approvalStatus = 'FALSE';
+          break;
+
+        case 'BLOCK':
+          approvalStatus = 'REJECTED';
+          break;
+
+        default:
+          approvalStatus = 'FALSE';
+      }
       this.logger.log(`Saving AI analysis results...`);
       await this.upsertAnalysis(payload, transcript, summary, moderation);
-
+      if (payload.type === 'livestream') {
+        await this.prisma.postgres.liveStream.update({
+          where: { id: payload.itemId },
+          data: {
+            isApprove: approvalStatus,
+          },
+        });
+      } else {
+        await this.prisma.postgres.document.update({
+          where: { id: payload.itemId },
+          data: {
+            isApprove: approvalStatus,
+          },
+        });
+      }
       await this.updateProcessingAnalysis(payload, {
         processingStage: 'done',
         processingProgress: PROCESSING_STAGE_PROGRESS.done,

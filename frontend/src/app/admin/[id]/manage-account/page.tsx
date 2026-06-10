@@ -328,11 +328,14 @@ export default function ManageAccount() {
         };
         setAdmins((prev) => [...prev, mappedAdmin]);
       } else {
-        const error = await response.json();
-        alert(error.message || 'Failed to create admin');
+        const body = await response.json();
+        const msg = typeof body.message === 'string'
+          ? body.message
+          : body.message?.message || 'Failed to create admin';
+        alert(msg);
       }
-    } catch (error) {
-      console.error('Error creating admin:', error);
+    } catch (err) {
+      console.error('Error creating admin:', err);
       alert('Failed to create admin');
     }
   };

@@ -41,15 +41,29 @@ export default function AuthCallback() {
 
       localStorage.setItem("accessToken", accessToken);
       localStorage.setItem("refreshToken", refreshToken);
+      // Save minimal user immediately so auth context doesn't block
       localStorage.setItem("user", JSON.stringify({
         id: decoded.sub,
         email: decoded.email,
         role: decoded.role,
       }));
 
-      if (decoded.role === "TEACHER") navigate(`/teacher/${decoded.sub}`);
-      else if (decoded.role === "ADMIN") navigate(`/admin/${decoded.sub}`);
-      else navigate(`/student/${decoded.sub}/dashboard`);
+      // Fetch full profile (fullName, avatar...) then navigate
+      const dest =
+        decoded.role === "TEACHER" ? `/teacher/${decoded.sub}` :
+        decoded.role === "ADMIN"   ? `/admin/${decoded.sub}`   :
+                                     `/student/${decoded.sub}/dashboard`;
+
+      fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/profile`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+        .then((r) => r.ok ? r.json() : null)
+        .then((profile) => {
+          if (profile) localStorage.setItem("user", JSON.stringify(profile));
+        })
+        .catch(() => {})
+        .finally(() => navigate(dest));
+
       return;
     }
 

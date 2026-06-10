@@ -799,7 +799,7 @@ export class AdminService {
 
   // Create new admin
   async createAdmin(email: string, password: string, fullName: string) {
-    const bcrypt = require('bcrypt');
+    const bcrypt = await import('bcrypt');
     
     // Check if email already exists
     const existingUser = await this.prisma.postgres.user.findUnique({
@@ -807,7 +807,7 @@ export class AdminService {
     });
 
     if (existingUser) {
-      throw new Error('Email already in use');
+      throw new ConflictException('Email already in use');
     }
 
     // Hash password
@@ -840,7 +840,7 @@ export class AdminService {
     }
 
     if (admin.role !== 'ADMIN') {
-      throw new Error('User is not an admin');
+      throw new ConflictException('User is not an admin');
     }
 
     // Hard delete the admin

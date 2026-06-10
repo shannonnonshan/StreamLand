@@ -15,8 +15,16 @@ export default function AuthCallback() {
     const refreshToken = searchParams.get("refreshToken");
 
     if (error) {
+      if (isApproved === "false") {
+        sessionStorage.setItem(
+          "pendingApprovalNotice",
+          "Your teacher account has not been approved yet. Please wait for the approval email before signing in."
+        );
+        router.push("/");
+        return;
+      }
       router.push(
-        `/?error=${encodeURIComponent(error)}&isApproved=${isApproved || ""}&bannedUntil=${bannedUntil || ""}`
+        `/?error=${encodeURIComponent(error)}&bannedUntil=${bannedUntil || ""}`
       );
       return;
     }

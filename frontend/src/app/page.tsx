@@ -16,6 +16,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import { getStudentRoute } from '@/utils/student';
+import { useToast } from '@/hooks/useToast';
 
 const LoginModal = lazy(() => import('@/component/(modal)/login'));
 const RegisterModal = lazy(() => import('@/component/(modal)/register'));
@@ -24,6 +25,7 @@ const OTPModal = lazy(() => import('@/component/(modal)/verifyOtp'));
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export default function Home() {
+  const { warning, ToastComponent } = useToast();
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [isOTPModalOpen, setIsOTPModalOpen] = useState(false);
@@ -32,6 +34,15 @@ export default function Home() {
   const [liveStreams, setLiveStreams] = useState<any[]>([]);
   const [activeVideoIndex, setActiveVideoIndex] = useState(0);
   const [loadingStreams, setLoadingStreams] = useState(true);
+
+  // Show toast if redirected back from OAuth with pending approval
+  useEffect(() => {
+    const msg = sessionStorage.getItem('pendingApprovalNotice');
+    if (msg) {
+      sessionStorage.removeItem('pendingApprovalNotice');
+      warning(msg);
+    }
+  }, []);
 
   const openLoginModal = () => {
     setIsLoginModalOpen(true);
@@ -124,7 +135,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      {/* Hero Section */}
+      {ToastComponent}
       <section className="relative overflow-hidden">
         {/* Animated Background */}
         <div className="absolute inset-0 overflow-hidden">

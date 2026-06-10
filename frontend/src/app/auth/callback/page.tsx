@@ -3,56 +3,93 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+
+function decodeJwt(token: string): { sub: string; email: string; role: string } | null {
+  try {
+    const payload = token.split(".")[1];
+    return JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+  } catch {
+    return null;
+  }
+}
+
+function navigate(path: string) {
+  window.location.href = path;
+}
+
 export default function AuthCallback() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const error = searchParams.get("error");
-  const isApproved = searchParams.get("isApproved");
-  const bannedUntil = searchParams.get("bannedUntil");
+
   useEffect(() => {
     const accessToken = searchParams.get("accessToken");
     const refreshToken = searchParams.get("refreshToken");
+    const error = searchParams.get("error");
+    const isApproved = searchParams.get("isApproved");
+    const bannedUntil = searchParams.get("bannedUntil");
 
-    if (error) {
-      router.push(
-        `/?error=${encodeURIComponent(error)}&isApproved=${isApproved || ""}&bannedUntil=${bannedUntil || ""}`
-      );
-      return;
-    }
+    // Wait for params to hydrate
+    if (!accessToken && !error && !isApproved) return;
+
+    // ── Success ───────────────────────────────────────────────────────────
     if (accessToken && refreshToken) {
+      const decoded = decodeJwt(accessToken);
+      if (!decoded) {
+        navigate("/?error=oauth_failed");
+        return;
+      }
+
       localStorage.setItem("accessToken", accessToken);
       localStorage.setItem("refreshToken", refreshToken);
+      // Save minimal user immediately so auth context doesn't block
+      localStorage.setItem("user", JSON.stringify({
+        id: decoded.sub,
+        email: decoded.email,
+        role: decoded.role,
+      }));
+
+      // Fetch full profile (fullName, avatar...) then navigate
+      const dest =
+        decoded.role === "TEACHER" ? `/teacher/${decoded.sub}` :
+        decoded.role === "ADMIN"   ? `/admin/${decoded.sub}`   :
+                                     `/student/${decoded.sub}/dashboard`;
 
       fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/profile`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: { Authorization: `Bearer ${accessToken}` },
       })
-        .then((res) => res.json())
-        .then((user) => {
-          localStorage.setItem("user", JSON.stringify(user));
-
-          if (user.role === "TEACHER") router.push(`/teacher/${user.id}`);
-          else if (user.role === "ADMIN") router.push("/admin/dashboard");
-          else router.push(`/student/${user.id}/dashboard`);
+        .then((r) => r.ok ? r.json() : null)
+        .then((profile) => {
+          if (profile) localStorage.setItem("user", JSON.stringify(profile));
         })
-        .catch(() => {
-          router.push("/login?error=oauth_failed");
-        });
-    } else {
-      router.push("/?error=oauth_failed");
+        .catch(() => {})
+        .finally(() => navigate(dest));
+
+      return;
     }
-  }, []);
+
+    // ── Pending approval ──────────────────────────────────────────────────
+    if (isApproved === "false") {
+      sessionStorage.setItem(
+        "pendingApprovalNotice",
+        "Your teacher account has not been approved yet. Please wait for the approval email before signing in."
+      );
+      navigate("/");
+      return;
+    }
+
+    // ── Banned or other error ─────────────────────────────────────────────
+    if (error) {
+      navigate(`/?error=${encodeURIComponent(error)}&bannedUntil=${bannedUntil || ""}`);
+      return;
+    }
+  }, [searchParams]);
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="text-center bg-white p-8 rounded-2xl shadow-lg">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <h2 className="text-xl font-semibold mb-2 text-gray-800">
-          Authenticating...
-        </h2>
-        <p className="text-gray-600">Please wait a moment.</p>
+        <h2 className="text-xl font-semibold mb-2 text-gray-800">Signing you in...</h2>
+        <p className="text-gray-600">Almost there.</p>
       </div>
     </div>
   );

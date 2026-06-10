@@ -11,6 +11,8 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { R2StorageService } from '../r2-storage/r2-storage.service';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '@prisma/mongodb-client';
 import { normalizeVideoCategory } from '../common/constants/video-categories';
 import {
   LoginDto,
@@ -41,7 +43,31 @@ export class AuthService {
     private jwtService: JwtService,
     private mailService: MailService,
     private r2StorageService: R2StorageService,
+    private notificationService: NotificationService,
   ) {}
+
+  // Helper: notify all admins about a new teacher registration
+  private async notifyAdminsNewTeacher(teacher: { id: string; fullName: string; email: string }) {
+    try {
+      const admins = await this.prisma.postgres.user.findMany({
+        where: { role: 'ADMIN' },
+        select: { id: true },
+      });
+      await Promise.all(
+        admins.map((admin) =>
+          this.notificationService.createNotification({
+            userId: admin.id,
+            type: 'SYSTEM' as NotificationType,
+            title: '👨‍🏫 New teacher registration',
+            content: `${teacher.fullName} (${teacher.email}) has registered as a teacher and is awaiting approval.`,
+            data: { type: 'new_teacher_registration', teacherId: teacher.id },
+          }).catch(() => {}),
+        ),
+      );
+    } catch {
+      // non-blocking — never fail the register flow
+    }
+  }
 
   private normalizeStudentInterests(interests?: string[] | null) {
     if (!interests || interests.length === 0) {
@@ -319,6 +345,8 @@ export class AuthService {
     });
 
     if (user.role === 'TEACHER') {
+      // Notify all admins about new teacher registration
+      void this.notifyAdminsNewTeacher({ id: user.id, fullName: user.fullName, email: user.email });
       return {
         message:
           'Email verified successfully. Your teacher account is pending admin approval (usually within 4 hours). You will be able to login once approved.',
@@ -910,6 +938,8 @@ export class AuthService {
     }
 
     if (role === 'TEACHER') {
+      // Notify all admins about new teacher registration via OAuth
+      void this.notifyAdminsNewTeacher({ id: user.id, fullName: user.fullName, email: user.email });
       return {
         message:
           'Registration completed. Your teacher account is pending admin approval (usually within 4 hours). You will be able to login once approved.',

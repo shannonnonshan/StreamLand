@@ -2,10 +2,17 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException }
 import { PrismaService } from '../prisma/prisma.service';
 import type { BanDuration } from '../common/types/ban-duration';
 import { calculateBanUntil } from '../common/utils/ban-until';
+import { MailService } from '../mail/mail.service';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '@prisma/mongodb-client';
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private mailService: MailService,
+    private notificationService: NotificationService,
+  ) {}
 
   private async getProcessingAnalysisState(type: 'LIVESTREAM' | 'DOCUMENT', itemId: string) {
     const result = await this.prisma.mongo.$runCommandRaw({
@@ -203,7 +210,27 @@ export class AdminService {
       },
     });
 
-    // TODO: Send approval email notification
+    // Send approval email — skip noreply/placeholder addresses
+    const isValidEmail = teacher.email &&
+      !teacher.email.includes('noreply.github.com') &&
+      !teacher.email.includes('privaterelay.appleid.com') &&
+      teacher.email.trim() !== '';
+
+    if (isValidEmail) {
+      this.mailService.sendTeacherApprovalEmail(teacher.email, teacher.fullName).catch(() => {});
+    }
+
+    // Send in-app notification
+    this.notificationService.createNotification({
+      userId: teacherId,
+      type: 'SYSTEM' as NotificationType,
+      title: '🎉 Your teacher account has been approved!',
+      content: 'Congratulations! Your account has been reviewed and approved. You can now go live, upload materials, and start teaching on StreamLand.',
+      data: {
+        type: 'teacher_approved',
+        action: 'start_livestream',
+      },
+    }).catch(() => {});
 
     return {
       success: true,
@@ -233,7 +260,29 @@ export class AdminService {
       },
     });
 
-    // TODO: Send rejection email notification
+    // Send rejection email — skip noreply/placeholder addresses
+    const isValidEmail = teacher.email &&
+      !teacher.email.includes('noreply.github.com') &&
+      !teacher.email.includes('privaterelay.appleid.com') &&
+      teacher.email.trim() !== '';
+
+    if (isValidEmail) {
+      this.mailService.sendTeacherRejectionEmail(teacher.email, teacher.fullName, reason).catch(() => {});
+    }
+
+    // Send in-app notification
+    this.notificationService.createNotification({
+      userId: teacherId,
+      type: 'SYSTEM' as NotificationType,
+      title: 'Update on your teacher application',
+      content: reason && reason !== 'No reason provided'
+        ? `Your teacher application was not approved. Reason: ${reason}`
+        : 'Your teacher application was not approved at this time. Please contact support for more information.',
+      data: {
+        type: 'teacher_rejected',
+        reason: reason || null,
+      },
+    }).catch(() => {});
 
     return {
       success: true,

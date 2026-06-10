@@ -38,6 +38,31 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const [authCheckDone, setAuthCheckDone] = useState(false);
   const { user, isAuthenticated, loading } = useAuth();
 
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+  const fetchNotifications = async () => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) return;
+    try {
+      const [notiRes, countRes] = await Promise.all([
+        fetch(`${API_URL}/notifications?limit=5`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/notifications/unread-count`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (notiRes.ok) setNotifications(await notiRes.json());
+      if (countRes.ok) {
+        const { count } = await countRes.json();
+        setUnreadCount(count);
+      }
+    } catch { /* silent */ }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) fetchNotifications();
+  }, [isAuthenticated]);
+
   // Check authentication and role
   useEffect(() => {
     if (!loading) {
@@ -74,35 +99,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     }
   }, [loading, isAuthenticated, user, router, params?.id, pathname]);
 
-  const id = user?.id || (params?.id as string) || "1"; // Use authenticated user's ID
-
-  // Mock notifications data
-  const notifications = [
-    {
-      id: 1,
-      type: 'report',
-      title: 'New Content Report',
-      message: 'A new content has been reported for review',
-      time: '5 minutes ago',
-      isRead: false
-    },
-    {
-      id: 2,
-      type: 'user',
-      title: 'New User Registration',
-      message: 'A new teacher has registered and needs approval',
-      time: '1 hour ago',
-      isRead: false
-    },
-    {
-      id: 3,
-      type: 'system',
-      title: 'System Update',
-      message: 'System maintenance scheduled for tonight',
-      time: '2 hours ago',
-      isRead: false
-    }
-  ];
+  const id = user?.id || (params?.id as string) || "1";
 
   const navItems = [
     { type: "link", href: "", label: "Dashboard", icon: LayoutDashboard },
@@ -245,7 +242,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               </li>
               <li className="relative group">
                 <button
-                  onClick={() => setShowNotifications(true)}
+                  onClick={() => { setShowNotifications(true); fetchNotifications(); }}
                   className={`flex items-center ${
                     pathname === `/admin/${id}/notifications`
                       ? "text-blue-500"
@@ -254,9 +251,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 >
                   <div className="relative">
                     <Bell className="mr-2 shrink-0" />
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-                      3
-                    </span>
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                        {unreadCount > 9 ? '9+' : unreadCount}
+                      </span>
+                    )}
                   </div>
                   <span className="absolute right-0 top-8 hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 transform translate-x-8">
                     Notifications
@@ -350,37 +349,41 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
                   {/* Notifications List */}
                   <div className="max-h-[calc(100vh-12rem)] overflow-y-auto">
-                    {notifications.map((notification) => (
+                    {notifications.length === 0 ? (
+                      <div className="p-6 text-center text-sm text-gray-400">No notifications</div>
+                    ) : notifications.map((n: any) => (
                       <div
-                        key={notification.id}
-                        className="p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                        key={n.id}
+                        className={`p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${!n.read ? 'bg-blue-50/40' : ''}`}
+                        onClick={() => {
+                          const token = localStorage.getItem('accessToken');
+                          if (token && !n.read) {
+                            fetch(`${API_URL}/notifications/${n.id}/read`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } })
+                              .then(() => {
+                                setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+                                setUnreadCount(prev => Math.max(0, prev - 1));
+                              }).catch(() => {});
+                          }
+                        }}
                       >
                         <div className="flex items-start gap-3">
                           <div className="shrink-0">
-                            {notification.type === 'report' && (
-                              <Flag className="text-red-500" size={20} />
-                            )}
-                            {notification.type === 'user' && (
-                              <Users className="text-blue-500" size={20} />
-                            )}
-                            {notification.type === 'system' && (
-                              <Bell className="text-yellow-500" size={20} />
-                            )}
+                            {n.data?.type === 'new_teacher_registration'
+                              ? <Users className="text-blue-500" size={20} />
+                              : n.type === 'SYSTEM'
+                              ? <Bell className="text-yellow-500" size={20} />
+                              : <Flag className="text-red-500" size={20} />}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900">
-                              {notification.title}
-                            </p>
-                            <p className="text-sm text-gray-500 mt-1">
-                              {notification.message}
-                            </p>
+                            <p className="text-sm font-medium text-gray-900">{n.title}</p>
+                            <p className="text-sm text-gray-500 mt-1 line-clamp-2">{n.content}</p>
                             <p className="text-xs text-gray-400 mt-1">
-                              {notification.time}
+                              {new Date(n.createdAt).toLocaleString()}
                             </p>
                           </div>
-                          {!notification.isRead && (
+                          {!n.read && (
                             <div className="shrink-0">
-                              <div className="h-2 w-2 bg-blue-500 rounded-full"></div>
+                              <div className="h-2 w-2 bg-blue-500 rounded-full mt-1"></div>
                             </div>
                           )}
                         </div>

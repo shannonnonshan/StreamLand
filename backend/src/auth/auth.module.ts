@@ -9,12 +9,14 @@ import { GoogleStrategy } from './strategies/google.strategy';
 import { GithubStrategy } from './strategies/github.strategy';
 import { PrismaModule } from '../prisma/prisma.module';
 import { MailModule } from '../mail/mail.module';
+import { NotificationModule } from '../notification/notification.module';
 import { R2StorageModule } from '../r2-storage/r2-storage.module';
 
 @Module({
   imports: [
     PrismaModule,
     MailModule,
+    NotificationModule,
     R2StorageModule,
     PassportModule,
     JwtModule.register({

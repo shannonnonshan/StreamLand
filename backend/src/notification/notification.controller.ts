@@ -7,6 +7,7 @@ import {
   Query,
   UseGuards,
   Request,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { NotificationService } from './notification.service';
@@ -24,17 +25,26 @@ export class NotificationController {
     @Query('skip') skip?: string,
   ) {
     const userId = req.user.sub || req.user.id;
-    const limitNum = limit ? parseInt(limit, 10) : 20;
-    const skipNum = skip ? parseInt(skip, 10) : 0;
-
-    return this.notificationService.getNotifications(userId, limitNum, skipNum);
+    return this.notificationService.getNotifications(
+      userId,
+      limit ? parseInt(limit, 10) : 20,
+      skip ? parseInt(skip, 10) : 0,
+    );
   }
 
+  // ⚠️ Static routes MUST come before :param routes
   @Get('unread-count')
   async getUnreadCount(@Request() req: RequestWithUser) {
     const userId = req.user.sub || req.user.id;
     const count = await this.notificationService.getUnreadCount(userId);
     return { count };
+  }
+
+  // ⚠️ Static PATCH before :id/read
+  @Patch('mark-all-read')
+  async markAllAsRead(@Request() req: RequestWithUser) {
+    const userId = req.user.sub || req.user.id;
+    return this.notificationService.markAllAsRead(userId);
   }
 
   @Patch(':id/read')
@@ -43,13 +53,11 @@ export class NotificationController {
     @Request() req: RequestWithUser,
   ) {
     const userId = req.user.sub || req.user.id;
-    return this.notificationService.markAsRead(notificationId, userId);
-  }
-
-  @Patch('mark-all-read')
-  async markAllAsRead(@Request() req: RequestWithUser) {
-    const userId = req.user.sub || req.user.id;
-    return this.notificationService.markAllAsRead(userId);
+    try {
+      return await this.notificationService.markAsRead(notificationId, userId);
+    } catch {
+      throw new NotFoundException('Notification not found');
+    }
   }
 
   @Delete(':id')
@@ -58,6 +66,10 @@ export class NotificationController {
     @Request() req: RequestWithUser,
   ) {
     const userId = req.user.sub || req.user.id;
-    return this.notificationService.deleteNotification(notificationId, userId);
+    try {
+      return await this.notificationService.deleteNotification(notificationId, userId);
+    } catch {
+      throw new NotFoundException('Notification not found');
+    }
   }
 }

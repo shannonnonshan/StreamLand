@@ -3,7 +3,7 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 function decodeJwt(token: string): { sub: string; email: string; role: string } | null {
   try {
@@ -14,8 +14,11 @@ function decodeJwt(token: string): { sub: string; email: string; role: string } 
   }
 }
 
+function navigate(path: string) {
+  window.location.href = path;
+}
+
 export default function AuthCallback() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -32,22 +35,21 @@ export default function AuthCallback() {
     if (accessToken && refreshToken) {
       const decoded = decodeJwt(accessToken);
       if (!decoded) {
-        router.replace("/?error=oauth_failed");
+        navigate("/?error=oauth_failed");
         return;
       }
 
       localStorage.setItem("accessToken", accessToken);
       localStorage.setItem("refreshToken", refreshToken);
-      // Store minimal user so auth context hydrates immediately
       localStorage.setItem("user", JSON.stringify({
         id: decoded.sub,
         email: decoded.email,
         role: decoded.role,
       }));
 
-      if (decoded.role === "TEACHER") router.replace(`/teacher/${decoded.sub}`);
-      else if (decoded.role === "ADMIN") router.replace(`/admin/${decoded.sub}`);
-      else router.replace(`/student/${decoded.sub}/dashboard`);
+      if (decoded.role === "TEACHER") navigate(`/teacher/${decoded.sub}`);
+      else if (decoded.role === "ADMIN") navigate(`/admin/${decoded.sub}`);
+      else navigate(`/student/${decoded.sub}/dashboard`);
       return;
     }
 
@@ -57,13 +59,13 @@ export default function AuthCallback() {
         "pendingApprovalNotice",
         "Your teacher account has not been approved yet. Please wait for the approval email before signing in."
       );
-      router.replace("/");
+      navigate("/");
       return;
     }
 
     // ── Banned or other error ─────────────────────────────────────────────
     if (error) {
-      router.replace(`/?error=${encodeURIComponent(error)}&bannedUntil=${bannedUntil || ""}`);
+      navigate(`/?error=${encodeURIComponent(error)}&bannedUntil=${bannedUntil || ""}`);
       return;
     }
   }, [searchParams]);

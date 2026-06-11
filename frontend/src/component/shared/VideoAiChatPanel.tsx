@@ -62,7 +62,18 @@ const pickRandom = (arr: string[], n: number) =>
   [...arr].sort(() => Math.random() - 0.5).slice(0, n);
 
 function VideoCardItem({ card }: { card: VideoCard }) {
-  const href = card.link || (card.id ? `/student/video/${card.id}` : "#");
+  // Route thật: /student/[studentId]/video/[livestreamID]
+  const getHref = () => {
+    if (!card.id) return "#";
+    try {
+      const raw = localStorage.getItem("user");
+      const user = raw ? JSON.parse(raw) : null;
+      const studentId = user?.id || user?.sub || "";
+      if (studentId) return `/student/${studentId}/video/${card.id}`;
+    } catch { /* ignore */ }
+    return `/student/video/${card.id}`; // fallback
+  };
+  const href = getHref();
 
   return (
     <Link
@@ -273,7 +284,7 @@ export default function VideoAiChatPanel({ videoId, title }: VideoAiChatPanelPro
   };
 
   return (
-    <div className="flex flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="flex h-[600px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       {/* Header */}
       <div className="border-b border-slate-100 px-4 py-3">
         <div className="flex items-center gap-2">
@@ -290,8 +301,8 @@ export default function VideoAiChatPanel({ videoId, title }: VideoAiChatPanelPro
       </div>
 
       {/* Messages */}
-      <div className="flex flex-col">
-        <div ref={listRef} className="h-[320px] space-y-4 overflow-y-auto bg-slate-50/60 px-4 py-4">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div ref={listRef} className="flex-1 space-y-4 overflow-y-auto bg-slate-50/60 px-4 py-4 min-h-0">
           {messages.map((message) => (
             <div
               key={message.id}
@@ -350,7 +361,7 @@ export default function VideoAiChatPanel({ videoId, title }: VideoAiChatPanelPro
         </div>
 
         {/* Input area */}
-        <div className="border-t border-slate-100 bg-white px-4 py-3 space-y-3 rounded-b-2xl">
+        <div className="border-t border-slate-100 bg-white px-4 py-3 space-y-3">
           {showSuggestions && (
             <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">

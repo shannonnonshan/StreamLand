@@ -39,6 +39,196 @@ export class TeacherService {
     private redisService: RedisService,
   ) {}
 
+  // Get public content for teacher profile: ENDED livestreams with recording + approved document videos
+  async getTeacherPublicContent(teacherId: string, limit: number = 6) {
+    const cacheKey = `teacher:${teacherId}:public-content:v2:${limit}`;
+    const cached = await this.redisService.get<unknown[]>(cacheKey);
+    if (cached) return cached;
+
+    const [livestreams, documents] = await Promise.all([
+      this.prisma.postgres.liveStream.findMany({
+        where: {
+          teacherId,
+          isPublic: true,
+          status: 'ENDED',
+          recordingUrl: { not: null },
+          isApprove: 'TRUE',
+          processingStatus: 'DONE',
+        },
+        orderBy: { endedAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          title: true,
+          thumbnail: true,
+          totalViews: true,
+          duration: true,
+          recordingUrl: true,
+          endedAt: true,
+        },
+      }),
+      this.prisma.postgres.document.findMany({
+        where: {
+          teacherId,
+          fileType: 'video',
+          isApprove: 'TRUE',
+          processingStatus: 'DONE',
+        },
+        orderBy: { uploadedAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          title: true,
+          thumbnail: true,
+          fileUrl: true,
+          uploadedAt: true,
+        },
+      }),
+    ]);
+
+    const result = [
+      ...livestreams.map((s) => ({
+        id: s.id,
+        title: s.title,
+        thumbnail: s.thumbnail || null,
+        views: s.totalViews || 0,
+        duration: this.formatDuration(s.duration),
+        date: s.endedAt?.toISOString() || null,
+        type: 'livestream' as const,
+        videoUrl: s.recordingUrl,
+      })),
+      ...documents.map((d) => ({
+        id: d.id,
+        title: d.title,
+        thumbnail: d.thumbnail || null,
+        date: d.uploadedAt?.toISOString() || null,
+        type: 'document' as const,
+        videoUrl: d.fileUrl,
+      })),
+    ]
+      .sort((a, b) => new Date(b.date ?? 0).getTime() - new Date(a.date ?? 0).getTime())
+      .slice(0, limit);
+
+    await this.redisService.set(cacheKey, result, 120);
+    return result;
+  }
+
+  // Get a single approved document video by ID (public)
+  async getPublicDocumentById(documentId: string) {
+    const document = await this.prisma.postgres.document.findUnique({
+      where: { id: documentId },
+      include: {
+        teacher: {
+          select: { id: true, fullName: true, avatar: true },
+        },
+      },
+    });
+
+    if (!document || document.isApprove !== 'TRUE' || document.processingStatus !== 'DONE') {
+      return null;
+    }
+
+    return {
+      id: document.id,
+      title: document.title,
+      description: document.description,
+      fileUrl: document.fileUrl,
+      thumbnail: document.thumbnail,
+      fileType: document.fileType,
+      fileSize: document.fileSize,
+      uploadedAt: document.uploadedAt,
+      updatedAt: document.updatedAt,
+      teacher: document.teacher,
+      teacherId: document.teacherId,
+    };
+  }
+
+  // Get public livestream recordings for teacher profile
+  async getTeacherLivestreamVideos(teacherId: string, limit: number = 6) {
+    const cacheKey = `teacher:${teacherId}:livestream-videos:v2:${limit}`;
+    const cached = await this.redisService.get<unknown[]>(cacheKey);
+    if (cached) return cached;
+
+    const livestreams = await this.prisma.postgres.liveStream.findMany({
+      where: {
+        teacherId,
+        isPublic: true,
+        status: 'ENDED',
+        recordingUrl: { not: null },
+        isApprove: 'TRUE',
+        processingStatus: 'DONE',
+      },
+      orderBy: { endedAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        title: true,
+        thumbnail: true,
+        totalViews: true,
+        duration: true,
+        recordingUrl: true,
+        endedAt: true,
+      },
+    });
+
+    const result = livestreams.map((s) => ({
+      id: s.id,
+      title: s.title,
+      thumbnail: s.thumbnail || null,
+      views: s.totalViews || 0,
+      duration: this.formatDuration(s.duration),
+      date: s.endedAt?.toISOString() || null,
+      type: 'livestream' as const,
+      videoUrl: s.recordingUrl,
+    }));
+
+    await this.redisService.set(cacheKey, result, 120);
+    return result;
+  }
+
+  // Get approved document videos for teacher profile
+  async getTeacherDocumentVideos(teacherId: string, limit: number = 6) {
+    const cacheKey = `teacher:${teacherId}:document-videos:v2:${limit}`;
+    const cached = await this.redisService.get<unknown[]>(cacheKey);
+    if (cached) return cached;
+
+    const documents = await this.prisma.postgres.document.findMany({
+      where: {
+        teacherId,
+        fileType: 'video',
+        isApprove: 'TRUE',
+        processingStatus: 'DONE',
+      },
+      orderBy: { uploadedAt: 'desc' },
+      take: limit,
+      include: {
+        teacher: {
+          select: {
+            id: true,
+            fullName: true,
+            avatar: true,
+          },
+        },
+      },
+    });
+
+    const result = documents.map((d) => ({
+      id: d.id,
+      title: d.title,
+      description: d.description,
+      thumbnail: d.thumbnail || null,
+      date: d.uploadedAt?.toISOString() || null,
+      type: 'document' as const,
+      videoUrl: d.fileUrl,
+      fileSize: d.fileSize,
+      fileName: d.fileName,
+      teacher: d.teacher,
+    }));
+
+    await this.redisService.set(cacheKey, result, 120);
+    return result;
+  }
+
   // Get teacher videos/livestreams
   async getTeacherVideos(teacherId: string, page: number = 1, limit: number = 20) {
     const cacheKey = `teacher:${teacherId}:videos:${page}:${limit}`;
@@ -91,7 +281,7 @@ export class TeacherService {
       id: stream.id,
       title: stream.title,
       description: stream.description,
-      thumbnail: stream.thumbnail || '/image/default-thumbnail.jpg',
+      thumbnail: stream.thumbnail || null,
       views: stream.totalViews || 0,
       currentViewers: stream.currentViewers || 0,
       duration: this.formatDuration(stream.duration),

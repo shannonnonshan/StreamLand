@@ -99,8 +99,73 @@ export class DocumentService {
     private redisService: RedisService,
   ) {}
 
-  async saveTranscriptAndMarkCompleted(documentId: string, transcript: Prisma.JsonValue): Promise<void> {
-    await this.updateDocumentProcessingState(documentId, {
+  // Public: fetch an approved+processed document by ID (no auth required)
+  async getPublicDocumentById(documentId: string) {
+    const document = await this.prisma.postgres.document.findUnique({
+      where: { id: documentId },
+      include: {
+        teacher: {
+          select: { id: true, fullName: true, avatar: true },
+        },
+      },
+    });
+
+    if (
+      !document ||
+      document.isApprove !== 'TRUE' ||
+      document.processingStatus !== 'DONE'
+    ) {
+      return null;
+    }
+
+    return {
+      id: document.id,
+      title: document.title,
+      description: document.description,
+      fileUrl: document.fileUrl,
+      audioUrl: document.audioUrl,
+      thumbnail: document.thumbnail,
+      fileType: document.fileType,
+      fileSize: document.fileSize,
+      uploadedAt: document.uploadedAt,
+      updatedAt: document.updatedAt,
+      teacher: document.teacher,
+      teacherId: document.teacherId,
+    };
+  }
+
+  // Public: fetch AI analysis for an approved document (no auth required)
+  async getPublicDocumentAiAnalysis(documentId: string) {
+    const document = await this.prisma.postgres.document.findUnique({
+      where: { id: documentId },
+    });
+
+    if (
+      !document ||
+      document.isApprove !== 'TRUE' ||
+      document.processingStatus !== 'DONE'
+    ) {
+      return null;
+    }
+
+    const analysis = await this.getDocumentAiAnalysisDocument(documentId);
+
+    return {
+      documentId,
+      transcript: analysis?.transcript || null,
+      summary: analysis?.summary || null,
+      audioUrl: document.audioUrl || null,
+      transcriptStatus: analysis?.transcriptStatus || 'idle',
+      transcriptError: analysis?.transcriptError || null,
+      transcriptGeneratedAt: analysis?.transcriptGeneratedAt || null,
+      summaryGeneratedAt: analysis?.summaryGeneratedAt || null,
+      processingStage: this.deriveProcessingStage(document.processingStatus, analysis ?? null),
+      processingProgress: analysis?.processingProgress ?? 0,
+      processingError: analysis?.processingError || null,
+    };
+  }
+
+  async saveTranscriptAndMarkCompleted(documentId: string, transcript: Prisma.JsonValue): Promise<void> {    await this.updateDocumentProcessingState(documentId, {
       transcriptStatus: 'success',
       transcriptError: null,
       transcript,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import {
   Bot,
@@ -25,6 +25,7 @@ import VideoAiChatPanel from "@/component/shared/VideoAiChatPanel";
 import { getRecordingAiAnalysis } from "@/lib/api/teacher";
 import { AUTH_STATE_CHANGED_EVENT, getStoredToken, getStoredUser } from "@/lib/authStorage";
 import { getUserStats } from "@/lib/userStatsCache";
+import { getStudentRoute } from "@/utils/student";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -55,6 +56,7 @@ interface RelatedVideo {
   totalViews: number;
   duration: number;
   endedAt: string;
+  videoUrl?: string;
   teacher: {
     id: string;
     fullName: string;
@@ -204,6 +206,8 @@ const parseStoredUserProfile = (): CurrentStudentProfile | null => {
 export default function VideoPlayerPage() {
   const params = useParams<{ livestreamID?: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isDocument = searchParams?.get('type') === 'document';
   const livestreamID = params?.livestreamID;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -474,51 +478,118 @@ export default function VideoPlayerPage() {
           ? (localStorage.getItem('token') || localStorage.getItem('accessToken'))
           : null;
 
-        const response = await fetch(`${API_URL}/livestream/${livestreamID}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        });
-        
-        if (!response.ok) {
-          if (response.status === 401) {
-            throw new Error('This video is private. Only the teacher can view it.');
+        if (isDocument) {
+          // Check if videoUrl was passed directly in query params (from public profile card)
+          const srcParam = searchParams?.get('src');
+          const titleParam = searchParams?.get('title');
+          const teacherName = searchParams?.get('teacherName');
+          const teacherIdParam = searchParams?.get('teacherId');
+          const teacherAvatar = searchParams?.get('teacherAvatar');
+
+          if (srcParam) {
+            setVideoInfo({
+              id: livestreamID,
+              title: titleParam || 'Document Video',
+              description: '',
+              teacher: {
+                id: teacherIdParam || '',
+                fullName: teacherName || '',
+                avatar: teacherAvatar || undefined,
+              },
+              totalViews: 0,
+              likes: 0,
+              dislikes: 0,
+              endedAt: new Date().toISOString(),
+              duration: 0,
+              category: '',
+              recordingUrl: srcParam,
+              thumbnailUrl: undefined,
+            });
+            setLoading(false);
+            return;
           }
-          throw new Error('Failed to fetch video data');
-        }
 
-        const data = await response.json();
-        
-        if (!data.recordingUrl || data.status !== 'ENDED') {
-          throw new Error('This video is not available');
-        }
+          // Fallback: fetch from public endpoint
+          const response = await fetch(`${API_URL}/documents/public/${livestreamID}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
 
-        // ── CRITICAL: set videoInfo immediately so player + progress can start ──
-        setVideoInfo({
-          id: data.id,
-          title: data.title,
-          description: data.description || '',
-          teacher: {
-            id: data.teacher.id,
-            fullName: data.teacher.fullName,
-            avatar: data.teacher.avatar,
-          },
-          totalViews: data.totalViews || 0,
-          likes: 0,
-          dislikes: 0,
-          endedAt: data.endedAt,
-          duration: data.duration || 0,
-          category: data.category || 'Education',
-          recordingUrl: data.recordingUrl,
-          thumbnailUrl: data.thumbnail,
-        });
+          if (!response.ok) {
+            const errText = await response.text();
+            console.error('[VideoPlayer] document fetch failed:', response.status, errText);
+            throw new Error(`Failed to fetch document video (${response.status})`);
+          }
 
-        if (data.duration && data.duration > 0) {
-          setDuration((prev) => (prev > 0 ? prev : data.duration));
+          const data = await response.json();
+
+          if (!data.fileUrl) {
+            throw new Error('This video is not available');
+          }
+
+          setVideoInfo({
+            id: data.id,
+            title: data.title,
+            description: data.description || '',
+            teacher: {
+              id: data.teacher?.id || data.teacherId || '',
+              fullName: data.teacher?.fullName || 'Teacher',
+              avatar: data.teacher?.avatar,
+            },
+            totalViews: 0,
+            likes: 0,
+            dislikes: 0,
+            endedAt: data.uploadedAt || data.updatedAt,
+            duration: 0,
+            category: data.category || 'Education',
+            recordingUrl: data.fileUrl,
+            thumbnailUrl: data.thumbnail,
+          });
+        } else {
+          // Fetch livestream recording
+          const response = await fetch(`${API_URL}/livestream/${livestreamID}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
+
+          if (!response.ok) {
+            if (response.status === 401) {
+              throw new Error('This video is private. Only the teacher can view it.');
+            }
+            throw new Error('Failed to fetch video data');
+          }
+
+          const data = await response.json();
+
+          if (!data.recordingUrl || data.status !== 'ENDED') {
+            throw new Error('This video is not available');
+          }
+
+          setVideoInfo({
+            id: data.id,
+            title: data.title,
+            description: data.description || '',
+            teacher: {
+              id: data.teacher.id,
+              fullName: data.teacher.fullName,
+              avatar: data.teacher.avatar,
+            },
+            totalViews: data.totalViews || 0,
+            likes: 0,
+            dislikes: 0,
+            endedAt: data.endedAt,
+            duration: data.duration || 0,
+            category: data.category || 'Education',
+            recordingUrl: data.recordingUrl,
+            thumbnailUrl: data.thumbnail,
+          });
+
+          if (data.duration && data.duration > 0) {
+            setDuration((prev) => (prev > 0 ? prev : data.duration));
+          }
         }
       } catch (err) {
         console.error('Error fetching video:', err);
         setError(err instanceof Error ? err.message : 'Failed to load video');
       } finally {
-        // Unblock render immediately — don't wait for any secondary data
         setLoading(false);
       }
     };
@@ -529,17 +600,50 @@ export default function VideoPlayerPage() {
   // ── DEFERRED: related videos — loads after player is visible ──────────────
   useEffect(() => {
     if (!livestreamID) return;
-    setRelatedLoading(true);
+    if (isDocument) {
+      // Document videos: fetch other approved document videos from same teacher
+      setRelatedLoading(true);
+      const teacherIdParam = searchParams?.get('teacherId');
+      if (!teacherIdParam) {
+        setRelatedLoading(false);
+        return;
+      }
+      const controller = new AbortController();
+      fetch(`${API_URL}/teacher/${teacherIdParam}/document-videos?limit=10`, { signal: controller.signal })
+        .then((r) => r.ok ? r.json() : [])
+        .then((data: Array<{ id: string; title: string; thumbnail: string | null; date: string | null; videoUrl: string; teacher?: { id: string; fullName: string; avatar?: string } }>) => {
+          const filtered = (data || []).filter((d) => d.id !== livestreamID);
+          setRelatedVideos(filtered.map((d) => ({
+            id: d.id,
+            title: d.title,
+            thumbnail: d.thumbnail || '',
+            category: '',
+            totalViews: 0,
+            duration: 0,
+            endedAt: d.date || '',
+            videoUrl: d.videoUrl,
+            teacher: {
+              id: d.teacher?.id || teacherIdParam,
+              fullName: d.teacher?.fullName || '',
+              avatar: d.teacher?.avatar,
+            },
+          })));
+        })
+        .catch(() => {})
+        .finally(() => setRelatedLoading(false));
+      return () => controller.abort();
+    }
 
+    setRelatedLoading(true);
     const controller = new AbortController();
     fetch(`${API_URL}/livestream/${livestreamID}/related?limit=10`, { signal: controller.signal })
       .then((r) => r.ok ? r.json() : [])
       .then((data) => setRelatedVideos(data || []))
-      .catch(() => {}) // silent fail — not critical
+      .catch(() => {})
       .finally(() => setRelatedLoading(false));
 
     return () => controller.abort();
-  }, [livestreamID]);
+  }, [livestreamID, isDocument]);
 
   // ── CRITICAL: resolve auth state as soon as videoInfo is ready ────────────
   useEffect(() => {
@@ -757,7 +861,22 @@ export default function VideoPlayerPage() {
       try {
         setSummaryLoading(true);
         setTranscriptError(null);
-        const analysis = (await getRecordingAiAnalysis(videoInfo.id)) as RecordingAiAnalysisPayload;
+
+        let analysis: RecordingAiAnalysisPayload;
+        if (isDocument) {
+          // Document AI analysis uses a different endpoint
+          const token = typeof window !== 'undefined'
+            ? (localStorage.getItem('token') || localStorage.getItem('accessToken'))
+            : null;
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) headers.Authorization = `Bearer ${token}`;
+          const res = await fetch(`${API_URL}/documents/public/${videoInfo.id}/ai-analysis`, { headers });
+          if (!res.ok) throw new Error('AI analysis not available');
+          analysis = await res.json() as RecordingAiAnalysisPayload;
+        } else {
+          analysis = (await getRecordingAiAnalysis(videoInfo.id)) as RecordingAiAnalysisPayload;
+        }
+
         setTranscriptPayload(analysis?.transcript ?? null);
         setSummaryText(typeof analysis?.summary === 'string' ? analysis.summary : '');
       } catch (err) {
@@ -771,7 +890,7 @@ export default function VideoPlayerPage() {
     };
 
     fetchTranscriptAndSummary();
-  }, [videoInfo?.id]);
+  }, [videoInfo?.id, isDocument]);
 
   useEffect(() => {
     if (!videoInfo?.id) return;
@@ -1952,7 +2071,25 @@ export default function VideoPlayerPage() {
                 <div className="p-4">
                   <div className="space-y-3">
                     {relatedVideos.slice(0, displayedVideos).map((video) => (
-                      <div key={video.id} onClick={() => router.push(`/student/video/${video.id}`)} className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                      <div
+                        key={video.id}
+                        onClick={() => {
+                          if (isDocument && video.videoUrl) {
+                            const p = new URLSearchParams({
+                              type: 'document',
+                              title: video.title,
+                              src: video.videoUrl,
+                              teacherName: video.teacher.fullName,
+                              teacherId: video.teacher.id,
+                              ...(video.teacher.avatar ? { teacherAvatar: video.teacher.avatar } : {}),
+                            });
+                            router.push(getStudentRoute(`video/${video.id}?${p.toString()}`));
+                          } else {
+                            router.push(`/student/video/${video.id}`);
+                          }
+                        }}
+                        className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+                      >
                         <div className="w-36 h-20 relative shrink-0 rounded-md overflow-hidden bg-gray-200">
                           <Image src={video.thumbnail || '/logo.png'} alt={video.title} fill className="object-cover" />
                           {video.duration > 0 && (

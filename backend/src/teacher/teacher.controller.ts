@@ -43,6 +43,39 @@ export class TeacherController {
     return this.teacherService.getTeacherVideos(teacherId, limitNum);
   }
 
+  // Get teacher public content for profile page: ended livestreams + approved document videos
+  @Public()
+  @Get(':id/public-content')
+  async getTeacherPublicContent(
+    @Param('id') teacherId: string,
+    @Query('limit') limit?: string,
+  ) {
+    const limitNum = limit ? parseInt(limit) : 6;
+    return this.teacherService.getTeacherPublicContent(teacherId, limitNum);
+  }
+
+  // Get teacher public livestream recordings (ENDED + isPublic + recordingUrl)
+  @Public()
+  @Get(':id/livestream-videos')
+  async getTeacherLivestreamVideos(
+    @Param('id') teacherId: string,
+    @Query('limit') limit?: string,
+  ) {
+    const limitNum = limit ? parseInt(limit) : 6;
+    return this.teacherService.getTeacherLivestreamVideos(teacherId, limitNum);
+  }
+
+  // Get teacher approved document videos (fileType=video, isApprove=TRUE, processingStatus=DONE)
+  @Public()
+  @Get(':id/document-videos')
+  async getTeacherDocumentVideos(
+    @Param('id') teacherId: string,
+    @Query('limit') limit?: string,
+  ) {
+    const limitNum = limit ? parseInt(limit) : 6;
+    return this.teacherService.getTeacherDocumentVideos(teacherId, limitNum);
+  }
+
   // Get teacher dashboard stats (protected endpoint)
   @UseGuards(JwtAuthGuard)
   @Get(':id/dashboard/stats')

@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Request, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Request, UploadedFile, UseGuards, UseInterceptors, NotFoundException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Public } from '../auth/decorators/public.decorator';
 import { DocumentService } from './document.service';
 
 type MulterFile = {
@@ -19,6 +20,28 @@ type MulterFile = {
 @UseGuards(JwtAuthGuard)
 export class DocumentController {
   constructor(private readonly documentService: DocumentService) {}
+
+  // ── PUBLIC endpoints (no auth required) ──────────────────────────────────
+
+  // Get single approved+processed document video by ID (for student video player)
+  @Public()
+  @Get('public/:documentId')
+  async getPublicDocument(@Param('documentId') documentId: string) {
+    const doc = await this.documentService.getPublicDocumentById(documentId);
+    if (!doc) throw new NotFoundException('Document not found or not approved');
+    return doc;
+  }
+
+  // Get AI analysis for an approved document video (for student video player)
+  @Public()
+  @Get('public/:documentId/ai-analysis')
+  async getPublicDocumentAiAnalysis(@Param('documentId') documentId: string) {
+    const analysis = await this.documentService.getPublicDocumentAiAnalysis(documentId);
+    if (!analysis) throw new NotFoundException('Document not found or not approved');
+    return analysis;
+  }
+
+  // ── AUTHENTICATED endpoints ───────────────────────────────────────────────
 
   @Get('teacher/:teacherId')
   async getTeacherDocuments(

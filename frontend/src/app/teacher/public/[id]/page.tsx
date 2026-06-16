@@ -59,7 +59,7 @@ interface VideoData {
   id: string;
   title: string;
   description: string | null;
-  thumbnail: string;
+  thumbnail: string | null;
   views: number;
   currentViewers?: number;
   duration: string;
@@ -69,6 +69,23 @@ interface VideoData {
   scheduledStartTime?: string | null;
   date: string;
   teacherId: string;
+}
+
+interface DocumentVideoData {
+  id: string;
+  title: string;
+  description?: string | null;
+  thumbnail: string | null;
+  date: string | null;
+  type: 'document';
+  videoUrl: string;
+  fileSize?: number;
+  fileName?: string;
+  teacher?: {
+    id: string;
+    fullName: string;
+    avatar?: string | null;
+  };
 }
 
 export default function PublicTeacherProfilePage() {
@@ -84,6 +101,8 @@ export default function PublicTeacherProfilePage() {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [videos, setVideos] = useState<VideoData[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(true);
+  const [documentVideos, setDocumentVideos] = useState<DocumentVideoData[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(true);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
@@ -101,70 +120,69 @@ export default function PublicTeacherProfilePage() {
 
   // Fetch teacher profile
   useEffect(() => {
-    const fetchTeacherProfile = async () => {
-      try {
-        setLoadingProfile(true);
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/teacher/${teacherId}/profile`
-        );
+    if (!teacherId) return;
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch teacher profile');
-        }
+    const fetchAll = async () => {
+      await Promise.all([
+        // Profile
+        (async () => {
+          try {
+            setLoadingProfile(true);
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teacher/${teacherId}/profile`);
+            if (!res.ok) throw new Error('Failed to fetch teacher profile');
+            const data = await res.json();
+            setTeacher(data);
+          } catch (err) {
+            console.error('Error fetching teacher profile:', err);
+            setError('Failed to load teacher profile');
+          } finally {
+            setLoadingProfile(false);
+          }
+        })(),
 
-        const data = await response.json();
-        setTeacher(data);
-      } catch (err) {
-        console.error('Error fetching teacher profile:', err);
-        setError('Failed to load teacher profile');
-      } finally {
-        setLoadingProfile(false);
-      }
+        // Livestream videos
+        (async () => {
+          try {
+            setLoadingVideos(true);
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teacher/${teacherId}/videos?limit=12`);
+            if (!res.ok) throw new Error('Failed to fetch videos');
+            const data = await res.json();
+            setVideos(Array.isArray(data) ? data : []);
+          } catch (err) {
+            console.error('Error fetching videos:', err);
+          } finally {
+            setLoadingVideos(false);
+          }
+        })(),
+
+        // Document videos
+        (async () => {
+          try {
+            setLoadingDocuments(true);
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/teacher/${teacherId}/document-videos?limit=12`);
+            if (res.ok) {
+              const data = await res.json();
+              setDocumentVideos(Array.isArray(data) ? data : []);
+            }
+          } catch (err) {
+            console.error('Error fetching document videos:', err);
+          } finally {
+            setLoadingDocuments(false);
+          }
+        })(),
+      ]);
     };
 
-    if (teacherId) {
-      fetchTeacherProfile();
-    }
+    fetchAll();
   }, [teacherId]);
 
-  // Fetch teacher videos
   useEffect(() => {
-    const fetchVideos = async () => {
-      try {
-        setLoadingVideos(true);
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/teacher/${teacherId}/videos?limit=1000`
-        );
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch videos');
-        }
-
-        const data = await response.json();
-        setVideos(data);
-      } catch (err) {
-        console.error('Error fetching videos:', err);
-      } finally {
-        setLoadingVideos(false);
-      }
-    };
-
-    if (teacherId) {
-      fetchVideos();
-    }
-  }, [teacherId]);
-
-  useEffect(() => {
-    // Check if user is following this teacher
-    const checkFollowStatus = async () => {
-      if (isAuthenticated) {
-        const result = await isFollowingTeacher(teacherId);
-        setIsSubscribed(result.isFollowing);
-      }
-    };
-    
-    checkFollowStatus();
-  }, [teacherId, isAuthenticated, isFollowingTeacher]);
+    if (!isAuthenticated || !teacherId) return;
+    isFollowingTeacher(teacherId).then((result) => {
+      setIsSubscribed(result.isFollowing);
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teacherId, isAuthenticated]);
 
   const handleSubscribe = async () => {
     if (!isAuthenticated) {
@@ -287,7 +305,7 @@ export default function PublicTeacherProfilePage() {
 
   const handleVideoClick = (video: VideoData) => {
     if (video.status === 'LIVE') {
-      router.push(`/student/livestream/${video.id}`);
+      router.push(getStudentRoute(`livestream/${video.id}`));
     } else if (video.status === 'ENDED' && video.recordingUrl) {
       router.push(getStudentRoute(`video/${video.id}`));
     } else if (video.status === 'SCHEDULED') {
@@ -575,9 +593,9 @@ export default function PublicTeacherProfilePage() {
         </div>
 
         {/* Livestreams & Videos Section */}
-        <div className="bg-white rounded-xl shadow-sm p-6">
+        <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">Livestreams & Videos</h2>
+            <h2 className="text-xl font-semibold text-gray-900">Livestreams & Recordings</h2>
           </div>
           
           {loadingVideos ? (
@@ -595,12 +613,18 @@ export default function PublicTeacherProfilePage() {
                 >
                   {/* Thumbnail */}
                   <div className="relative aspect-video bg-gray-200 rounded-lg overflow-hidden mb-3">
+                    {video.thumbnail && !video.thumbnail.includes('default-thumbnail') ? (
                     <Image
                       src={video.thumbnail}
                       alt={video.title}
                       fill
                       className="object-cover group-hover:scale-105 transition-transform duration-300"
                     />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Video className="text-gray-400" size={40} />
+                      </div>
+                    )}
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
                       <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                         <Play className="text-[#292C6D] ml-1" size={24} fill="currentColor" />
@@ -667,7 +691,91 @@ export default function PublicTeacherProfilePage() {
           ) : (
             <div className="text-center py-12">
               <Video className="mx-auto text-gray-400 mb-3" size={48} />
-              <p className="text-gray-600">No content available yet</p>
+              <p className="text-gray-600">No livestream content available yet</p>
+            </div>
+          )}
+        </div>
+
+        {/* Document Videos Section */}
+        <div className="bg-white rounded-xl shadow-sm p-6">
+          <div className="flex items-center gap-2 mb-6">
+            <h2 className="text-xl font-semibold text-gray-900">Document Videos</h2>
+            <span className="text-xs bg-[#292C6D]/10 text-[#292C6D] font-medium px-2 py-0.5 rounded-full">
+              Approved
+            </span>
+          </div>
+
+          {loadingDocuments ? (
+            <div className="text-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-[#292C6D] mx-auto mb-3" />
+              <p className="text-gray-600">Loading videos...</p>
+            </div>
+          ) : documentVideos.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {documentVideos.map((video) => (
+                <div
+                  key={video.id}
+                  onClick={() => {
+                    const params = new URLSearchParams({
+                      type: 'document',
+                      title: video.title,
+                      src: video.videoUrl,
+                      ...(video.teacher && {
+                        teacherName: video.teacher.fullName,
+                        teacherId: video.teacher.id,
+                        ...(video.teacher.avatar ? { teacherAvatar: video.teacher.avatar } : {}),
+                      }),
+                    });
+                    router.push(getStudentRoute(`video/${video.id}?${params.toString()}`));
+                  }}
+                  className="group cursor-pointer"
+                >
+                  {/* Thumbnail — dùng video preload="metadata" để lấy frame đầu giống /documents/video page */}
+                  <div className="relative aspect-video bg-gradient-to-br from-[#161853]/10 to-[#292C6D]/10 rounded-lg overflow-hidden mb-3">
+                    <video
+                      src={video.videoUrl}
+                      className="h-full w-full object-cover pointer-events-none"
+                      muted
+                      playsInline
+                      preload="metadata"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent pointer-events-none" />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                      <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Play className="text-[#292C6D] ml-1" size={24} fill="currentColor" />
+                      </div>
+                    </div>
+                    <div className="absolute top-2 left-2 bg-[#292C6D] text-white text-[10px] font-bold px-2 py-0.5 rounded">
+                      DOC VIDEO
+                    </div>
+                  </div>
+
+                  {/* Info */}
+                  <div>
+                    <h3 className="font-semibold text-gray-900 line-clamp-2 group-hover:text-[#292C6D] transition-colors mb-1">
+                      {video.title}
+                    </h3>
+                    {video.description && (
+                      <p className="text-sm text-gray-500 line-clamp-1 mb-1">{video.description}</p>
+                    )}
+                    <div className="flex items-center justify-between text-sm text-gray-500">
+                      <span>
+                        {video.date
+                          ? new Date(video.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+                          : '—'}
+                      </span>
+                      {video.fileSize && (
+                        <span>{(video.fileSize / (1024 * 1024)).toFixed(1)} MB</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <Video className="mx-auto text-gray-400 mb-3" size={48} />
+              <p className="text-gray-600">No document videos available yet</p>
             </div>
           )}
         </div>

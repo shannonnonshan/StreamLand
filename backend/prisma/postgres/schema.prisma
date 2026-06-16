@@ -129,7 +129,7 @@ model LiveStream {
   isRecorded       Boolean                 @default(true)
   isApprove        RecordingApprovalStatus @default(FALSE)
   processingStatus ProcessingStatus        @default(PENDING)
-  isPublic         Boolean                 @default(true)
+  isPublic         Boolean                 @default(false)
   allowComments    Boolean                 @default(true)
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt

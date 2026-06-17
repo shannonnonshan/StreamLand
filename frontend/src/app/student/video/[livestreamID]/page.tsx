@@ -2085,15 +2085,39 @@ export default function VideoPlayerPage() {
                             });
                             router.push(getStudentRoute(`video/${video.id}?${p.toString()}`));
                           } else {
-                            router.push(`/student/video/${video.id}`);
+                            router.push(getStudentRoute(`video/${video.id}`));
                           }
                         }}
                         className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
                       >
                         <div className="w-36 h-20 relative shrink-0 rounded-md overflow-hidden bg-gray-200">
-                          <Image src={video.thumbnail || '/logo.png'} alt={video.title} fill className="object-cover" />
-                          {video.duration > 0 && (
-                            <div className="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-2 py-0.5 rounded">{formatTime(video.duration)}</div>
+                          {isDocument && video.videoUrl ? (
+                            <>
+                              <video
+                                src={video.videoUrl}
+                                className="w-full h-full object-cover pointer-events-none"
+                                muted
+                                playsInline
+                                preload="metadata"
+                              />
+                              <div className="absolute top-1 left-1 bg-[#161853] text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                                DOC
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <Image
+                                src={video.thumbnail || '/logo.png'}
+                                alt={video.title}
+                                fill
+                                className="object-cover"
+                              />
+                              {video.duration > 0 && (
+                                <div className="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-2 py-0.5 rounded">
+                                  {formatTime(video.duration)}
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
